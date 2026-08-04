@@ -1,0 +1,195 @@
+# Solution Architecture — MOF Enjaz Chatbot
+
+**Last verified:** 2026-08-04
+
+This document describes **what the solution must do** (derived from the
+BRD) and **how we decided to build it** — the retrieval architecture, the
+session flow, and every non-obvious design decision, with the reasoning
+behind it so it doesn't get silently re-litigated later.
+
+---
+
+## 1. Source of truth
+
+- **Original requirements document (Arabic):** وثيقة المتطلبات التفصيلية
+  الموحدة – الوكيل الذكي (01/07/2026), Section 3 (المساعد الرقمي الذكي /
+  شات بوت — منصة انجاز), National Center for Government Governance
+  Regulation (NCGR). Lives at
+  `C:\Users\abood\Desktop\وثيقة المتطلبات التفصيلية الموحدة - الوكيل الذكي 01-07-2026.pdf`
+  (external to this repo).
+- **Derived scope document (English, this repo):** `..\My_Prompts\SOLUTION_SCOPE.md`
+  — read and verified section-by-section against the source PDF (pages
+  29–37, "ثالثاً: المساعد الرقمي الذكي (شات بوت) — منصة إنجاز"). Confirmed
+  to match exactly, including the AC-08 duplicate (used for both
+  response-time and SSO/OTP acceptance criteria in the source itself, not a
+  summarization error).
+
+Read `SOLUTION_SCOPE.md` for the full scope-in/out, actors, user stories,
+acceptance criteria (AC01–AC11), dependencies, assumptions, constraints, and
+risk register. This document does not repeat that — it covers the design
+decisions layered on top of it.
+
+---
+
+## 2. Purpose (one paragraph)
+
+Project managers need to ask natural-language questions (Arabic, English, or
+mixed) about their assigned projects and get answers grounded in actual
+project documentation — currently scattered across SharePoint, requiring
+manual search. The assistant reduces time-to-information, confines each
+session to exactly one of the user's assigned projects with zero
+cross-project access, and is purely informational (read-only relationship
+to source documents, no write operations against any system).
+
+---
+
+## 3. The retrieval architecture (three sources per query)
+
+Designed by the user before any implementation existed; this is the
+governing shape for the whole backend.
+
+### 3.1 Ingestion pipeline (offline / background)
+
+Each SharePoint project folder (project charter, weekly reports, lessons
+learned, etc.) is OCR'd, embedded, and indexed. **Each project gets its own
+separate Qdrant collection** — not one shared collection with a
+project-ID metadata filter. See §4.2 for why.
+
+### 3.2 Session flow
+
+```
+AD login (SSO + OTP)
+  → system fetches the user's project list from SPM
+  → user must select exactly one project
+  → session is locked to that project for its duration
+  → user converses (multi-turn, no restart needed — BRD AC03)
+```
+
+### 3.3 Three-way answer composition per query
+
+| # | Source | What it is | Persisted? |
+|---|---|---|---|
+| 1 | **RAG** | Vector search against the selected project's dedicated Qdrant collection (the ingested SharePoint files) | Yes — the collection itself |
+| 2 | **Live SPM entity data** | Structured project fields pulled directly by Project ID from SPM (status, dates, metadata — not files). Demo: filled directly into `postgres-spm`, no live SPM API yet | Yes — Postgres |
+| 3 | **CAG** | Documents uploaded mid-chat through the UI get OCR'd and injected directly into the current session's LLM context | **No** — session-scoped only, matches BRD scope item 5 ("supplementary upload," not permanent ingestion) |
+
+**Open questions, not yet resolved:**
+- Source arbitration when RAG-indexed files and live SPM data disagree or
+  overlap (e.g. project status appears in both a weekly report and SPM's
+  status field).
+- What triggers re-ingestion / index refresh when SharePoint files change
+  (relevant to the knowledge-base page's "indexing status" column, AC10).
+
+---
+
+## 4. Design decisions and the reasoning behind them
+
+### 4.1 Cloud models, not on-prem (this phase)
+
+Despite the RTX 3070 GPU being available on the build machine, LLM, OCR, and
+embedding models are **cloud-hosted** for this demo phase. Decided
+explicitly and **reconfirmed** after reviewing a colleague's on-prem
+approach on a different project (§5).
+
+**Providers chosen — all Azure**, matching the existing Microsoft/
+SharePoint/AD ecosystem this platform already lives in:
+
+| Capability | Provider | Azure account | Status |
+|---|---|---|---|
+| LLM | Azure OpenAI `gpt-5.4-mini`, via an Azure AI Foundry unified endpoint (`*.services.ai.azure.com`) | Account #1 | ✅ Provisioned, credentials verified live (Arabic + English) |
+| Embeddings | Azure OpenAI `text-embedding-3-small` (deployment name saved truncated as `text-embedding-3-S`, cosmetic only) | Account #2 (separate from LLM) | ✅ Provisioned, verified live — **1536-dimension vectors** |
+| OCR | Azure AI Document Intelligence (resource `DI-Enjaz`, East US, Standard tier) | Account #2 (separate from LLM) | ✅ Provisioned, verified live (`prebuilt-read`, `prebuilt-layout` models confirmed available) |
+
+**1536 dimensions is now a fixed parameter** — every per-project Qdrant
+collection created by the ingestion pipeline must be configured with
+`vector size = 1536`, distance = Cosine (the standard metric for OpenAI-
+family embeddings). Changing the embedding model later means recreating
+every collection.
+
+**OCR model choice**: `prebuilt-layout`, not `prebuilt-read`, with
+`outputContentFormat=markdown`. Chosen over Read because project documents
+(charters, weekly reports, lessons learned) contain tables — Layout extracts
+these as structured data plus headings/paragraphs/reading order, versus
+Read's flat OCR text. Markdown output gives clean, chunkable structure
+(headings/tables/lists) as direct input to the embedding step, and reading
+order matters more than usual here given Arabic/English/mixed, RTL content.
+
+Embeddings and OCR deliberately live on a **different Azure account** than
+the LLM — not a deployment-on-the-same-resource setup. Credentials live in
+`infra/.env` (gitignored) under `AZURE_OPENAI_LLM_*`,
+`AZURE_OPENAI_EMBEDDING_*`, `AZURE_DOCUMENT_INTELLIGENCE_*` — each capability
+has its own endpoint/key/version, not shared. Note for whoever writes the
+client code: the LLM endpoint is the newer Foundry unified format, not the
+classic `*.openai.azure.com` resource format — confirm which SDK/client
+convention matches before assuming standard Azure OpenAI SDK examples apply
+as-is (the embeddings/OCR account may or may not follow the same
+convention — check when those credentials arrive).
+
+### 4.2 Per-project separate Qdrant collections, not a shared collection + RBAC filter
+
+The alternative — one shared Qdrant collection with a per-project payload
+filter applied at query time — is the standard pattern once you're
+operating at large multi-tenant scale (thousands+ tenants), where
+per-collection index overhead actually matters.
+
+We rejected it for this solution because:
+
+1. **BRD AC09 is worded as absolute** ("لا يستطيع أي مستخدم الاطلاع على
+   وثائق مشروع غير مخصص له" — no user can access a project's documents
+   under any circumstance, not "should not").
+2. **The two patterns fail differently.** Shared-collection-plus-filter puts
+   isolation in *application code correctness* — every query path (chat
+   endpoint, future admin tool, debug script, an endpoint added six months
+   from now) must remember to attach the filter; forgetting it once, in one
+   place, is a cross-project data leak, and that kind of bug is invisible in
+   testing. Separate-collection-per-project puts isolation in
+   *infrastructure topology* — a session scoped to project X cannot query
+   project Y's vectors because there is no shared index to misfilter.
+3. **The scale argument doesn't apply here.** A government ministry's
+   project count is realistically dozens-to-low-hundreds, nowhere near the
+   scale where per-collection overhead costs anything meaningful. We're
+   paying almost nothing for the stronger isolation property.
+
+### 4.3 Redis added for a future async job queue
+
+Not yet wired to any application code (none exists yet), but added to the
+infra stack proactively: the ingestion pipeline (SharePoint scan → OCR →
+embed → index) and any scheduled work will need to run as background jobs
+that don't block a request, same reasoning as any producer/consumer queue
+pattern. Redis is already running (`mof-redis`) so this doesn't need to be
+retrofitted later.
+
+### 4.4 Docker/data hygiene
+
+Everything Docker-related — the engine's own disk and every service's
+persistent data — lives under `D:\MOF_Installations`, never C:. See
+`INFRASTRUCTURE.md` §2 for exactly how.
+
+---
+
+## 5. Relationship to the colleague's RiskIntel platform
+
+A colleague (Toni) built a separate solution against the **same unified
+BRD**, but for a **different use case** — UC3, project risk prediction —
+on an Azure VM (WSL2/Ubuntu, no GPU), deliberately designed as a shared
+platform meant to also support UC1 (this chatbot) and UC2 without new
+infrastructure. Docs: `C:\Users\abood\Desktop\MOF\Risks_Prediction\`
+(external to this repo; start at `START_HERE.md` there).
+
+**Where we independently converged** (validates the choices, not copied):
+Langfuse v3 self-hosted, Grafana LGTM all-in-one, Qdrant, Portainer, and
+splitting the app's own Postgres from Langfuse's internal Postgres.
+
+**Where we deliberately diverged, and why:**
+- **Model hosting**: his LLM/embeddings are genuinely on-prem (Ollama
+  `qwen2.5:3b` CPU-only, BGE-M3 embeddings) — his OCR is **not** actually
+  built (mentioned once as unbuilt future work, not a working reference).
+  We reconfirmed cloud models for this phase after seeing his approach
+  (§4.1) — his VM has no GPU; ours does, but the decision stands regardless.
+- **Vector KB isolation pattern**: his is one shared Qdrant collection +
+  per-project RBAC payload filter (and he flags that filtered version as
+  still unbuilt even in his own reference implementation). We use separate
+  collections per project — see §4.2 for the full reasoning.
+
+Do not re-litigate either of these without re-reading this section first —
+both were decided with full knowledge of the alternative, not by default.

@@ -1,0 +1,289 @@
+name: mof-enjaz-chatbot
+
+networks:
+  mof-net:
+    driver: bridge
+
+volumes:
+  # ClickHouse needs real POSIX rename semantics for its MergeTree storage
+  # engine, which the Windows-bind-mount filesystem bridge doesn't provide
+  # (fails with "Permission denied" on internal part renames). Named volumes
+  # live inside Docker's own (already relocated) disk at
+  # D:\MOF_Installations\docker-data, so this still stays off C: — it's just
+  # not a plain visible folder under D:\MOF_Installations\volumes like the
+  # bind-mounted services.
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+
+services:
+  # ===========================================================================
+  # Postgres — SPM project entity data (demo: filled directly, no live SPM API)
+  # ===========================================================================
+  postgres-spm:
+    image: postgres:16-alpine
+    container_name: mof-postgres-spm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_SPM_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_SPM_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_SPM_DB}
+    ports:
+      - "${POSTGRES_SPM_PORT}:5432"
+    volumes:
+      - ${DATA_ROOT}/postgres-spm:/var/lib/postgresql/data
+      - ./postgres-spm/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_SPM_USER} -d ${POSTGRES_SPM_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [mof-net]
+
+  # ===========================================================================
+  # Qdrant — vector DB, one index per project
+  # ===========================================================================
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: mof-qdrant
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY}
+    ports:
+      - "${QDRANT_HTTP_PORT}:6333"
+      - "${QDRANT_GRPC_PORT}:6334"
+    volumes:
+      - ${DATA_ROOT}/qdrant:/qdrant/storage
+    networks: [mof-net]
+
+  # ===========================================================================
+  # Redis — app job queue (SharePoint ingest, OCR, embedding, scheduled scans).
+  # Separate from Langfuse's own internal Redis below.
+  # ===========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: mof-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - ${DATA_ROOT}/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [mof-net]
+
+  # ===========================================================================
+  # Langfuse v3 stack — LLM execution tracing (prompts, completions, tokens)
+  # ===========================================================================
+  langfuse-postgres:
+    image: postgres:16-alpine
+    container_name: mof-langfuse-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${LANGFUSE_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${LANGFUSE_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${LANGFUSE_POSTGRES_DB}
+    ports:
+      - "${LANGFUSE_POSTGRES_PORT}:5432"
+    volumes:
+      - ${DATA_ROOT}/langfuse-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${LANGFUSE_POSTGRES_USER} -d ${LANGFUSE_POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [mof-net]
+
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    container_name: mof-langfuse-clickhouse
+    restart: unless-stopped
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "${CLICKHOUSE_HTTP_PORT}:8123"
+      - "${CLICKHOUSE_NATIVE_PORT}:9000"
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 -O /dev/null http://127.0.0.1:8123/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [mof-net]
+
+  langfuse-redis:
+    image: redis:7-alpine
+    container_name: mof-langfuse-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${LANGFUSE_REDIS_PASSWORD}"]
+    volumes:
+      - ${DATA_ROOT}/langfuse-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${LANGFUSE_REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [mof-net]
+
+  langfuse-minio:
+    image: minio/minio:latest
+    container_name: mof-langfuse-minio
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_API_PORT}:9000"
+      - "${MINIO_CONSOLE_PORT}:9001"
+    volumes:
+      - ${DATA_ROOT}/langfuse-minio:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [mof-net]
+
+  langfuse-minio-init:
+    image: minio/mc:latest
+    container_name: mof-langfuse-minio-init
+    depends_on:
+      langfuse-minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set localminio http://langfuse-minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD};
+      mc mb -p localminio/langfuse;
+      exit 0;
+      "
+    networks: [mof-net]
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    container_name: mof-langfuse-worker
+    restart: unless-stopped
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-minio-init:
+        condition: service_completed_successfully
+    ports:
+      - "${LANGFUSE_WORKER_PORT}:3030"
+    environment:
+      DATABASE_URL: postgresql://${LANGFUSE_POSTGRES_USER}:${LANGFUSE_POSTGRES_PASSWORD}@langfuse-postgres:5432/${LANGFUSE_POSTGRES_DB}
+      SALT: ${LANGFUSE_SALT}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
+      TELEMETRY_ENABLED: "false"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_CONNECTION_STRING: redis://:${LANGFUSE_REDIS_PASSWORD}@langfuse-redis:6379
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+    networks: [mof-net]
+
+  langfuse-web:
+    image: langfuse/langfuse:3
+    container_name: mof-langfuse-web
+    restart: unless-stopped
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-minio-init:
+        condition: service_completed_successfully
+    ports:
+      - "${LANGFUSE_WEB_PORT}:3000"
+    environment:
+      DATABASE_URL: postgresql://${LANGFUSE_POSTGRES_USER}:${LANGFUSE_POSTGRES_PASSWORD}@langfuse-postgres:5432/${LANGFUSE_POSTGRES_DB}
+      SALT: ${LANGFUSE_SALT}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY}
+      NEXTAUTH_URL: ${LANGFUSE_NEXTAUTH_URL}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
+      TELEMETRY_ENABLED: "false"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_CONNECTION_STRING: redis://:${LANGFUSE_REDIS_PASSWORD}@langfuse-redis:6379
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+    networks: [mof-net]
+
+  # ===========================================================================
+  # Grafana LGTM — all-in-one metrics (Prometheus/Mimir) + logs (Loki) +
+  # traces (Tempo) + Grafana UI, fed via OTLP from the app's workflow engine
+  # ===========================================================================
+  grafana-lgtm:
+    image: grafana/otel-lgtm:latest
+    container_name: mof-grafana-lgtm
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT}:3000"
+      - "${OTLP_GRPC_PORT}:4317"
+      - "${OTLP_HTTP_PORT}:4318"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+    volumes:
+      - ${DATA_ROOT}/grafana-lgtm:/data
+    networks: [mof-net]
+
+  # ===========================================================================
+  # Portainer — Docker/container management UI
+  # ===========================================================================
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: mof-portainer
+    restart: unless-stopped
+    ports:
+      - "${PORTAINER_HTTP_PORT}:9000"
+      - "${PORTAINER_HTTPS_PORT}:9443"
+    volumes:
+      - //var/run/docker.sock:/var/run/docker.sock
+      - ${DATA_ROOT}/portainer:/data
+    networks: [mof-net]
