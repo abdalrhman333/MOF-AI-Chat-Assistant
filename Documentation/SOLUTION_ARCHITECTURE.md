@@ -165,6 +165,18 @@ Everything Docker-related — the engine's own disk and every service's
 persistent data — lives under `D:\MOF_Installations`, never C:. See
 `INFRASTRUCTURE.md` §2 for exactly how.
 
+### 4.5 Application tech stack (Python)
+
+| Layer | Choice | Why |
+|---|---|---|
+| Web framework | **FastAPI** | Async-native — matters because nearly every call the app makes is I/O-bound over the network (Azure OpenAI, Document Intelligence, Qdrant). Built-in Pydantic support, which structured LLM output needs anyway. Not asked as a question — no real alternative fit better. |
+| Schema / DB access | **Raw SQL migrations, no ORM** | Considered against SQLAlchemy + Alembic. For a schema this size (projects, users, assignments, document-links — a handful of tables), Alembic's setup/ceremony doesn't pay for itself; raw `.sql` migration files (same pattern the colleague's build proved at this scale) are near-zero setup and fit the additive-only discipline (§4.2-adjacent principle: never `DROP`, only `ADD COLUMN IF NOT EXISTS`-style changes) just as naturally. Revisit if the schema's churn rate ever makes manual tracking error-prone. |
+| Task queue (Redis-backed) | **Celery** | Considered against Arq (async-native, lighter, no separate Beat process). Chosen for maturity and richer workflow primitives (chains/chords/retries) — a deliberate call accepting the sync/async bridging cost and the operational gotchas documented at length in the colleague's build (duplicate worker pools, no hot-reload, `worker_process_init` prefork quirks, needs a separate Beat process for scheduling) in exchange for a much larger ecosystem and more production track record. Those known gotchas should be treated as a checklist to avoid repeating, not a reason to doubt the choice. |
+| RAG orchestration | **LangChain** | The colleague's own conclusion after building both ways: framework-native chains make Langfuse tracing integration nearly free (`config=` kwarg per call vs. hand-written spans), and we already have Langfuse running and want traces from day one. Accepted trade-off: LangChain only really covers the RAG third of our 3-source composition (SPM lookups and CAG context-stuffing are hand-written regardless), and the framework has real version-churn history (the colleague hit a breaking v3→v4 callback API rename) to watch for. |
+
+Exact package versions/pins are a code-time decision, not an architecture
+one — not fixed here.
+
 ---
 
 ## 5. Relationship to the colleague's RiskIntel platform

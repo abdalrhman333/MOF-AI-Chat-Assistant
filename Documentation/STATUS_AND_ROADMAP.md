@@ -41,16 +41,19 @@
     and reading-order handling on Arabic/English/mixed content.
 
   See `SOLUTION_ARCHITECTURE.md` §4.1 for full reasoning.
+- [x] **Application tech stack decided**: Python + FastAPI, raw SQL
+  migrations (no ORM), Celery (task queue over Redis), LangChain (RAG
+  orchestration). See `SOLUTION_ARCHITECTURE.md` §4.5 for the full
+  reasoning and tradeoffs weighed for each.
+- [x] **Git repository initialized** — baseline commit with infra + all
+  documentation + the scope doc. `infra/.env`, `.claude/settings.local.json`,
+  and `Tools ACC/` (app attachment storage) correctly excluded via
+  `.gitignore`.
 
 ---
 
 ## 2. Not started yet
 
-- [ ] **Application tech stack.** Not decided at all yet — language,
-  web framework, ORM/migration tool, task-queue library (to actually use
-  Redis). This blocks concrete schema code (raw SQL migrations vs. an ORM's
-  model classes look completely different) and pipeline code design. Should
-  be decided before either of the two items below, not after.
 - [ ] **Mock corpus and mock AD shape.** How many demo projects, what
   document types per project (charter/weekly report/lessons-learned/etc.,
   per BRD's knowledge-base page requirement to show document type), and the
@@ -105,13 +108,14 @@
 | 2026-08-04 | Add Redis to infra proactively for the future ingestion pipeline | `SOLUTION_ARCHITECTURE.md` §4.3 |
 | 2026-08-04 | All-Azure cloud providers: Azure OpenAI (LLM + embeddings) + Azure AI Document Intelligence (OCR) | Chosen explicitly among presented options — fits the existing Microsoft/SharePoint/AD ecosystem |
 | 2026-08-04 | OCR model: `prebuilt-layout` (Markdown output), not `prebuilt-read` | `SOLUTION_ARCHITECTURE.md` §4.1 — tables + structure + reading order matter for chunking, user's own suggestion, confirmed |
+| 2026-08-04 | Application tech stack: Python + FastAPI, raw SQL migrations (no ORM), Celery (task queue), LangChain (RAG orchestration) | `SOLUTION_ARCHITECTURE.md` §4.5 — each weighed against an alternative (Arq, hand-rolled) with full tradeoffs; Celery and LangChain both went against the initial recommendation, deliberately, after seeing the tradeoffs |
 
 ---
 
 ## 5. Immediate next step
 
-All three cloud providers are provisioned and verified — start the SPM
-Postgres schema and/or the ingestion pipeline design next.
+Decide the mock corpus and mock AD shape (§2), then the SPM Postgres
+schema and the ingestion pipeline design.
 
 ## 6. Gotchas hit during this phase
 
