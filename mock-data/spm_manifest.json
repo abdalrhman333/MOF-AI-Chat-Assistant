@@ -1,0 +1,510 @@
+{
+  "projects": [
+    {
+      "code": "PRJ-01",
+      "name_ar": "منصة التحول الرقمي للخدمات المالية",
+      "name_en": "Financial Services Digital Transformation Platform",
+      "description_ar": "مبادرة لتحويل الخدمات المالية الداخلية إلى منصة رقمية موحدة تشمل طلبات الصرف والاعتمادات والمطالبات. تهدف المنصة إلى إلغاء الدورة الورقية بالكامل وربطها بنظام الموارد المؤسسية. تشمل المرحلة الحالية إطلاق ثلاث خدمات تجريبية لعدد من الجهات المشاركة.",
+      "description_en": "An initiative to migrate internal financial services onto a single digital platform covering disbursement requests, approvals, and claims. The platform aims to eliminate the paper-based cycle entirely and integrate with the enterprise resource system. The current phase covers the pilot launch of three services across selected participating entities.",
+      "status": "on-track",
+      "start_date": "2025-03-01",
+      "planned_end_date": "2026-12-31",
+      "budget_sar": 42500000,
+      "sponsoring_department_ar": "الإدارة العامة لتقنية المعلومات",
+      "sponsoring_department_en": "General Directorate of Information Technology"
+    },
+    {
+      "code": "PRJ-02",
+      "name_ar": "بوابة الخدمات الحكومية الموحدة \"خدماتي\"",
+      "name_en": "Unified Citizen Services Portal (\"Khadamati\")",
+      "description_ar": "بوابة موحدة تتيح للمستفيدين الوصول إلى الخدمات الحكومية من نقطة دخول واحدة عبر النفاذ الوطني الموحد. يشمل النطاق تصميم رحلة المستفيد وإعادة هندسة ثمانٍ من الخدمات الأكثر استخداماً. يواجه المشروع تأخراً في تكامل بعض الجهات المشاركة.",
+      "description_en": "A unified portal giving beneficiaries single-entry access to government services via national single sign-on. Scope includes beneficiary journey design and the re-engineering of eight of the most frequently used services. The project is facing delays in integration with several participating entities.",
+      "status": "at-risk",
+      "start_date": "2025-06-15",
+      "planned_end_date": "2026-11-30",
+      "budget_sar": 28750000,
+      "sponsoring_department_ar": "إدارة تجربة المستفيد",
+      "sponsoring_department_en": "Beneficiary Experience Department"
+    },
+    {
+      "code": "PRJ-03",
+      "name_ar": "منصة البيانات الوطنية للحوكمة",
+      "name_en": "National Governance Data Platform",
+      "description_ar": "بناء منصة بيانات مركزية لتجميع ومعالجة مؤشرات الحوكمة من الجهات الحكومية المشمولة. تشمل المنصة طبقة استيعاب البيانات ومستودعاً تحليلياً ولوحات مؤشرات تنفيذية. تأخر المشروع بسبب اكتمال جاهزية مصادر البيانات لدى الجهات وتغيّر متطلبات تصنيف البيانات.",
+      "description_en": "Construction of a central data platform to consolidate and process governance indicators from in-scope government entities. The platform comprises an ingestion layer, an analytical warehouse, and executive indicator dashboards. The project has slipped due to source-system readiness at participating entities and changes to data classification requirements.",
+      "status": "delayed",
+      "start_date": "2024-09-01",
+      "planned_end_date": "2026-06-30",
+      "budget_sar": 61000000,
+      "sponsoring_department_ar": "إدارة حوكمة البيانات",
+      "sponsoring_department_en": "Data Governance Department"
+    },
+    {
+      "code": "PRJ-04",
+      "name_ar": "تحديث البنية التحتية للشبكة الحكومية الآمنة",
+      "name_en": "Secure Government Network Infrastructure Upgrade",
+      "description_ar": "تحديث شامل للبنية التحتية للشبكة في المقر الرئيسي وأربعة فروع، شمل استبدال أجهزة التوجيه والتبديل وتطبيق تجزئة الشبكة. نُفّذ المشروع على ثلاث مراحل دون انقطاع في الخدمات التشغيلية. اكتمل التسليم النهائي ونُقلت العمليات إلى فريق التشغيل.",
+      "description_en": "A full refresh of network infrastructure across headquarters and four branch sites, including replacement of routing and switching equipment and implementation of network segmentation. Delivered in three phases with no interruption to operational services. Final handover is complete and operations have transferred to the run team.",
+      "status": "completed",
+      "start_date": "2024-02-01",
+      "planned_end_date": "2025-10-31",
+      "budget_sar": 37200000,
+      "sponsoring_department_ar": "الإدارة العامة للبنية التحتية والاتصالات",
+      "sponsoring_department_en": "General Directorate of Infrastructure and Communications"
+    },
+    {
+      "code": "PRJ-05",
+      "name_ar": "نظام إدارة الأداء المؤسسي",
+      "name_en": "Institutional Performance Management System",
+      "description_ar": "نظام لربط الخطة الاستراتيجية بالمبادرات والمؤشرات التشغيلية ومتابعة الأداء ربع السنوي. يشمل النطاق نمذجة المؤشرات وآلية اعتماد القياسات وتقارير الأداء للقيادة. المشروع في مرحلة التصميم التفصيلي ويسير وفق الخطة.",
+      "description_en": "A system linking the strategic plan to initiatives and operational indicators with quarterly performance tracking. Scope includes indicator modelling, a measurement approval workflow, and leadership performance reporting. The project is in detailed design and is progressing according to plan.",
+      "status": "on-track",
+      "start_date": "2025-09-01",
+      "planned_end_date": "2027-03-31",
+      "budget_sar": 15400000,
+      "sponsoring_department_ar": "الإدارة العامة للتخطيط الاستراتيجي",
+      "sponsoring_department_en": "General Directorate of Strategic Planning"
+    },
+    {
+      "code": "PRJ-06",
+      "name_ar": "أتمتة دورة إعداد الميزانية والاعتماد المالي",
+      "name_en": "Budget Preparation and Financial Approval Automation",
+      "description_ar": "أتمتة دورة إعداد الميزانية السنوية بدءاً من تقديم تقديرات الجهات وحتى اعتماد المخصصات النهائية. يشمل النطاق نماذج التقديم الإلكترونية ومسارات الاعتماد متعددة المستويات ولوحة متابعة الانحرافات. يواجه المشروع مخاطر في الالتزام بالنافذة الزمنية لدورة الميزانية القادمة.",
+      "description_en": "Automation of the annual budget preparation cycle from entity estimate submission through final appropriation approval. Scope covers electronic submission forms, multi-level approval routing, and a variance monitoring dashboard. The project carries risk against meeting the timing window of the upcoming budget cycle.",
+      "status": "at-risk",
+      "start_date": "2025-01-15",
+      "planned_end_date": "2026-09-30",
+      "budget_sar": 22900000,
+      "sponsoring_department_ar": "وكالة الميزانية العامة",
+      "sponsoring_department_en": "General Budget Agency"
+    },
+    {
+      "code": "PRJ-07",
+      "name_ar": "منصة التكامل الحكومي وواجهات الربط",
+      "name_en": "Government Integration and API Gateway Platform",
+      "description_ar": "منصة وسيطة لتوحيد الربط التقني بين الأنظمة الداخلية والجهات الحكومية الخارجية عبر بوابة واجهات مُدارة. يشمل النطاق كتالوج الواجهات وإدارة الهوية بين الأنظمة ومراقبة مستوى الخدمة. تأخر المشروع نتيجة إعادة تصميم طبقة الأمن بعد مراجعة الجهة التنظيمية.",
+      "description_en": "A middleware platform standardising technical connectivity between internal systems and external government entities through a managed API gateway. Scope includes an API catalogue, system-to-system identity management, and service-level monitoring. The project was delayed by a redesign of the security layer following a regulatory review.",
+      "status": "delayed",
+      "start_date": "2024-11-01",
+      "planned_end_date": "2026-10-31",
+      "budget_sar": 33600000,
+      "sponsoring_department_ar": "مركز التكامل الرقمي",
+      "sponsoring_department_en": "Digital Integration Center"
+    },
+    {
+      "code": "PRJ-08",
+      "name_ar": "مركز الاتصال الموحد لخدمة المستفيدين",
+      "name_en": "Unified Beneficiary Contact Center",
+      "description_ar": "توحيد قنوات التواصل مع المستفيدين في مركز اتصال واحد يشمل الهاتف والمحادثة النصية والبريد الإلكتروني. شمل المشروع توريد نظام إدارة التذاكر وتأهيل الكوادر وبناء قاعدة معرفة موحدة للردود. اكتمل التشغيل الفعلي وتم إغلاق المشروع رسمياً.",
+      "description_en": "Consolidation of beneficiary communication channels into a single contact center covering telephony, chat, and email. The project included procurement of a ticket management system, staff enablement, and construction of a unified response knowledge base. Live operation is complete and the project has been formally closed.",
+      "status": "completed",
+      "start_date": "2024-05-01",
+      "planned_end_date": "2025-12-15",
+      "budget_sar": 18300000,
+      "sponsoring_department_ar": "إدارة خدمات المستفيدين",
+      "sponsoring_department_en": "Beneficiary Services Department"
+    }
+  ],
+  "users": [
+    {
+      "username": "fahad.alqahtani",
+      "full_name_ar": "فهد بن سعد القحطاني",
+      "full_name_en": "Fahad Saad Al-Qahtani",
+      "email": "fahad.alqahtani@enjaz.gov.sa"
+    },
+    {
+      "username": "noura.alharbi",
+      "full_name_ar": "نورة بنت عبدالعزيز الحربي",
+      "full_name_en": "Noura Abdulaziz Al-Harbi",
+      "email": "noura.alharbi@enjaz.gov.sa"
+    },
+    {
+      "username": "abdullah.alshehri",
+      "full_name_ar": "عبدالله بن محمد الشهري",
+      "full_name_en": "Abdullah Mohammed Al-Shehri",
+      "email": "abdullah.alshehri@enjaz.gov.sa"
+    },
+    {
+      "username": "reem.aldosari",
+      "full_name_ar": "ريم بنت ناصر الدوسري",
+      "full_name_en": "Reem Nasser Al-Dosari",
+      "email": "reem.aldosari@enjaz.gov.sa"
+    }
+  ],
+  "assignments": [
+    {
+      "username": "fahad.alqahtani",
+      "project_codes": ["PRJ-01"]
+    },
+    {
+      "username": "noura.alharbi",
+      "project_codes": ["PRJ-02", "PRJ-05", "PRJ-06"]
+    },
+    {
+      "username": "abdullah.alshehri",
+      "project_codes": ["PRJ-03"]
+    },
+    {
+      "username": "reem.aldosari",
+      "project_codes": ["PRJ-04"]
+    }
+  ],
+  "unassigned_projects": ["PRJ-07", "PRJ-08"],
+  "documents": [
+    {
+      "project_code": "PRJ-01",
+      "files": [
+        {
+          "filename": "PRJ-01_ProjectCharter_20250312.docx",
+          "doc_type": "Project Charter",
+          "description": "Formal charter authorising the Financial Services Digital Transformation Platform. Should state the business case (elimination of the paper disbursement cycle and reduction of approval turnaround), measurable objectives with target percentages, in-scope and explicitly out-of-scope services, the three-phase delivery approach with milestone dates, the governance structure naming the project sponsor from the General Directorate of Information Technology and the steering committee composition, high-level budget of SAR 42.5 million split across licensing, integration services, and change management, key assumptions regarding ERP availability, and the signature block for sponsor approval.",
+          "language": "Arabic",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-01_WeeklyStatusReport_20260726.docx",
+          "doc_type": "Weekly Status Report",
+          "description": "Weekly status covering the reporting week ending 26 July 2026. Should open with an overall RAG rating of Green, summarise progress on the pilot rollout of the third service, list accomplishments for the week (completion of user acceptance testing cycle two, sign-off of the approval routing configuration), planned activities for the coming week, a milestone tracker showing planned versus actual dates, current open issues with owners and due dates, and a short note on budget consumption to date against the approved baseline.",
+          "language": "mixed",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-01_MeetingMinutes_20260715.pdf",
+          "doc_type": "Meeting Minutes",
+          "description": "Minutes of the steering committee meeting held 15 July 2026. Should record attendees and apologies, review of the previous meeting's action items with closure status, discussion of the pilot expansion request from two additional entities, the decision to defer expansion until after phase two stabilisation, a discussion of the integration dependency on the ERP upgrade window, and a closing action register listing each new action with an owner and target date.",
+          "language": "Arabic",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-01_BudgetReport_20260630.pdf",
+          "doc_type": "Budget/Financial Report",
+          "description": "Financial report for the period ending 30 June 2026. Should present the approved budget of SAR 42.5 million broken down by cost category, actual expenditure to date, committed but unspent amounts, remaining balance and percentage consumed, a variance analysis explaining the underspend in the change management line caused by the deferred training programme, a forecast to completion, and a cash flow projection by quarter through project close.",
+          "language": "mixed",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-01_RiskRegister_20260701.docx",
+          "doc_type": "Risk Register",
+          "description": "Risk register maintained for the platform. Should list at least eight risks with an identifier, description, category, probability and impact ratings, resulting risk score, mitigation actions, an assigned owner and review date. Representative entries include dependency on the ERP upgrade schedule slipping and delaying integration testing, insufficient availability of finance department subject matter experts during the budget close period, resistance to abandoning the paper approval route among senior approvers, and the risk that data migration from the legacy claims system uncovers unmapped historical records.",
+          "language": "Arabic",
+          "contains_table": true
+        }
+      ]
+    },
+    {
+      "project_code": "PRJ-02",
+      "files": [
+        {
+          "filename": "PRJ-02_ProjectCharter_20250620.docx",
+          "doc_type": "Project Charter",
+          "description": "Charter for the Khadamati unified citizen services portal. Should articulate the strategic alignment with national digital service objectives, the problem of fragmented service entry points, the objective of re-engineering eight high-volume services, defined success measures including reduction in average service completion time and target adoption rate, scope boundaries clarifying that back-office system replacement is excluded, the eighteen-month timeline with four gate reviews, budget of SAR 28.75 million, stakeholder map covering the sponsoring Beneficiary Experience Department and the participating entities, and initial assumptions regarding single sign-on availability.",
+          "language": "Arabic",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-02_WeeklyStatusReport_20260728.docx",
+          "doc_type": "Weekly Status Report",
+          "description": "Weekly status for the week ending 28 July 2026 reporting an overall Amber rating. Should explain the driver of the amber status as the outstanding integration readiness of two participating entities, summarise progress on the front-end build and content localisation, note that three of eight services have completed end-to-end testing, list the escalations raised to the steering committee, present a milestone table with slipped dates highlighted, and set out the recovery actions agreed with the delivery partner including the proposed parallel integration approach.",
+          "language": "mixed",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-02_RiskRegister_20260710.docx",
+          "doc_type": "Risk Register",
+          "description": "Active risk register for the portal. Should contain a minimum of ten entries with identifier, description, category, probability, impact, score, mitigation, owner, and status. Representative risks include external entity integration slipping beyond the agreed window, single sign-on capacity limits during peak launch traffic, incomplete Arabic content review before go-live, accessibility conformance gaps identified in the audit, dependency on a third-party payment gateway certification, and the risk that legacy service data quality prevents accurate pre-population of forms.",
+          "language": "Arabic",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-02_MeetingMinutes_20260722.pdf",
+          "doc_type": "Meeting Minutes",
+          "description": "Minutes of the integration working group meeting held 22 July 2026 with the two lagging participating entities. Should list attendees by entity, record the current integration status reported by each party, capture the technical blockers raised regarding certificate exchange and test environment availability, document the agreed interim mitigation of a staged launch excluding the affected services, and close with an action register showing owners, agreed dates, and the escalation path if dates are missed.",
+          "language": "Arabic",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-02_BudgetReport_20260630.pdf",
+          "doc_type": "Budget/Financial Report",
+          "description": "Half-year financial position for the portal programme. Should show approved budget by category covering design, development, integration, content, and testing, actual spend and commitments to date, remaining balance, and a variance table. Should explain the overspend on integration services caused by extended support to participating entities, present the change request raised to reallocate funds from the contingency line, and provide a revised forecast to completion with the assumption that the staged launch proceeds.",
+          "language": "mixed",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-02_LessonsLearned_20260620.docx",
+          "doc_type": "Lessons Learned",
+          "description": "Interim lessons captured at the phase one gate review. Should record what worked well, including the early appointment of a dedicated content lead and the decision to conduct beneficiary journey workshops before design, alongside what did not, notably that integration readiness of participating entities was assessed on self-declaration rather than a technical verification, and that the service re-engineering effort was underestimated for services with heavy back-office dependencies. Each lesson should carry a recommendation and an owner for applying it in phase two.",
+          "language": "Arabic",
+          "contains_table": false
+        }
+      ]
+    },
+    {
+      "project_code": "PRJ-03",
+      "files": [
+        {
+          "filename": "PRJ-03_ProjectCharter_20240905.docx",
+          "doc_type": "Project Charter",
+          "description": "Charter establishing the National Governance Data Platform. Should describe the mandate to consolidate governance indicators from in-scope entities, the objectives of a single authoritative indicator source and automated quarterly reporting, scope covering the ingestion layer, analytical warehouse, and executive dashboards with data science workloads explicitly excluded, the initial twenty-two month schedule, budget of SAR 61 million, governance arrangements including the data governance steering committee, critical assumptions regarding entity data source availability and data classification stability, and sponsor sign-off.",
+          "language": "Arabic",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-03_WeeklyStatusReport_20260727.docx",
+          "doc_type": "Weekly Status Report",
+          "description": "Weekly status for the week ending 27 July 2026 reporting a Red overall rating against a planned end date that has already passed. Should state the current forecast completion date and the number of weeks of slippage, summarise progress on the remaining entity onboardings, report the status of the data classification rework triggered by the revised regulatory requirements, list the critical path items, present a milestone table contrasting baseline, previous forecast, and current forecast dates, and record the recovery plan submitted to the steering committee.",
+          "language": "mixed",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-03_RiskRegister_20260715.docx",
+          "doc_type": "Risk Register",
+          "description": "Risk register for the data platform with at least twelve entries covering identifier, description, category, probability, impact, score, mitigation, owner, target resolution date, and trend. Representative risks include further changes to data classification policy requiring rework of the ingestion layer, entities unable to provide source system access within the agreed window, degradation of warehouse query performance as historical volumes grow, loss of specialist data engineering resources to competing programmes, inconsistency between entity indicator definitions preventing meaningful aggregation, and the risk that the extended schedule exhausts the approved budget before completion.",
+          "language": "Arabic",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-03_BudgetReport_20260630.pdf",
+          "doc_type": "Budget/Financial Report",
+          "description": "Financial report as at 30 June 2026 for a project running beyond its baseline schedule. Should present the approved budget of SAR 61 million by category, actuals, commitments, and remaining balance, with a variance table highlighting the cost of extended vendor engagement caused by the delay. Should quantify the estimated additional cost to complete, present the supplementary funding request under preparation, show burn rate by quarter with a projection line, and include a sensitivity note showing cost impact under three alternative completion dates.",
+          "language": "mixed",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-03_MeetingMinutes_20260708.pdf",
+          "doc_type": "Meeting Minutes",
+          "description": "Minutes of the recovery review meeting held 8 July 2026. Should record attendees including the sponsor and delivery partner leadership, the review of root causes of the delay, the challenge from the sponsor regarding the reliability of previous forecasts, the agreed replan approach with a revised baseline to be submitted within three weeks, the decision to descope two lower-priority indicator domains to protect the revised date, and a full action register with owners and dates.",
+          "language": "Arabic",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-03_LessonsLearned_20260625.docx",
+          "doc_type": "Lessons Learned",
+          "description": "Lessons captured at the mid-project review of a delayed programme. Should document that dependency on external entity readiness was accepted without contractual commitment or a verification step, that the data classification requirement was treated as stable despite an ongoing regulatory review, that the original schedule contained no contingency for source system remediation, and that indicator definitions were not harmonised with entities before the build started. Each lesson should include the impact observed, the recommendation, and a note on whether it has been applied to the replan.",
+          "language": "Arabic",
+          "contains_table": false
+        },
+        {
+          "filename": "PRJ-03_WeeklyStatusReport_20260622.docx",
+          "doc_type": "Weekly Status Report",
+          "description": "Earlier weekly status for the week ending 22 June 2026, retained for trend comparison. Should show a Red rating, report the state of the replan work at that point, list the entities then outstanding, summarise the classification rework effort estimate as it stood, and present the same milestone table structure so that movement between June and July can be traced.",
+          "language": "mixed",
+          "contains_table": true
+        }
+      ]
+    },
+    {
+      "project_code": "PRJ-04",
+      "files": [
+        {
+          "filename": "PRJ-04_ProjectCharter_20240208.docx",
+          "doc_type": "Project Charter",
+          "description": "Charter for the secure government network infrastructure upgrade. Should set out the drivers of end-of-support hardware and the requirement to implement network segmentation, objectives covering hardware replacement across headquarters and four branch sites with zero unplanned operational downtime, scope excluding end-user device refresh, a three-phase implementation plan aligned to maintenance windows, budget of SAR 37.2 million covering hardware, installation, and decommissioning, the governance model, and the acceptance criteria that will define project completion.",
+          "language": "Arabic",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-04_WeeklyStatusReport_20251020.docx",
+          "doc_type": "Weekly Status Report",
+          "description": "Final weekly status for the week ending 20 October 2025 with a Green rating. Should confirm completion of phase three cut-over at the last branch site, report the results of post-implementation verification testing, note the closure of all outstanding snags, summarise the remaining close-out activities including documentation handover and final invoice settlement, present the milestone table with all items marked complete, and confirm the planned formal closure date.",
+          "language": "mixed",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-04_HandoverDocument_20251105.pdf",
+          "doc_type": "Handover Document",
+          "description": "Operational handover pack transferring the upgraded network to the run team. Should include the final as-built network topology description, the site-by-site inventory of installed equipment with serial numbers and warranty end dates, the segmentation design and firewall rule ownership, monitoring and alerting configuration, escalation contacts and vendor support entitlements, the maintenance and patching schedule, a list of known limitations and deferred items, and a formal acceptance section signed by both the project manager and the operations manager.",
+          "language": "mixed",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-04_LessonsLearned_20251112.docx",
+          "doc_type": "Lessons Learned",
+          "description": "Closure lessons learned for a successfully delivered infrastructure project. Should record that phasing the work around agreed maintenance windows and rehearsing each cut-over in a lab environment prevented operational disruption, that early engagement with branch site facilities teams avoided access delays, and that the pre-agreed rollback procedure was invoked once and worked as designed. Should also record that hardware lead times were underestimated in the original plan and that decommissioning of legacy equipment was scoped too late, with recommendations for future infrastructure programmes.",
+          "language": "Arabic",
+          "contains_table": false
+        },
+        {
+          "filename": "PRJ-04_BudgetReport_20251130.pdf",
+          "doc_type": "Budget/Financial Report",
+          "description": "Final financial reconciliation for the completed project. Should present the approved budget of SAR 37.2 million against final actual expenditure by category covering hardware, professional services, installation, and decommissioning, show the closing variance with an explanation of the saving realised through the consolidated hardware procurement, list all change requests approved during the project with their financial impact, confirm that all invoices have been settled and no commitments remain open, and provide the final cost per site for benchmarking.",
+          "language": "mixed",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-04_MeetingMinutes_20251028.pdf",
+          "doc_type": "Meeting Minutes",
+          "description": "Minutes of the project closure meeting held 28 October 2025. Should record attendees, confirmation that all acceptance criteria from the charter have been met, the operations team's confirmation of readiness to accept the handover, the review of outstanding warranty and support arrangements, the agreement to conduct a benefits review after six months of operation, formal approval to close the project, and a short action list covering the remaining administrative closure tasks.",
+          "language": "Arabic",
+          "contains_table": true
+        }
+      ]
+    },
+    {
+      "project_code": "PRJ-05",
+      "files": [
+        {
+          "filename": "PRJ-05_ProjectCharter_20250910.docx",
+          "doc_type": "Project Charter",
+          "description": "Charter for the Institutional Performance Management System. Should describe the current difficulty of tracing strategic objectives to operational indicators, the objective of establishing a single approved indicator library with quarterly performance reporting to leadership, scope covering indicator modelling, the measurement approval workflow, and leadership dashboards, explicit exclusion of individual employee performance appraisal, an eighteen-month schedule with three gates, budget of SAR 15.4 million, the governance structure under the General Directorate of Strategic Planning, and key assumptions on the stability of the current strategic plan.",
+          "language": "Arabic",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-05_WeeklyStatusReport_20260729.docx",
+          "doc_type": "Weekly Status Report",
+          "description": "Weekly status for the week ending 29 July 2026 with a Green rating. Should report completion of the detailed design for the indicator model, progress on the measurement approval workflow specification, the outcome of the design review workshop held with the strategic planning team, planned activities for the following two weeks, a milestone table showing all items on baseline, and a short section on resourcing confirming that the business analyst allocation has been extended through the build phase.",
+          "language": "mixed",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-05_MeetingMinutes_20260716.pdf",
+          "doc_type": "Meeting Minutes",
+          "description": "Minutes of the indicator design workshop held 16 July 2026. Should record participants from strategic planning and the sector departments, the walkthrough of the proposed indicator hierarchy linking strategic objectives to initiatives and operational measures, the debate over whether lagging and leading indicators should be presented on the same dashboard, the agreement to adopt a two-tier view, open questions on data source ownership for four indicators, and an action register with owners and dates.",
+          "language": "Arabic",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-05_RiskRegister_20260701.docx",
+          "doc_type": "Risk Register",
+          "description": "Risk register for the performance management system with at least seven entries covering identifier, description, probability, impact, score, mitigation, and owner. Representative risks include revision of the strategic plan during the build phase invalidating the indicator model, unavailability of reliable data sources for a subset of operational indicators, low engagement from sector departments in the measurement approval workflow, and the risk that dashboard requirements from leadership expand beyond the agreed scope during the demonstration cycles.",
+          "language": "Arabic",
+          "contains_table": true
+        }
+      ]
+    },
+    {
+      "project_code": "PRJ-06",
+      "files": [
+        {
+          "filename": "PRJ-06_ProjectCharter_20250122.docx",
+          "doc_type": "Project Charter",
+          "description": "Charter for the budget preparation and financial approval automation project. Should describe the current spreadsheet-driven budget cycle and its reconciliation burden, the objective of a fully electronic cycle from entity estimate submission to final appropriation approval, scope covering submission forms, multi-level approval routing, and a variance dashboard, the explicit exclusion of the execution and disbursement stages, a schedule anchored to the annual budget calendar, budget of SAR 22.9 million, governance under the General Budget Agency, and the critical assumption that the system must be live before the next preparation window opens.",
+          "language": "Arabic",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-06_WeeklyStatusReport_20260730.docx",
+          "doc_type": "Weekly Status Report",
+          "description": "Weekly status for the week ending 30 July 2026 with an Amber rating driven by schedule pressure against the fixed budget cycle window. Should report the remaining build items, the status of user acceptance testing preparation, the number of open defects by severity, the contingency options under consideration including a reduced-scope first release covering submission only, a milestone table showing float consumed against the critical date, and the decision required from the steering committee at the next meeting.",
+          "language": "mixed",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-06_RiskRegister_20260720.docx",
+          "doc_type": "Risk Register",
+          "description": "Risk register with at least nine entries carrying identifier, description, category, probability, impact, score, mitigation, owner, and escalation status. Representative risks include failure to complete user acceptance testing before the budget preparation window opens, insufficient availability of budget agency staff for testing during the year-end close, approval routing rules diverging from the delegation of authority document, unresolved defects in the multi-level approval engine, incomplete migration of prior-year comparative figures, and the reputational risk of a failed first cycle requiring fallback to the manual process.",
+          "language": "Arabic",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-06_BudgetReport_20260630.pdf",
+          "doc_type": "Budget/Financial Report",
+          "description": "Financial report for the period ending 30 June 2026. Should present the approved budget of SAR 22.9 million by category, actual and committed expenditure, remaining balance, and percentage consumed, with a variance table. Should explain the additional cost incurred from accelerating development to protect the budget cycle date, quantify the cost of the proposed contingency option, present the forecast to completion under both the full-scope and reduced-scope scenarios, and show remaining contingency available.",
+          "language": "mixed",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-06_MeetingMinutes_20260723.pdf",
+          "doc_type": "Meeting Minutes",
+          "description": "Minutes of the steering committee meeting held 23 July 2026. Should record attendees, the project manager's presentation of the schedule position, the committee's challenge on defect closure rates, the discussion of the reduced-scope first release option and its implications for the second release, the sponsor's request for a decision paper covering both options within one week, the agreement to secure additional testing resource from the budget agency, and the resulting action register.",
+          "language": "Arabic",
+          "contains_table": true
+        }
+      ]
+    },
+    {
+      "project_code": "PRJ-07",
+      "files": [
+        {
+          "filename": "PRJ-07_ProjectCharter_20241106.docx",
+          "doc_type": "Project Charter",
+          "description": "Charter for the government integration and API gateway platform. Should set out the problem of point-to-point interfaces proliferating between internal systems and external entities, objectives covering a managed gateway, a published API catalogue, standardised system-to-system identity, and service-level monitoring, scope boundaries excluding modification of the connected back-end applications, a twenty-four month schedule, budget of SAR 33.6 million, governance under the Digital Integration Center, and assumptions regarding the security architecture approval timeline.",
+          "language": "English",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-07_WeeklyStatusReport_20260731.docx",
+          "doc_type": "Weekly Status Report",
+          "description": "Weekly status for the week ending 31 July 2026 with a Red rating. Should report the impact of the security layer redesign mandated by the regulatory review, the revised architecture approval status, progress on re-implementing the identity and token handling components, the number of API onboardings completed against plan, a milestone table showing baseline versus current forecast with the slippage quantified, and the outstanding decisions required to confirm the revised completion date.",
+          "language": "mixed",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-07_RiskRegister_20260714.docx",
+          "doc_type": "Risk Register",
+          "description": "Risk register with at least ten entries covering identifier, description, category, probability, impact, score, mitigation, owner, and review date. Representative risks include further regulatory findings requiring additional security rework, gateway throughput failing to meet peak load requirements during certification testing, consuming systems unable to adopt the new authentication pattern within the transition window, key architecture expertise concentrated in a single individual, prolonged coexistence of legacy point-to-point interfaces increasing operational cost, and the risk that the extended schedule pushes cut-over into a change freeze period.",
+          "language": "English",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-07_MeetingMinutes_20260709.pdf",
+          "doc_type": "Meeting Minutes",
+          "description": "Minutes of the architecture review board meeting held 9 July 2026. Should record attendees including the security architecture function, the presentation of the revised security layer design, the board's questions on token lifetime, key rotation, and audit logging, the conditional approval granted subject to two documented amendments, the confirmation of the certification testing prerequisites, and an action register capturing the amendments with owners and resubmission dates.",
+          "language": "English",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-07_LessonsLearned_20260630.docx",
+          "doc_type": "Lessons Learned",
+          "description": "Interim lessons captured following the security redesign. Should record that the regulatory review was scheduled after detailed design rather than before, causing rework that could have been avoided by early engagement, that the original security requirements were derived from internal standards without confirming regulatory expectations, that architecture knowledge was insufficiently documented and concentrated in a small group, and that the API onboarding pipeline continued to be planned as if the gateway date were fixed. Each lesson should carry an impact statement and a recommendation.",
+          "language": "mixed",
+          "contains_table": false
+        },
+        {
+          "filename": "PRJ-07_BudgetReport_20260630.pdf",
+          "doc_type": "Budget/Financial Report",
+          "description": "Financial report as at 30 June 2026 for a delayed platform project. Should present the approved budget of SAR 33.6 million by category, actuals and commitments, remaining balance, and a variance table isolating the cost of the security redesign. Should show the extended vendor engagement cost driven by the schedule slip, present the change request status for additional funding, provide a forecast to completion against the revised date, and include a monthly burn rate chart description with the projected exhaustion point if no additional funding is approved.",
+          "language": "mixed",
+          "contains_table": true
+        }
+      ]
+    },
+    {
+      "project_code": "PRJ-08",
+      "files": [
+        {
+          "filename": "PRJ-08_ProjectCharter_20240509.docx",
+          "doc_type": "Project Charter",
+          "description": "Charter for the unified beneficiary contact center. Should describe the fragmentation of beneficiary communication across departmental phone lines and mailboxes, objectives covering a single contact center with telephony, chat, and email channels, a unified ticket management system, and a shared response knowledge base, target service levels for first response and resolution, scope excluding field service visits, a twenty-month schedule, budget of SAR 18.3 million, governance under the Beneficiary Services Department, and the acceptance criteria for operational go-live.",
+          "language": "Arabic",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-08_WeeklyStatusReport_20251205.docx",
+          "doc_type": "Weekly Status Report",
+          "description": "Final weekly status for the week ending 5 December 2025 with a Green rating. Should confirm that the contact center has been in live operation for eight weeks, report actual service level performance against target for first response and resolution, note the completion of agent certification for all staff, summarise the remaining close-out activities, present a milestone table with all items complete, and confirm the formal closure date.",
+          "language": "mixed",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-08_HandoverDocument_20251218.pdf",
+          "doc_type": "Handover Document",
+          "description": "Handover pack transferring the contact center to the Beneficiary Services Department for ongoing operation. Should include the final operating model with shift patterns and staffing levels, the ticket management system configuration and administration guide references, the knowledge base ownership and review cycle, the service level agreement definitions and reporting arrangements, the escalation matrix, vendor support contracts with renewal dates, a list of deferred enhancements carried into the operational backlog, and a signed acceptance section.",
+          "language": "Arabic",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-08_LessonsLearned_20251222.docx",
+          "doc_type": "Lessons Learned",
+          "description": "Closure lessons learned for the contact center project. Should record that building the response knowledge base in parallel with agent recruitment allowed a smooth ramp-up, that running a four-week pilot with a limited service set surfaced routing errors before full launch, and that early agreement on service level definitions prevented later disputes. Should also record that call volume forecasts based on historical departmental data underestimated actual demand by a meaningful margin, and that the transition of legacy departmental phone numbers took longer than planned, with recommendations for similar consolidation projects.",
+          "language": "Arabic",
+          "contains_table": false
+        },
+        {
+          "filename": "PRJ-08_BudgetReport_20251231.pdf",
+          "doc_type": "Budget/Financial Report",
+          "description": "Final financial reconciliation for the completed contact center project. Should present the approved budget of SAR 18.3 million against final actuals by category covering system licensing, implementation services, facility fit-out, recruitment, and training, show the closing variance with explanation of the overspend on recruitment driven by the revised staffing level, list approved change requests with financial impact, confirm settlement of all invoices and closure of commitments, and present the resulting cost per handled contact for future benchmarking.",
+          "language": "mixed",
+          "contains_table": true
+        },
+        {
+          "filename": "PRJ-08_MeetingMinutes_20251210.pdf",
+          "doc_type": "Meeting Minutes",
+          "description": "Minutes of the project closure meeting held 10 December 2025. Should record attendees, the review of achievement against the charter acceptance criteria including the service level results from the first eight weeks of operation, the operations manager's confirmation of readiness to accept full ownership, discussion of the deferred enhancement backlog and its funding route, the agreement to hold a benefits review after two quarters of operation, formal approval to close, and the closing administrative action list.",
+          "language": "Arabic",
+          "contains_table": true
+        }
+      ]
+    }
+  ]
+}
