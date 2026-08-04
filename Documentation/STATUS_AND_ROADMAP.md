@@ -75,18 +75,34 @@
   not stubs. Content is internally consistent per project (budget/dates/
   status match across a project's own charter, status reports, risk
   register, budget report, etc.).
-- [ ] **Real sample documents — 15 files supplied by user, triaged, not
-  yet placed.** See §7 below for the full breakdown. Waiting on user
-  confirmation of: exclusions (proposed: 2 duplicate copies of our own
-  BRD, 3 generic/off-topic templates), what to do with one scanned/
-  image-only PDF of unknown project affiliation, and project code
-  naming for the 7 identified real projects before moving anything into
-  `D:\MOF_DataSample\`.
-- [ ] **SPM Postgres schema.** Currently just a placeholder
-  (`postgres-spm/init/001_extensions.sql` enables `uuid-ossp`/`pgcrypto`
-  only). Needs: projects, users (AD mock), project assignments,
-  document-project links, indexing status — informed by BRD user stories
-  4–5 (AC08–AC11). Depends on the two items above.
+- [x] **Real sample documents placed** — user overrode the earlier
+  per-project triage: instead of splitting into 7 separate real projects,
+  all 13 non-excluded real files (13 of 15 — excluded the 2 duplicate
+  copies of our own BRD, which aren't project content at all) are grouped
+  as **one single project, `TEST-PROJECT`**, at
+  `D:\MOF_DataSample\TEST-PROJECT\` (original filenames, untouched —
+  includes the 3 generic/off-topic templates and the 1 scanned/OCR-only
+  PDF that were previously flagged as candidates for exclusion; user's
+  "deal with them as a group" instruction superseded that finer-grained
+  proposal). See §7 below for what's in it.
+- [x] **SPM Postgres `projects` table created and seeded.**
+  `infra/postgres-spm/migrations/001_create_projects_table.sql` (schema:
+  `code` PK, `name_ar`/`name_en`, `description_ar`/`description_en`,
+  `status`, `start_date`, `planned_end_date`, `budget_sar`,
+  `sponsoring_department_ar`/`_en`, `created_at`) and
+  `002_seed_projects.sql` (9 rows: `PRJ-01`–`PRJ-08` from the manifest +
+  `TEST-PROJECT`), both applied directly to the running `mof-postgres-spm`
+  container and verified (row count, Arabic text integrity). **This is a
+  manually-applied migration, not an init-script** — `init/` only runs on
+  a fresh/empty volume; `migrations/` is the new home for ongoing
+  additive schema changes, applied via
+  `docker exec -i mof-postgres-spm psql -U spm_admin -d spm_data < file.sql`.
+  Every project folder under `D:\MOF_DataSample\` now has a matching SPM
+  row — the gap flagged earlier (real project folders with no SPM entry)
+  is closed.
+- [ ] **Remaining SPM schema** — users (AD mock), project assignments,
+  document-project links, indexing status. Only `projects` exists so far;
+  informed by BRD user stories 4–5 (AC08–AC11).
 - [ ] **Ingestion pipeline** (SharePoint/mock-corpus scan → OCR → embed →
   index into per-project Qdrant collections). Redis is already running for
   this; no task code exists yet. Depends on the two items above.
@@ -134,17 +150,18 @@
 | 2026-08-04 | Mock corpus/AD shape decided (6-8 projects, broader document-type set, real files through real OCR, stored at `D:\MOF_DataSample`) | §2 above |
 | 2026-08-04 | SPM mock data manifest delivered by user (8 projects/4 users/45-doc manifest) and committed to `mock-data/spm_manifest.json` | §2 above |
 | 2026-08-04 | All 45 fictional document files generated (8 background agents, one per project) and verified against the manifest | §2 above, §7 below |
-| 2026-08-04 | 15 real sample documents supplied by user; triaged into 7 real projects + exclusions (2 copies of our own BRD, 3 off-topic generic templates) + 1 unplaced scanned file | §7 below — awaiting user confirmation before moving files |
+| 2026-08-04 | 15 real sample documents supplied by user; grouped as one `TEST-PROJECT` (13 files) instead of 7 separate real projects — user's explicit override of the initial per-project triage; 2 copies of our own BRD excluded (not sample content) | §7 below |
+| 2026-08-04 | SPM Postgres `projects` table created (`infra/postgres-spm/migrations/`, applied manually, not via init script) and seeded with all 9 project rows (8 fictional + TEST-PROJECT) | §2 above |
 
 ---
 
 ## 5. Immediate next step
 
-**Waiting on the user** to confirm the real-document triage in §7 (three
-open questions: exclusions, the unplaced scanned file, project codes)
-before moving any real files into `D:\MOF_DataSample`. Once that's
-resolved, the SPM Postgres schema can be designed against the combined
-corpus (8 fictional + up to 7 real projects).
+The `projects` table exists and is seeded; the mock corpus (fictional +
+real) is fully placed on disk with every folder now having a matching SPM
+row. Remaining SPM schema pieces (users, assignments, document-project
+links, indexing status) are next, followed by the ingestion pipeline
+design.
 
 ## 6. Gotchas hit during this phase
 
@@ -158,46 +175,37 @@ corpus (8 fictional + up to 7 real projects).
 
 ---
 
-## 7. Real sample documents — triage detail (2026-08-04)
+## 7. Real sample documents — final resolution (2026-08-04)
 
 User supplied 15 real files (Desktop + Downloads) to use *alongside* the
 fictional 45-document set — explicitly to keep the ingestion pipeline
 "dynamic, not static to any specific case." Read all 15 (docx/pptx via
-python-docx/python-pptx, PDFs via pdfplumber). Result:
+python-docx/python-pptx, PDFs via pdfplumber). Initial proposal was to
+split them into 7 separate real projects with individual codes — **user
+overrode this**: group all non-excluded real files as **one single
+project, `TEST-PROJECT`**, not split by original source project.
 
-**Exclude — not proposed for the corpus at all:**
-- Both copies of `وثيقة المتطلبات التفصيلية الموحدة - الوكيل الذكي 01-07-2026.pdf`
-  (Desktop + Downloads) — **this is our own project's BRD**, not a sample.
-- `client_template.pptx` + `IC-Project-Risk-Management-Plan-Example-11690_WORD.docx`
-  — same generic "Athletic Center Renovation" template, no PMO/government
-  relevance.
-- `sample-project-charter.pdf` — generic "XYZ Computer System" public
-  template example.
+**Excluded (2 of 15)**: both copies of
+`وثيقة المتطلبات التفصيلية الموحدة - الوكيل الذكي 01-07-2026.pdf`
+(Desktop + Downloads) — **this is our own project's BRD**, not sample
+project content. This exclusion was kept even after the "treat as one
+group" instruction, since including our own requirements doc as fake
+project content would be actively wrong, not just a style choice.
 
-**7 distinct real projects identified:**
+**Included as `TEST-PROJECT` (13 of 15)** — placed at
+`D:\MOF_DataSample\TEST-PROJECT\`, original filenames unchanged:
+- `SDD_AI_Project_Charter_Generator_OnPrem.docx` + `__وثيقة المتطلبات التفصيلية - ميثاق المشروع.docx` (AI Project Charter Generator — English SDD + Arabic BRD)
+- `Tanmiah_GenAI_POC_Proposal_Technical 1.pptx` (Tanmiah social-impact POC proposal)
+- `_نموذج الأثر الاستباقي  2026  -  v2.pdf` (منصة همة status/dashboard export)
+- `TMO001001_...Project Charter...docx` (Data Warehouse/BI charter)
+- `MOZN Project Charter-V0.1.docx`
+- `Emdad - Project Charter - V1 1.docx`
+- `JEDCO002001 - Project Charter...docx`
+- `وثيقة المتطلبات التفصيلية PowerBI وإعادة التصميم 01-07-2026.pdf` (formal NCGR-style Arabic BRD)
+- `client_template.pptx` + `IC-Project-Risk-Management-Plan-Example-11690_WORD.docx` (generic "Athletic Center Renovation" template — previously flagged for exclusion, now included per the "group them" instruction)
+- `sample-project-charter.pdf` (generic "XYZ Computer System" template — same)
+- `_المنهجية التقنية للمشروع.pdf` (scanned/image-only PDF, near-zero extractable text via pdfplumber — a genuine real-world OCR test case for Document Intelligence)
 
-| Files | Proposed code | Docs |
-|---|---|---|
-| `SDD_AI_Project_Charter_Generator_OnPrem.docx` + `__وثيقة المتطلبات التفصيلية - ميثاق المشروع.docx` | `AICG` | 2 (English SDD + Arabic BRD, same real project) |
-| `Tanmiah_GenAI_POC_Proposal_Technical 1.pptx` | `TANMIAH-POC` | 1 (Arabic technical proposal) |
-| `_نموذج الأثر الاستباقي 2026 - v2.pdf` | `HAMAH` | 1 (Arabic status/dashboard export, منصة همة) |
-| `TMO001001_...Project Charter...docx` | `TMO001001` (has its own ref code already) | 1 |
-| `MOZN Project Charter-V0.1.docx` | `MOZN` | 1 |
-| `JEDCO002001 - Project Charter...docx` | `JEDCO002001` (has its own ref code already) | 1 |
-| `وثيقة المتطلبات التفصيلية PowerBI وإعادة التصميم...pdf` | `PBI-REDESIGN` | 1 (formal Arabic NCGR-style BRD) |
-
-**Unplaced**: `_المنهجية التقنية للمشروع.pdf` — scanned/image-only, near-zero
-extractable text with pdfplumber. Genuinely useful as an OCR test case
-(exactly what Document Intelligence exists for) but project affiliation
-unknown until it's actually OCR'd or the user identifies it.
-
-**Open questions blocking file placement** (asked in chat, not yet
-answered as of this write-up):
-1. Confirm the exclusions above.
-2. What to do with the unplaced scanned file — assign to one of the 7,
-   or keep as a deliberate "unknown, resolve via OCR" test case.
-3. Confirm the proposed project codes (or supply different ones).
-
-Once resolved: create `D:\MOF_DataSample\<code>\` per confirmed project
-and place files — same target location and structure as the fictional
-set.
+**SPM row**: `TEST-PROJECT` exists in the `projects` table (§2 above,
+status `'testing'`, no budget/dates — doesn't map to a real PMO project
+record, it's explicitly a test/QA grouping).
