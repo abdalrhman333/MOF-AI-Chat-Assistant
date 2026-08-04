@@ -64,14 +64,24 @@
   Learned) with realistic language distribution (24 Arabic / 18 mixed / 3
   English) and table coverage (40/45 docs) for OCR testing. User-authored
   via a Claude chat prompt, reviewed and committed as-is.
-- [ ] **Actual document files (.docx/.pdf) not yet generated.**
-  ⚠ **Do not generate these until explicitly told** — the manifest
-  describes what each document should contain; turning that into real
-  files (candidate approach: use the assistant's document-creation skill
-  to generate all 45 from the manifest directly) is a separate,
-  not-yet-approved step. Target location once approved:
-  **`D:\MOF_DataSample\<ProjectCode>\<filename>`** (outside the repo,
-  user's own chosen path).
+- [x] **All 45 fictional document files generated** at
+  `D:\MOF_DataSample\<ProjectCode>\<filename>` — verified byte-for-byte
+  against the manifest (45 expected, 45 present, filenames match exactly).
+  Generated via 8 parallel background agents (one per project), each
+  producing real `.docx` (python-docx, explicit RTL/bidi XML, Arabic-
+  capable fonts) and `.pdf` (reportlab + arabic_reshaper/python-bidi,
+  embedded Arabic-capable TTF fonts) files with genuine formatted tables
+  and section-by-section Arabic/English interleaving where specified —
+  not stubs. Content is internally consistent per project (budget/dates/
+  status match across a project's own charter, status reports, risk
+  register, budget report, etc.).
+- [ ] **Real sample documents — 15 files supplied by user, triaged, not
+  yet placed.** See §7 below for the full breakdown. Waiting on user
+  confirmation of: exclusions (proposed: 2 duplicate copies of our own
+  BRD, 3 generic/off-topic templates), what to do with one scanned/
+  image-only PDF of unknown project affiliation, and project code
+  naming for the 7 identified real projects before moving anything into
+  `D:\MOF_DataSample\`.
 - [ ] **SPM Postgres schema.** Currently just a placeholder
   (`postgres-spm/init/001_extensions.sql` enables `uuid-ossp`/`pgcrypto`
   only). Needs: projects, users (AD mock), project assignments,
@@ -122,18 +132,19 @@
 | 2026-08-04 | OCR model: `prebuilt-layout` (Markdown output), not `prebuilt-read` | `SOLUTION_ARCHITECTURE.md` §4.1 — tables + structure + reading order matter for chunking, user's own suggestion, confirmed |
 | 2026-08-04 | Application tech stack: Python + FastAPI, raw SQL migrations (no ORM), Celery (task queue), LangChain (RAG orchestration) | `SOLUTION_ARCHITECTURE.md` §4.5 — each weighed against an alternative (Arq, hand-rolled) with full tradeoffs; Celery and LangChain both went against the initial recommendation, deliberately, after seeing the tradeoffs |
 | 2026-08-04 | Mock corpus/AD shape decided (6-8 projects, broader document-type set, real files through real OCR, stored at `D:\MOF_DataSample`) | §2 above |
-| 2026-08-04 | SPM mock data manifest delivered by user (8 projects/4 users/45-doc manifest) and committed to `mock-data/spm_manifest.json` — **actual .docx/.pdf file generation still on hold** | §2 above — do not generate the 45 files without being told |
+| 2026-08-04 | SPM mock data manifest delivered by user (8 projects/4 users/45-doc manifest) and committed to `mock-data/spm_manifest.json` | §2 above |
+| 2026-08-04 | All 45 fictional document files generated (8 background agents, one per project) and verified against the manifest | §2 above, §7 below |
+| 2026-08-04 | 15 real sample documents supplied by user; triaged into 7 real projects + exclusions (2 copies of our own BRD, 3 off-topic generic templates) + 1 unplaced scanned file | §7 below — awaiting user confirmation before moving files |
 
 ---
 
 ## 5. Immediate next step
 
-**Waiting on the user** — the SPM data manifest is delivered and
-committed, but generating the actual 45 `.docx`/`.pdf` files under
-`D:\MOF_DataSample` needs explicit go-ahead first. Once that happens (or
-in parallel), the SPM Postgres schema can be designed against the real
-manifest shape (projects/users/assignments/documents tables now have a
-concrete data source to match).
+**Waiting on the user** to confirm the real-document triage in §7 (three
+open questions: exclusions, the unplaced scanned file, project codes)
+before moving any real files into `D:\MOF_DataSample`. Once that's
+resolved, the SPM Postgres schema can be designed against the combined
+corpus (8 fictional + up to 7 real projects).
 
 ## 6. Gotchas hit during this phase
 
@@ -144,3 +155,49 @@ concrete data source to match).
   of issue as the colleague's "PowerShell mangles UTF-8" gotcha — different
   shell, same root cause (don't trust inline args with non-ASCII on
   Windows). Always test Arabic payloads via a file, not an inline `-d`.
+
+---
+
+## 7. Real sample documents — triage detail (2026-08-04)
+
+User supplied 15 real files (Desktop + Downloads) to use *alongside* the
+fictional 45-document set — explicitly to keep the ingestion pipeline
+"dynamic, not static to any specific case." Read all 15 (docx/pptx via
+python-docx/python-pptx, PDFs via pdfplumber). Result:
+
+**Exclude — not proposed for the corpus at all:**
+- Both copies of `وثيقة المتطلبات التفصيلية الموحدة - الوكيل الذكي 01-07-2026.pdf`
+  (Desktop + Downloads) — **this is our own project's BRD**, not a sample.
+- `client_template.pptx` + `IC-Project-Risk-Management-Plan-Example-11690_WORD.docx`
+  — same generic "Athletic Center Renovation" template, no PMO/government
+  relevance.
+- `sample-project-charter.pdf` — generic "XYZ Computer System" public
+  template example.
+
+**7 distinct real projects identified:**
+
+| Files | Proposed code | Docs |
+|---|---|---|
+| `SDD_AI_Project_Charter_Generator_OnPrem.docx` + `__وثيقة المتطلبات التفصيلية - ميثاق المشروع.docx` | `AICG` | 2 (English SDD + Arabic BRD, same real project) |
+| `Tanmiah_GenAI_POC_Proposal_Technical 1.pptx` | `TANMIAH-POC` | 1 (Arabic technical proposal) |
+| `_نموذج الأثر الاستباقي 2026 - v2.pdf` | `HAMAH` | 1 (Arabic status/dashboard export, منصة همة) |
+| `TMO001001_...Project Charter...docx` | `TMO001001` (has its own ref code already) | 1 |
+| `MOZN Project Charter-V0.1.docx` | `MOZN` | 1 |
+| `JEDCO002001 - Project Charter...docx` | `JEDCO002001` (has its own ref code already) | 1 |
+| `وثيقة المتطلبات التفصيلية PowerBI وإعادة التصميم...pdf` | `PBI-REDESIGN` | 1 (formal Arabic NCGR-style BRD) |
+
+**Unplaced**: `_المنهجية التقنية للمشروع.pdf` — scanned/image-only, near-zero
+extractable text with pdfplumber. Genuinely useful as an OCR test case
+(exactly what Document Intelligence exists for) but project affiliation
+unknown until it's actually OCR'd or the user identifies it.
+
+**Open questions blocking file placement** (asked in chat, not yet
+answered as of this write-up):
+1. Confirm the exclusions above.
+2. What to do with the unplaced scanned file — assign to one of the 7,
+   or keep as a deliberate "unknown, resolve via OCR" test case.
+3. Confirm the proposed project codes (or supply different ones).
+
+Once resolved: create `D:\MOF_DataSample\<code>\` per confirmed project
+and place files — same target location and structure as the fictional
+set.
