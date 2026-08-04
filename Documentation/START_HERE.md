@@ -5,7 +5,8 @@ file first.** It tells you what this project is, which documents to read in
 what order, and how to verify the real state of the system before changing
 anything.
 
-**Last verified:** 2026-08-04
+**Last verified:** 2026-08-04 (infra + SPM `projects` table + full mock
+corpus in place; no application code yet)
 
 ---
 
@@ -41,6 +42,11 @@ The original BRD-derived scope document also lives at
 `..\My_Prompts\SOLUTION_SCOPE.md` (verified directly against the source PDF —
 see `SOLUTION_ARCHITECTURE.md` §1 for the source reference).
 
+The mock corpus source data is `mock-data\spm_manifest.json` (tracked in
+git — small, structured). The actual mock documents (bulky, not tracked)
+live at `D:\MOF_DataSample\<project-code>\`, outside the repo. Full detail
+in `STATUS_AND_ROADMAP.md` §7.
+
 ---
 
 ## 3. Ground truth is the running system, not any document
@@ -64,9 +70,21 @@ If containers are down: `docker compose up -d` from `infra/` brings
 everything back (all services are `restart: unless-stopped`). See
 `INFRASTRUCTURE.md` §5 for the full health-check sweep and known gotchas.
 
-**No application code exists yet** — this project is infrastructure-only as
-of the last-verified date above. Do not look for `app.py`/`tasks.py`
-equivalents; they haven't been built.
+The SPM database and mock document corpus are real and populated —
+verify them too, don't assume from this doc:
+
+```bash
+MSYS_NO_PATHCONV=1 docker exec -i mof-postgres-spm psql -U spm_admin -d spm_data -c "SELECT code, status FROM projects ORDER BY code;"
+# expect 9 rows: PRJ-01..PRJ-08 + TEST-PROJECT
+
+find "/d/MOF_DataSample" -maxdepth 1 -type d
+# expect 9 folders, same codes as above
+```
+
+**No application code exists yet** — only infrastructure, the SPM
+`projects` table, and mock data. Do not look for `app.py`/`tasks.py`
+equivalents; they haven't been built. See `STATUS_AND_ROADMAP.md` for the
+exact done/not-done line.
 
 ---
 

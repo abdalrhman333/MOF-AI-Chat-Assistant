@@ -107,12 +107,13 @@
   index into per-project Qdrant collections). Redis is already running for
   this; no task code exists yet. Depends on the two items above.
 - [ ] **Workflow engine / chat backend.** No application code exists at
-  all yet — this project is infrastructure-only so far. Needs: language
-  detection + rejection of unsupported languages (AC01), intent routing
-  (special vs. general/SPM-retrieval, AC02), the three-source retrieval
-  composition (§3 of `SOLUTION_ARCHITECTURE.md`), grounded responses with
-  citations (AC06), safe fallback for out-of-scope/missing-knowledge
-  queries (AC07), 5-second response budget (AC08).
+  all yet — infra, SPM data, and the mock corpus are all real, but nothing
+  reads or serves any of it. Needs: language detection + rejection of
+  unsupported languages (AC01), intent routing (special vs.
+  general/SPM-retrieval, AC02), the three-source retrieval composition
+  (§3 of `SOLUTION_ARCHITECTURE.md`), grounded responses with citations
+  (AC06), safe fallback for out-of-scope/missing-knowledge queries (AC07),
+  5-second response budget (AC08).
 - [ ] **Auth**: AD SSO + OTP + RBAC. Real AD isn't available in dev — needs
   a mock per the BRD's own practical note (`SOLUTION_SCOPE.md`, "Practical
   note for a demo/development build"). True OTP is a hard external
