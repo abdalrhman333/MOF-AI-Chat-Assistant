@@ -188,20 +188,48 @@ docker exec mof-redis redis-cli -a <REDIS_PASSWORD from .env> ping # -> PONG
 
 ---
 
-## 6. Services, URLs, credentials
+## 6. Services, URLs, credentials — how to actually get into each one
 
-| Service | URL | Purpose | Credentials |
+All real credential values live in `infra/.env` (gitignored) — never
+duplicated here. `infra/.env.example` documents every variable name with
+a blank value.
+
+| Service | URL | Purpose | Credentials (var name in `.env`) |
 |---|---|---|---|
-| Postgres (SPM) | `localhost:5432` | SPM project entity data (demo: filled directly) | `POSTGRES_SPM_USER` / `POSTGRES_SPM_PASSWORD` in `.env` |
-| Qdrant | http://localhost:6333/dashboard | Vector DB, one collection per project | `QDRANT_API_KEY` in `.env` |
-| Redis | `localhost:6379` | App job queue (not yet wired to app code) | `REDIS_PASSWORD` in `.env` |
-| Langfuse | http://localhost:3001 | LLM execution tracing | Own account, created in-browser (unrelated to Enjaz/AD auth). API keys: `LANGFUSE_SECRET_KEY`/`LANGFUSE_PUBLIC_KEY` in `.env`, not yet consumed by any app code |
-| Grafana (LGTM) | http://localhost:3000 | App workflow observability: metrics/logs/traces via OTLP on :4317/:4318 | `GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD` in `.env` |
-| Portainer | https://localhost:9443 | Docker/container management UI | Own admin account, created in-browser (see §4.3 for first-run) |
-| MinIO console | http://localhost:9003 | Langfuse's internal blob storage (debugging only) | `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` in `.env` |
+| Postgres (SPM) | `localhost:5432` | SPM data — `projects`, `users`, `project_assignments`, `document_links` (see §8) | `POSTGRES_SPM_USER` / `POSTGRES_SPM_PASSWORD`, db `POSTGRES_SPM_DB` |
+| Qdrant | http://localhost:6333/dashboard | Vector DB, one collection per project | `QDRANT_API_KEY` |
+| Redis | `localhost:6379` | App job queue (not yet wired to app code) | `REDIS_PASSWORD` |
+| Langfuse | http://localhost:3001 | LLM execution tracing | Own account, created in-browser (unrelated to Enjaz/AD auth). API keys: `LANGFUSE_SECRET_KEY`/`LANGFUSE_PUBLIC_KEY`, not yet consumed by any app code |
+| Grafana (LGTM) | http://localhost:3000 | App workflow observability: metrics/logs/traces via OTLP on :4317/:4318 | `GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD` |
+| Portainer | https://localhost:9443 | Docker/container management UI | Own admin account, created in-browser (see §4.3 if the 5-min setup window expires) |
+| MinIO console | http://localhost:9003 | Langfuse's internal blob storage (debugging only) | `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` |
 
-All real values live in `infra/.env` (gitignored) — never duplicated here.
-`infra/.env.example` documents every variable name with a blank value.
+**Postgres (SPM) — no browser access, it's not a webpage.** Three ways in:
+
+1. **Ask the assistant** — has Docker access, can run any query directly.
+2. **`psql` via Docker, no local install**:
+   ```bash
+   docker exec -it mof-postgres-spm psql -U spm_admin -d spm_data
+   ```
+   Then `\dt` (list tables), `\d <table>` (schema), `\q` (exit).
+3. **DBeaver** (portable, installed at
+   `D:\MOF_Installations\tools\dbeaver-ce-portable\dbeaver\dbeaver.exe` —
+   see §3): launch it, **Database → New Database Connection → PostgreSQL**,
+   host `localhost`, port `5432`, database `spm_data`, username
+   `spm_admin`, password from `.env`. Let it download the PostgreSQL JDBC
+   driver on first connect (its own small internal driver cache, not a
+   separate install). Gives a full visual table browser + SQL editor.
+
+**Qdrant, Grafana, Langfuse, MinIO console** — all plain web UIs, just open
+the URL in a browser.
+
+**Portainer** — first visit needs an admin account created within a
+5-minute window (§4.3); if you miss it, `docker restart mof-portainer`
+reopens the window.
+
+**Redis** — no UI; check it's alive with
+`docker exec mof-redis redis-cli -a <REDIS_PASSWORD from .env> ping` (→
+`PONG`), or ask the assistant.
 
 ---
 
