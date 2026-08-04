@@ -54,29 +54,24 @@
 
 ## 2. Not started yet
 
-- [ ] **Mock corpus and mock AD — decided, NOT yet implemented.**
-  ⚠ **Do not create any folders/files for this until explicitly told** —
-  the user may supply their own mock SPM data and SharePoint project
-  folders/documents rather than have these generated. Decisions made
-  (2026-08-04):
-  - **Scale**: 6-8 mock projects.
-  - **Document types**: broader realistic set (beyond the BRD's own named
-    examples of charter/weekly-report/lessons-learned — also meeting
-    minutes, risk register, budget/financial report, handover doc, etc.).
-  - **Document realism**: **real files** (Word/PDF, bilingual
-    Arabic/English, at least one with a table), run through the actual
-    verified `prebuilt-layout` OCR pipeline — not plain-text stubs. This
-    is deliberate: it's the only way to actually exercise the OCR stage
-    before real SharePoint content arrives.
-  - **Storage location**: outside the repo, at **`D:\MOF_DataSample`**
-    (user's own chosen path — not `D:\MOF_Installations`, which is
-    reserved for Docker/tool persistent data per
-    `SOLUTION_ARCHITECTURE.md` §4.4).
-  - **Mock AD users/assignments**: left to the assistant's judgment
-    (not yet designed) — plan is a handful of users, some single-project,
-    at least one multi-project (to exercise the project switcher), and at
-    least one project deliberately unassigned to any test user (to prove
-    isolation). Not implemented yet either.
+- [x] **SPM mock data manifest delivered and saved** —
+  `mock-data/spm_manifest.json`: 8 projects (status mix: 2 on-track, 2
+  at-risk, 2 delayed, 2 completed), 4 mock AD users (3 single-project, 1
+  multi-project — tests the switcher), 2 projects deliberately unassigned
+  to any test user (tests isolation), and a 45-document manifest across 7
+  document types (Project Charter, Weekly Status Report, Meeting Minutes,
+  Risk Register, Budget/Financial Report, Handover Document, Lessons
+  Learned) with realistic language distribution (24 Arabic / 18 mixed / 3
+  English) and table coverage (40/45 docs) for OCR testing. User-authored
+  via a Claude chat prompt, reviewed and committed as-is.
+- [ ] **Actual document files (.docx/.pdf) not yet generated.**
+  ⚠ **Do not generate these until explicitly told** — the manifest
+  describes what each document should contain; turning that into real
+  files (candidate approach: use the assistant's document-creation skill
+  to generate all 45 from the manifest directly) is a separate,
+  not-yet-approved step. Target location once approved:
+  **`D:\MOF_DataSample\<ProjectCode>\<filename>`** (outside the repo,
+  user's own chosen path).
 - [ ] **SPM Postgres schema.** Currently just a placeholder
   (`postgres-spm/init/001_extensions.sql` enables `uuid-ossp`/`pgcrypto`
   only). Needs: projects, users (AD mock), project assignments,
@@ -126,17 +121,19 @@
 | 2026-08-04 | All-Azure cloud providers: Azure OpenAI (LLM + embeddings) + Azure AI Document Intelligence (OCR) | Chosen explicitly among presented options — fits the existing Microsoft/SharePoint/AD ecosystem |
 | 2026-08-04 | OCR model: `prebuilt-layout` (Markdown output), not `prebuilt-read` | `SOLUTION_ARCHITECTURE.md` §4.1 — tables + structure + reading order matter for chunking, user's own suggestion, confirmed |
 | 2026-08-04 | Application tech stack: Python + FastAPI, raw SQL migrations (no ORM), Celery (task queue), LangChain (RAG orchestration) | `SOLUTION_ARCHITECTURE.md` §4.5 — each weighed against an alternative (Arq, hand-rolled) with full tradeoffs; Celery and LangChain both went against the initial recommendation, deliberately, after seeing the tradeoffs |
-| 2026-08-04 | Mock corpus/AD shape decided (6-8 projects, broader document-type set, real files through real OCR, stored at `D:\MOF_DataSample`) — **implementation explicitly on hold**, user may supply their own mock data | §2 above — do not create files/folders for this without being told |
+| 2026-08-04 | Mock corpus/AD shape decided (6-8 projects, broader document-type set, real files through real OCR, stored at `D:\MOF_DataSample`) | §2 above |
+| 2026-08-04 | SPM mock data manifest delivered by user (8 projects/4 users/45-doc manifest) and committed to `mock-data/spm_manifest.json` — **actual .docx/.pdf file generation still on hold** | §2 above — do not generate the 45 files without being told |
 
 ---
 
 ## 5. Immediate next step
 
-**Waiting on the user** — either they supply real mock SPM data and
-SharePoint project folders/documents, or they explicitly say to generate
-the mock corpus per the decisions in §2. Nothing to build here without one
-of those two signals. SPM Postgres schema and ingestion pipeline design
-both depend on this.
+**Waiting on the user** — the SPM data manifest is delivered and
+committed, but generating the actual 45 `.docx`/`.pdf` files under
+`D:\MOF_DataSample` needs explicit go-ahead first. Once that happens (or
+in parallel), the SPM Postgres schema can be designed against the real
+manifest shape (projects/users/assignments/documents tables now have a
+concrete data source to match).
 
 ## 6. Gotchas hit during this phase
 
