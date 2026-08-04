@@ -68,17 +68,27 @@ engine disk from step 1), just not as a visible folder under
 ## 3. Folder layout
 
 ```
-D:\MOF Enjaz Chatbot\infra\        <- tracked in the repo (once git-initialized)
+D:\MOF Enjaz Chatbot\infra\        <- tracked in the repo
   docker-compose.yml
   .env                              <- real secrets, GITIGNORED, never commit
   .env.example                      <- template, safe to commit
-  postgres-spm\init\                <- SQL run once on first postgres-spm start
-                                        (currently just extensions — real SPM
-                                        schema is a separate design step)
+  postgres-spm\init\                <- SQL run ONCE on first container creation
+                                        (extensions only)
+  postgres-spm\migrations\          <- ongoing, additive SPM schema — applied
+                                        manually, see §7. projects, users,
+                                        project_assignments, document_links
+                                        all live here now.
   README.md                         <- setup + service/port/credential reference
+
+D:\MOF_DataSample\                  <- NOT in the repo, the mock document corpus
+  PRJ-01\ ... PRJ-08\                  (fictional, generated from
+                                        mock-data\spm_manifest.json)
+  TEST-PROJECT\                        (13 real sample documents)
 
 D:\MOF_Installations\               <- NOT in the repo, all persistent data + tools
   docker-data\                      <- Docker Desktop's relocated engine disk
+  tools\dbeaver-ce-portable\        <- DBeaver CE, portable (no installer),
+                                        for visually browsing spm_data
   volumes\
     postgres-spm\  qdrant\  redis\
     langfuse-postgres\  langfuse-redis\  langfuse-minio\
@@ -204,3 +214,19 @@ All real values live in `infra/.env` (gitignored) — never duplicated here.
 | `postgres-spm/init/*.sql` | Only runs on **first** container creation. To re-apply: stop the container, delete `D:\MOF_Installations\volumes\postgres-spm\`, then `docker compose up -d postgres-spm` (destructive — wipes existing data) |
 | `postgres-spm/migrations/*.sql` | Ongoing, additive schema changes (new tables, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) — **not auto-applied**. Run manually against the live database: `docker exec -i mof-postgres-spm psql -U spm_admin -d spm_data < infra/postgres-spm/migrations/00N_name.sql`. Numbered sequentially; each file should be safe to re-run (`IF NOT EXISTS` / `ON CONFLICT DO NOTHING`). This is the "raw SQL migrations" pattern from `SOLUTION_ARCHITECTURE.md` §4.5 — distinct from `init/`, which only ever runs once on a fresh volume. |
 | Adding a new service | Follow the pattern in §2: bind-mount its data to `D:\MOF_Installations\volumes\<service>`, add env vars to both `.env` and `.env.example`, never write real secrets into `.env.example` |
+
+---
+
+## 8. SPM database schema (as of migrations 001–009)
+
+| Table | Purpose | Key columns |
+|---|---|---|
+| `projects` | Project entity data | `code` (PK), `name_ar`/`name_en`, `status`, `start_date`, `planned_end_date`, `budget_sar`, `sponsoring_department_ar`/`_en` |
+| `users` | Mock AD accounts | `username` (PK), `full_name_ar`/`_en`, `email` |
+| `project_assignments` | **The access-control boundary** — a project with no row here is invisible to every user, by construction, not application logic (BRD AC09) | `username`, `project_code` (composite PK, both FKs) |
+| `document_links` | Structured project↔document relationship (AC11), source for the knowledge-base page's type + indexing-status columns (AC10) | `project_code` (FK), `filename`, `file_path`, `doc_type` (**free text, not an enum** — real documents don't fit a closed category set), `language`, `contains_table`, `indexing_status` (`pending`/`indexing`/`indexed`/`failed`) |
+
+Current data: 9 projects, 4 users, 6 assignments, 58 document links (45
+fictional + 13 real). Query it via `docker exec -it mof-postgres-spm psql
+-U spm_admin -d spm_data`, or visually via DBeaver (§3) — see
+`STATUS_AND_ROADMAP.md` §7 for exactly what's in `TEST-PROJECT`.

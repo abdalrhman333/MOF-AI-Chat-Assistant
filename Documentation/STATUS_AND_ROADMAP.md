@@ -100,9 +100,19 @@
   Every project folder under `D:\MOF_DataSample\` now has a matching SPM
   row — the gap flagged earlier (real project folders with no SPM entry)
   is closed.
-- [ ] **Remaining SPM schema** — users (AD mock), project assignments,
-  document-project links, indexing status. Only `projects` exists so far;
-  informed by BRD user stories 4–5 (AC08–AC11).
+- [x] **Full SPM schema created and seeded**: `users` (4 mock AD users),
+  `project_assignments` (6 rows — 3 single-project, Noura on 3 projects
+  to exercise the switcher; `PRJ-07`/`PRJ-08`/`TEST-PROJECT` correctly
+  have zero assignments), `document_links` (58 rows — 45 fictional + 13
+  real, `doc_type` deliberately free text not a fixed enum, 14 distinct
+  types across the seeded data, `indexing_status` defaults to `pending`
+  with a check constraint, `file_path` points at the real file under
+  `D:\MOF_DataSample`). Migrations `003`–`009` in
+  `infra/postgres-spm/migrations/`, all applied and verified (row counts,
+  isolation query, per-user assignment counts). Informed by BRD user
+  stories 4–5 (AC08–AC11) — `project_assignments` **is** the AC09 access
+  boundary: a project with no row there is invisible to every user by
+  construction, not by application logic.
 - [ ] **Ingestion pipeline** (SharePoint/mock-corpus scan → OCR → embed →
   index into per-project Qdrant collections). Redis is already running for
   this; no task code exists yet. Depends on the two items above.
@@ -153,16 +163,18 @@
 | 2026-08-04 | All 45 fictional document files generated (8 background agents, one per project) and verified against the manifest | §2 above, §7 below |
 | 2026-08-04 | 15 real sample documents supplied by user; grouped as one `TEST-PROJECT` (13 files) instead of 7 separate real projects — user's explicit override of the initial per-project triage; 2 copies of our own BRD excluded (not sample content) | §7 below |
 | 2026-08-04 | SPM Postgres `projects` table created (`infra/postgres-spm/migrations/`, applied manually, not via init script) and seeded with all 9 project rows (8 fictional + TEST-PROJECT) | §2 above |
+| 2026-08-04 | Downloaded DBeaver CE (portable, no installer) to `D:\MOF_Installations\tools\dbeaver-ce-portable\` for visual Postgres browsing | User request — everything installed for this project stays under D: |
+| 2026-08-04 | Full SPM schema completed: `users`, `project_assignments`, `document_links` tables created and seeded (migrations 003–009) | §2 above — `document_links.doc_type` is free text by design, not a closed enum |
 
 ---
 
 ## 5. Immediate next step
 
-The `projects` table exists and is seeded; the mock corpus (fictional +
-real) is fully placed on disk with every folder now having a matching SPM
-row. Remaining SPM schema pieces (users, assignments, document-project
-links, indexing status) are next, followed by the ingestion pipeline
-design.
+The full SPM schema (`projects`, `users`, `project_assignments`,
+`document_links`) is created and seeded, matching the complete mock
+corpus on disk. Next: the ingestion pipeline (OCR → embed → index into
+per-project Qdrant collections, updating `document_links.indexing_status`
+as it goes), then the workflow engine / chat backend.
 
 ## 6. Gotchas hit during this phase
 
