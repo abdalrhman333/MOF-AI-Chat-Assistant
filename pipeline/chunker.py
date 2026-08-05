@@ -69,6 +69,11 @@ class Block:
     page: int
     level: int = 0     # heading level, 0 for everything else
     atomic: bool = False
+    # Character span in the ORIGINAL markdown. Tracked during parsing rather
+    # than recovered afterwards with str.find(), which returns the first
+    # match and is simply wrong for repeated text or synthesised content.
+    start: int = -1
+    end: int = -1
 
 
 @dataclass
@@ -97,70 +102,96 @@ class Chunk:
         return payload
 
 
-def _strip_furniture(markdown: str) -> str:
-    """Remove repeated page headers/footers — identical on every page, so
-    they add no retrievable meaning and dilute every vector they land in."""
-    return _PAGE_FURNITURE.sub("", markdown)
-
-
 def _parse_blocks(markdown: str) -> list[Block]:
-    """Walk the markdown once, emitting atomic blocks with page numbers."""
+    """Walk the RAW markdown once, emitting blocks with page numbers and
+    true character spans.
+
+    Parses the raw text (skipping page furniture inline rather than
+    stripping it first) so recorded offsets stay aligned with the markdown
+    actually stored in document_content — which is what parent-document
+    retrieval will index into later.
+    """
     blocks: list[Block] = []
     page = 1
     buffer: list[str] = []
+    buffer_start = -1
 
-    def flush_text():
-        nonlocal buffer
-        joined = "\n".join(buffer).strip()
+    lines = markdown.splitlines(keepends=True)
+    offsets: list[int] = []
+    running = 0
+    for line in lines:
+        offsets.append(running)
+        running += len(line)
+
+    def flush_text(end_offset: int):
+        nonlocal buffer, buffer_start
+        joined = "".join(buffer).strip()
         if joined:
-            blocks.append(Block("text", joined, page))
-        buffer = []
+            blocks.append(Block("text", joined, page, start=buffer_start, end=end_offset))
+        buffer, buffer_start = [], -1
 
-    lines = markdown.splitlines()
     i = 0
     while i < len(lines):
-        line = lines[i]
+        raw_line = lines[i]
+        line = raw_line.rstrip("\n")
+        line_start = offsets[i]
+        line_end = line_start + len(raw_line)
+
+        # Repeated page headers/footers are identical on every page: no
+        # retrievable meaning, and they dilute every vector they land in.
+        if _PAGE_FURNITURE.search(line):
+            i += 1
+            continue
 
         if _PAGE_BREAK.search(line):
-            flush_text()
+            flush_text(line_start)
             page += 1
             i += 1
             continue
 
+        stripped = line.strip()
+        matched_container = False
         for open_tag, close_tag, kind in (
             (_TABLE_OPEN, _TABLE_CLOSE, "table"),
             (_FIGURE_OPEN, _FIGURE_CLOSE, "figure"),
         ):
-            if line.strip().startswith(open_tag):
-                flush_text()
+            if stripped.startswith(open_tag):
+                flush_text(line_start)
                 collected = [line]
+                block_start = line_start
                 i += 1
                 while i < len(lines) and close_tag not in lines[i]:
-                    collected.append(lines[i])
+                    collected.append(lines[i].rstrip("\n"))
                     i += 1
+                block_end = line_end
                 if i < len(lines):
-                    collected.append(lines[i])
+                    collected.append(lines[i].rstrip("\n"))
+                    block_end = offsets[i] + len(lines[i])
                     i += 1
                 body = "\n".join(collected).strip()
-                # Empty <figure></figure> carries no text — DI does not OCR
-                # content inside images. Dropping it avoids empty chunks.
-                if kind == "figure" and not re.sub(r"</?figure>", "", body).strip():
-                    break
-                blocks.append(Block(kind, body, page, atomic=True))
+                # An empty <figure></figure> carries no text — DI does not
+                # OCR content inside images. Dropping it avoids empty chunks.
+                if not (kind == "figure" and not re.sub(r"</?figure>", "", body).strip()):
+                    blocks.append(Block(kind, body, page, atomic=True,
+                                        start=block_start, end=block_end))
+                matched_container = True
                 break
-        else:
-            heading = _HEADING.match(line)
-            if heading:
-                flush_text()
-                level = len(heading.group(1))
-                blocks.append(Block("heading", heading.group(2).strip(), page, level=level))
-            else:
-                buffer.append(line)
-            i += 1
+        if matched_container:
             continue
-        continue
 
-    flush_text()
+        heading = _HEADING.match(line)
+        if heading:
+            flush_text(line_start)
+            blocks.append(Block("heading", heading.group(2).strip(), page,
+                                level=len(heading.group(1)),
+                                start=line_start, end=line_end))
+        else:
+            if buffer_start < 0 and stripped:
+                buffer_start = line_start
+            buffer.append(raw_line)
+        i += 1
+
+    flush_text(running)
     return blocks
 
 
@@ -233,8 +264,7 @@ def chunk_markdown(
     meaningless as a vector, while "Budget Report > Financial Summary >
     SAR 4.2M was allocated" actually encodes what the text is about.
     """
-    cleaned = _strip_furniture(markdown)
-    blocks = _parse_blocks(cleaned)
+    blocks = _parse_blocks(markdown)
     if not blocks:
         return []
 
@@ -256,12 +286,12 @@ def chunk_markdown(
             return
         section = _breadcrumb(None, heading_path)
         prefix = _breadcrumb(doc_title, heading_path)
-        embedded = f"{prefix}\n\n{body}" if prefix else body
-        if carry:
-            embedded = f"{carry}\n\n{embedded}"
-        start = cleaned.find(pending[0].text)
-        end = cleaned.find(pending[-1].text)
-        end = end + len(pending[-1].text) if end >= 0 else -1
+        # Breadcrumb first, then overlap, then body — the breadcrumb is what
+        # tells the embedding what this text is about, so it leads.
+        parts = [p for p in (prefix, carry, body) if p]
+        embedded = "\n\n".join(parts)
+        start = min((b.start for b in pending if b.start >= 0), default=-1)
+        end = max((b.end for b in pending if b.end >= 0), default=-1)
         chunks.append(Chunk(
             text=embedded,
             body=body,
@@ -304,8 +334,13 @@ def chunk_markdown(
         if block.atomic and block_tokens > target_tokens:
             emit()
             if block.kind == "table":
+                # Every part inherits the WHOLE table's span: the parts are
+                # synthesised (header + a row subset), so they have no
+                # contiguous span of their own. Pointing at the full table
+                # is both honest and what parent-document retrieval wants.
                 for part in _split_table_by_rows(block.text, target_tokens):
-                    pending = [Block("table", part, block.page, atomic=True)]
+                    pending = [Block("table", part, block.page, atomic=True,
+                                     start=block.start, end=block.end)]
                     pending_tokens = count_tokens(part)
                     emit()
             else:
@@ -314,12 +349,15 @@ def chunk_markdown(
                 emit()
             continue
 
-        # Rule 3: oversized prose is split on sentence boundaries.
+        # Rule 3: oversized prose is split on sentence boundaries (Arabic
+        # '؟' included). Pieces inherit the parent block's span — they're
+        # re-joined text, so they have no exact span of their own.
         if not block.atomic and block_tokens > target_tokens:
             for piece in _pack(re.split(r"(?<=[.!?؟])\s+|\n\n+", block.text), target_tokens):
                 if pending_tokens + count_tokens(piece) > target_tokens:
                     emit()
-                pending.append(Block("text", piece, block.page))
+                pending.append(Block("text", piece, block.page,
+                                     start=block.start, end=block.end))
                 pending_tokens += count_tokens(piece)
             continue
 
