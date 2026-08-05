@@ -38,7 +38,8 @@ This is a **different use case** than a colleague's separate build
 | 1 | **This file** | Entry point, orientation, ground-truth verification |
 | 2 | `SOLUTION_ARCHITECTURE.md` | What the solution must do (BRD-derived scope), the retrieval architecture, and every non-obvious design decision + why |
 | 3 | `INFRASTRUCTURE.md` | The Docker Compose stack: services, ports, how to bring it up, verified gotchas |
-| 4 | `STATUS_AND_ROADMAP.md` | What's actually done vs not, and the immediate next steps |
+| 4 | `STATUS_AND_ROADMAP.md` | What's actually done vs not, decisions log, lessons learned |
+| 5 | **`NEXT_BUILD_PIPELINE.md`** | **If you are here to build the ingestion pipeline, read this** — stage contracts, non-negotiable rules, and known-unknowns |
 
 The original BRD-derived scope document also lives at
 `..\My_Prompts\SOLUTION_SCOPE.md` (verified directly against the source PDF —
@@ -139,7 +140,18 @@ exact done/not-done line.
 > I'm continuing work on the MOF Enjaz Chatbot (AI assistant for منصة إنجاز),
 > at `D:\MOF Enjaz Chatbot`. Before doing anything, read
 > `Documentation\START_HERE.md`, then `Documentation\SOLUTION_ARCHITECTURE.md`
-> and `Documentation\INFRASTRUCTURE.md`. Then verify the live system
-> (`docker compose ps` from `infra\`) rather than trusting the docs blindly.
+> and `Documentation\INFRASTRUCTURE.md`. If the task is building the
+> ingestion pipeline, also read `Documentation\NEXT_BUILD_PIPELINE.md`.
+>
+> Then verify the live system rather than trusting the docs: containers are
+> up, 13 migrations applied, 26 tests passing.
+>
+> Two working rules: use `.venv/Scripts/python`, never system Python; and
+> prefix commands that print with `PYTHONIOENCODING=utf-8`, since most of
+> the corpus is Arabic.
+>
+> Design principle to hold to: **everything must be dynamic, not hardcoded
+> to this specific demo case** — settings belong in `pipeline/config.py`,
+> not as literals in code.
 >
 > My request: <what you want>

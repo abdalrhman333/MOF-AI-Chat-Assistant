@@ -168,6 +168,25 @@ live config file):** Docker Desktop → Settings → General → check "Start
 Docker Desktop when you sign in". **Status: done** — confirmed
 `AutoStart: true` in `settings-store.json` on 2026-08-04.
 
+### 4.5a Python crashes printing Arabic to the console
+
+**Symptom:** `UnicodeEncodeError: 'charmap' codec can't encode characters`
+when a script prints Arabic — even though the data itself is fine.
+
+**Cause:** Windows consoles default to cp1252, which has no Arabic. It's a
+*display* failure, not a data failure, and it will crash a script that was
+otherwise working.
+
+**Fix:** prefix the command with `PYTHONIOENCODING=utf-8`:
+
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q
+PYTHONIOENCODING=utf-8 .venv/Scripts/python some_script.py
+```
+
+Writing to a file with `encoding="utf-8"` is unaffected — only stdout is.
+Expect to need this constantly, since most of the corpus is Arabic.
+
 ### 4.5 Git Bash path mangling when touching container paths
 
 Commands like `docker exec <container> tail /var/log/...` run through Git
