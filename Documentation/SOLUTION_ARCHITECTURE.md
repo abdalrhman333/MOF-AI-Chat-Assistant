@@ -73,12 +73,20 @@ AD login (SSO + OTP)
 | 2 | **Live SPM entity data** | Structured project fields pulled directly by Project ID from SPM (status, dates, metadata — not files). Demo: filled directly into `postgres-spm`, no live SPM API yet | Yes — Postgres |
 | 3 | **CAG** | Documents uploaded mid-chat through the UI get OCR'd and injected directly into the current session's LLM context | **No** — session-scoped only, matches BRD scope item 5 ("supplementary upload," not permanent ingestion) |
 
+**Resolved:**
+- ~~What triggers re-ingestion / index refresh when files change~~ —
+  **answered 2026-08-05 by content hashing.** `document_links.file_hash`
+  (SHA-256, plus `file_size_bytes` as a cheap pre-check) lets the
+  scanner distinguish new / unchanged / modified files, so re-ingestion
+  is triggered by a hash mismatch. Chosen over filesystem modified-time,
+  which is only a hint — copying resets it and SharePoint sync may not
+  preserve it, and stale content producing confidently wrong answers is
+  worse than a slower scan. Migration `012`.
+
 **Open questions, not yet resolved:**
 - Source arbitration when RAG-indexed files and live SPM data disagree or
   overlap (e.g. project status appears in both a weekly report and SPM's
   status field).
-- What triggers re-ingestion / index refresh when SharePoint files change
-  (relevant to the knowledge-base page's "indexing status" column, AC10).
 
 ---
 
