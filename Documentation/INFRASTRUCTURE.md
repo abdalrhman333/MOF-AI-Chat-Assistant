@@ -282,7 +282,62 @@ actually holds.
 
 ---
 
-## 8. SPM database schema (as of migrations 001–012)
+## 7c. Row-level security — the SQL isolation boundary
+
+Two database roles, deliberately:
+
+| Role | Used by | Access |
+|---|---|---|
+| `spm_admin` | **Ingestion pipeline** | Owner — full access, **bypasses RLS** (it legitimately needs cross-project reach to process every document) |
+| `spm_app` | **Chat application** | `SELECT` only, **RLS-constrained to one project** |
+
+`spm_app` is `SELECT`-only because the BRD states the assistant performs no
+write operations against any system — that constraint is now enforced by
+the database rather than by convention (verified: `UPDATE` and `DELETE`
+both return `permission denied`).
+
+### ⚠️ The app MUST use `SET LOCAL`, never `SET`
+
+```sql
+BEGIN;
+SET LOCAL app.current_project  = 'PRJ-03';
+SET LOCAL app.current_username = 'noura.alharbi';
+-- ... queries ...
+COMMIT;   -- scope resets automatically
+```
+
+**A plain `SET` persists on the connection after the request ends.** With a
+connection pool, the next request to borrow that connection inherits the
+previous project's scope — a cross-project leak *created by the isolation
+mechanism itself*. `SET LOCAL` is scoped to the transaction and resets on
+commit or rollback (verified: 5 rows visible inside the transaction, 0
+after commit).
+
+### What this buys
+
+A forgotten `WHERE` clause stops being a breach:
+
+```sql
+-- as spm_app, scoped to PRJ-01
+SELECT * FROM document_links;   -- 5 rows, all PRJ-01 (not 58 across 9 projects)
+SELECT * FROM document_links WHERE project_code = 'PRJ-03';   -- 0 rows
+```
+
+**Fail-closed by construction:** `current_setting(..., true)` returns `NULL`
+when unset, and `code = NULL` is never true — so a session that forgets to
+scope itself sees **nothing**, rather than everything.
+
+### What RLS does *not* solve
+
+If the session is scoped to the wrong project, RLS faithfully serves that
+wrong project. Validating the requested project against
+`project_assignments` before opening the session remains application code —
+but that reduces the places correctness matters from *every query ever
+written* to *one gate that can be reviewed and tested once*.
+
+---
+
+## 8. SPM database schema (as of migrations 001–013)
 
 | Table | Purpose | Key columns |
 |---|---|---|
