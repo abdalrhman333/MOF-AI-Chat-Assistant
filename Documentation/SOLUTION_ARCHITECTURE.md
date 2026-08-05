@@ -278,6 +278,49 @@ HuggingFace tokenizer for an on-prem embedding model is a single change.
 Chunk *boundaries* stay valid across embedding models — only the vector
 dimension changes, meaning re-embedding but never re-chunking.
 
+**Parameters** (defaults in `pipeline/chunker.py`, overridable per
+deployment via `.env` — `CHUNK_TARGET_TOKENS`, `CHUNK_OVERLAP_TOKENS`,
+`CHUNK_MIN_TOKENS`, `CHUNK_SPLIT_HEADING_LEVEL`):
+
+| Setting | Default | Why |
+|---|---|---|
+| Target size | 600 tokens | Large enough for a coherent section, small enough to stay precise |
+| Overlap | 80 tokens | Stops a fact straddling a boundary from being lost |
+| Minimum | 120 tokens | Below this a chunk carries too little signal to retrieve well |
+| Split heading level | 2 (`##`) | Deeper headings stay as breadcrumb context rather than each becoming a chunk |
+
+### 4.7 Qdrant collection naming and chunk payload
+
+**⚠️ Changing the payload schema after indexing means re-indexing the
+entire corpus.** Recording it here so that's a deliberate decision rather
+than an accident.
+
+**Collection per project:** `project_<code>` — e.g. `project_PRJ-03`,
+`project_TEST-PROJECT`. Verified that Qdrant accepts the hyphens present in
+project codes. Vector size **1536**, distance **Cosine** (fixed by
+`text-embedding-3-small`, §4.1). Configured in `pipeline/config.py`
+(`QdrantSettings.collection_for`), not hardcoded at call sites.
+
+**Payload carried on every chunk:**
+
+| Field | Purpose |
+|---|---|
+| `project_code` | Belt-and-braces for AC09. The collection is already per-project, so this is redundant *by design* — a wrong-collection query still can't pass as correct |
+| `document_link_id` | Foreign key back to Postgres for status, path, type |
+| `filename`, `doc_type` | Citation display (AC06) |
+| `page`, `section` | Precise citation — "Budget Report, page 3, Financial Summary" |
+| `chunk_index` | Ordering and de-duplication |
+| `char_start`, `char_end` | Offsets into `document_content.markdown` |
+| `text` | The chunk itself, so rendering a citation needs no second lookup |
+| `has_table` | Lets retrieval or ranking treat tabular chunks differently |
+
+The `char_start`/`char_end` offsets are what enable **parent-document
+retrieval** later: retrieve a small precise chunk, then expand to the
+surrounding section from `document_content` before handing it to the LLM.
+That option exists for free because §`document_content` stores the
+markdown. (These offsets were wrong on 8 of 10 chunks in first testing —
+see `STATUS_AND_ROADMAP.md` §6.)
+
 **Known-open, deliberately:** only 4 of 58 documents have been exercised
 (`.pptx` and the real English charters are untested), there are no unit
 tests yet, and the true measure — whether the right chunk comes back for a

@@ -87,6 +87,17 @@ find "/d/MOF_DataSample" -maxdepth 1 -type d
 python infra/postgres-spm/apply_migrations.py --status   # read-only; expect 13 applied, 0 pending, 0 drifted
 ```
 
+**Python environment** — use the project venv, never system Python:
+
+```bash
+.venv/Scripts/python -m pip install -r requirements.txt   # Windows
+.venv/Scripts/python -c "from pipeline.config import get_settings; print(get_settings().document_root)"
+```
+
+If `.venv/` doesn't exist yet: `python -m venv .venv`, then install.
+`infra/postgres-spm/apply_migrations.py` intentionally needs no
+third-party packages, so the database can be rebuilt without the venv.
+
 **The only application code so far is `pipeline/chunker.py`** — one
 standalone, tested module (markdown in, chunks out). There is no FastAPI
 app, no Celery worker, no frontend. Do not look for `app.py`/`tasks.py`

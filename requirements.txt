@@ -1,0 +1,42 @@
+# Runtime dependencies for the ingestion pipeline and chat backend.
+#
+# Install into the project venv (never system Python):
+#     python -m venv .venv
+#     .venv/Scripts/python -m pip install -r requirements.txt      # Windows
+#     .venv/bin/python     -m pip install -r requirements.txt      # Linux/macOS
+#
+# Direct dependencies only, pinned to the versions actually resolved and
+# tested against on Python 3.13. Transitive dependencies are left to the
+# resolver; run `pip freeze > requirements.lock.txt` if byte-exact
+# reproduction is ever needed.
+#
+# NOTE: infra/postgres-spm/apply_migrations.py deliberately uses NO
+# third-party packages, so the database can be rebuilt before this venv
+# exists — by anyone who has only Docker and a stock Python.
+
+# ---- Database ---------------------------------------------------------
+psycopg[binary]==3.3.4                  # Postgres driver (psycopg3)
+
+# ---- Vector store -----------------------------------------------------
+qdrant-client==1.19.0
+
+# ---- Task queue -------------------------------------------------------
+celery[redis]==5.6.3                    # see SOLUTION_ARCHITECTURE.md 4.5
+
+# ---- Azure model providers -------------------------------------------
+azure-ai-documentintelligence==1.0.2    # OCR: prebuilt-layout
+openai==2.53.0                          # Azure OpenAI: embeddings + LLM
+
+# ---- Chunking ---------------------------------------------------------
+tiktoken==0.13.0                        # token counting. Swap for a HF
+                                        # tokenizer when moving to an
+                                        # on-prem embedding model —
+                                        # SOLUTION_ARCHITECTURE.md 4.6
+
+# ---- Config -----------------------------------------------------------
+python-dotenv==1.2.2                    # loads infra/.env
+
+# LangChain is deliberately NOT here yet. It is the chosen RAG
+# orchestration layer (SOLUTION_ARCHITECTURE.md 4.5) but the ingestion
+# pipeline doesn't need it — it belongs with the chat backend, and
+# installing a large unused dependency tree now would only add churn.

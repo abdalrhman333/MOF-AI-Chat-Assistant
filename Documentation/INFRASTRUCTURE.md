@@ -80,8 +80,17 @@ D:\MOF Enjaz Chatbot\infra\        <- tracked in the repo
   postgres-spm\apply_migrations.py  <- the migration runner
   README.md                         <- setup + service/port/credential reference
 
-D:\MOF Enjaz Chatbot\pipeline\      <- application code (only module so far)
-  chunker.py                        <- markdown -> retrieval chunks
+D:\MOF Enjaz Chatbot\
+  .venv\                            <- project virtualenv, GITIGNORED.
+                                       Never install into system Python.
+  requirements.txt                  <- pinned runtime deps
+  requirements-dev.txt              <- + pytest
+  pipeline\                         <- application code
+    __init__.py
+    config.py                       <- ALL settings, loaded from infra\.env.
+                                       No module reads os.environ directly
+                                       or hardcodes a path/deployment name.
+    chunker.py                      <- markdown -> retrieval chunks
 
 D:\MOF_DataSample\                  <- NOT in the repo, the mock document corpus
   PRJ-01\ ... PRJ-08\                  (fictional, generated from
