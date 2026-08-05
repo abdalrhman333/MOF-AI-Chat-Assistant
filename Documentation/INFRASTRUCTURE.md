@@ -253,8 +253,10 @@ reopens the window.
 | `users` | Mock AD accounts | `username` (PK), `full_name_ar`/`_en`, `email` |
 | `project_assignments` | **The access-control boundary** — a project with no row here is invisible to every user, by construction, not application logic (BRD AC09) | `username`, `project_code` (composite PK, both FKs) |
 | `document_links` | Structured project↔document relationship (AC11), source for the knowledge-base page's type + indexing-status columns (AC10) | `project_code` (FK), `filename`, `file_path`, `doc_type` (**free text, not an enum** — real documents don't fit a closed category set), `language`, `contains_table`, `indexing_status` (`pending`/`indexing`/`indexed`/`failed`) |
+| `document_content` | OCR output cache, 1:1 with `document_links`. Exists so a chunking-strategy change never forces a re-OCR (which costs money per page). **The presence of a row here is the "OCR done" marker** — deliberately avoids a separate `ocr_status` column, so a failed embed/index step never re-pays for OCR | `document_link_id` (PK + FK, cascade), `markdown` (feeds chunking), `raw_response` (JSONB — full DI response, keeps structured tables/geometry that markdown drops), `page_count`, `ocr_model`, `ocr_api_version`, `extracted_at` |
 
 Current data: 9 projects, 4 users, 6 assignments, 58 document links (45
-fictional + 13 real). Query it via `docker exec -it mof-postgres-spm psql
--U spm_admin -d spm_data`, or visually via DBeaver (§3) — see
+fictional + 13 real), 0 document_content rows (populated by the ingestion
+pipeline, not yet built). Query it via `docker exec -it mof-postgres-spm
+psql -U spm_admin -d spm_data`, or visually via DBeaver (§3) — see
 `STATUS_AND_ROADMAP.md` §7 for exactly what's in `TEST-PROJECT`.
