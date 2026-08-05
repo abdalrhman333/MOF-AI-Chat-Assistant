@@ -1,0 +1,15 @@
+# Normalise line endings in the repo so the same file has the same bytes on
+# every machine. Without this, core.autocrlf=true on Windows rewrites LF to
+# CRLF on checkout, which changes file hashes and produces spurious diffs.
+* text=auto eol=lf
+
+# Binary — never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+*.zip binary

@@ -240,12 +240,49 @@ reopens the window.
 | `docker-compose.yml` | `docker compose up -d` (recreates only what changed) |
 | `.env` | `docker compose up -d` (containers using the changed var need recreation — compose handles this automatically on `up -d`) |
 | `postgres-spm/init/*.sql` | Only runs on **first** container creation. To re-apply: stop the container, delete `D:\MOF_Installations\volumes\postgres-spm\`, then `docker compose up -d postgres-spm` (destructive — wipes existing data) |
-| `postgres-spm/migrations/*.sql` | Ongoing, additive schema changes (new tables, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) — **not auto-applied**. Run manually against the live database: `docker exec -i mof-postgres-spm psql -U spm_admin -d spm_data < infra/postgres-spm/migrations/00N_name.sql`. Numbered sequentially; each file should be safe to re-run (`IF NOT EXISTS` / `ON CONFLICT DO NOTHING`). This is the "raw SQL migrations" pattern from `SOLUTION_ARCHITECTURE.md` §4.5 — distinct from `init/`, which only ever runs once on a fresh volume. |
+| `postgres-spm/migrations/*.sql` | Ongoing, additive schema changes. **Add the file, then run the migration runner** (below) — never apply by hand. Numbered sequentially; each file should still be written idempotently (`IF NOT EXISTS` / `ON CONFLICT DO NOTHING`). This is the "raw SQL migrations" pattern from `SOLUTION_ARCHITECTURE.md` §4.5 — distinct from `init/`, which only ever runs once on a fresh volume. |
 | Adding a new service | Follow the pattern in §2: bind-mount its data to `D:\MOF_Installations\volumes\<service>`, add env vars to both `.env` and `.env.example`, never write real secrets into `.env.example` |
 
 ---
 
-## 8. SPM database schema (as of migrations 001–009)
+## 7b. The migration runner
+
+Never apply migrations by hand — use the runner. It's the only thing that
+keeps `schema_migrations` (the record of what's actually been applied) in
+sync with reality.
+
+```bash
+python infra/postgres-spm/apply_migrations.py --status   # preview, changes nothing
+python infra/postgres-spm/apply_migrations.py            # apply anything pending
+```
+
+Rebuilding the database from empty is then one command instead of twelve.
+
+**What it does for you:**
+
+| Guarantee | How |
+|---|---|
+| A migration never half-applies | Each file runs in a **single transaction** — `psql` otherwise autocommits per statement, so a file failing on statement 3 would leave 1–2 applied |
+| No false "applied" records | A migration is recorded **only after** it succeeds |
+| Edited-after-applying is caught | Each file's **SHA-256 is stored and re-verified** every run. Drift stops the run with an explanation |
+| Clear failure when Docker is down | Pre-flight container check, rather than a cryptic docker error |
+| Arabic in seed files survives | SQL is piped to `psql` as raw **bytes**, sidestepping the shell codepage (see §4.5) |
+
+**On drift:** if you edit an already-applied migration, the run refuses —
+the database no longer matches the file that supposedly produced it. Review
+the edit; if it was genuinely cosmetic, `--allow-drift` refreshes the
+recorded checksums.
+
+⚠️ **Checksums are computed on content with line endings normalised to LF,
+not on raw bytes.** This matters: `core.autocrlf=true` on Windows rewrites
+line endings on checkout, so raw-byte hashing would flag every file as
+drifted on a fresh clone. `.gitattributes` pins `*.sql` to LF as a second
+defence — both were needed, and the LF normalisation is the one that
+actually holds.
+
+---
+
+## 8. SPM database schema (as of migrations 001–012)
 
 | Table | Purpose | Key columns |
 |---|---|---|
