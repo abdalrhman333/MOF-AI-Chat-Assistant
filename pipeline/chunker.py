@@ -399,13 +399,16 @@ def _merge_small(chunks: list[Chunk], target: int, doc_title: str | None) -> lis
             body = f"{current.body}\n\n{nxt.body}".strip()
             section = current.section or nxt.section
             prefix = _breadcrumb(doc_title, [section] if section else [])
+            text = f"{prefix}\n\n{body}" if prefix else body
             current = Chunk(
-                text=f"{prefix}\n\n{body}" if prefix else body,
+                text=text,
                 body=body,
                 page=current.page,
                 section=section,
                 chunk_index=current.chunk_index,
-                token_count=count_tokens(body),
+                # Counted on `text`, matching emit(): token_count must
+                # describe what is actually embedded, not just the body.
+                token_count=count_tokens(text),
                 char_start=current.char_start,
                 char_end=nxt.char_end,
                 has_table=current.has_table or nxt.has_table,
