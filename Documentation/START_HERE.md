@@ -40,6 +40,7 @@ This is a **different use case** than a colleague's separate build
 | 3 | `INFRASTRUCTURE.md` | The Docker Compose stack: services, ports, how to bring it up, verified gotchas |
 | 4 | `STATUS_AND_ROADMAP.md` | What's actually done vs not, decisions log, lessons learned |
 | 5 | **`NEXT_BUILD_PIPELINE.md`** | **If you are here to build the ingestion pipeline, read this** — stage contracts, non-negotiable rules, and known-unknowns |
+| 6 | `INVENTORY.md` | Every folder, container, cloud model, and library used on this machine — what it is, why, and how to access it |
 
 The original BRD-derived scope document also lives at
 `..\My_Prompts\SOLUTION_SCOPE.md` (verified directly against the source PDF —
