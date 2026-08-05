@@ -145,11 +145,16 @@
   the schema is ready. **Stage 0 (the scanner) is what replaces the
   currently-seeded `file_path` values with real discovery** — see the note
   at the end of §2.
+- [x] **Chunker test suite** — 26 tests in `tests/`, synthetic cases plus
+  three real Document Intelligence fixtures. **Validated by mutation
+  testing**, not by the suite passing: removing table-header repetition,
+  disabling the small-chunk merge, and reverting offsets to `str.find()`
+  are each caught by the intended test. Found one real bug (`token_count`
+  computed from `.body` in the merge path but `.text` in `emit()`).
 - [ ] **Chunker follow-ups, deferred deliberately** until the pipeline can
-  measure real retrieval: unit tests (before the full corpus run), the
-  54 untested documents (`.pptx` and real English charters especially),
-  and confirming whether the Arabic line-order oddity is a synthetic-file
-  artifact.
+  measure real retrieval: the 54 untested documents (`.pptx` and real
+  English charters especially), and confirming whether the Arabic
+  line-order oddity is a synthetic-file artifact.
 - [ ] **Workflow engine / chat backend.** Needs: language detection +
   rejection of unsupported languages (AC01), intent routing (special vs.
   general/SPM-retrieval, AC02), the three-source retrieval composition
@@ -249,6 +254,29 @@ table-splitting fixes can't silently regress.
 - **Verify safety features by exercising them, not by reading them.** Both
   the checksum-drift bug and the chunker offset bug were invisible on
   inspection and obvious the moment the feature was actually tested.
+- **A passing test suite proves nothing until a test has failed.** Mutation
+  testing (deliberately breaking the code and confirming the right test
+  catches it) exposed a **self-referential test**: it imported
+  `MIN_CHUNK_TOKENS`, so mutating that constant moved the assertion along
+  with it and the test passed against broken code. Assert against literals,
+  not against the thing under test.
+- **Commit working changes before mutating code.** Reverting a mutation
+  with `git checkout` also discarded an uncommitted bug fix, which then
+  showed up as a mysterious failure after "restoring".
+
+---
+
+## 8. Running the tests
+
+```bash
+.venv/Scripts/python -m pytest tests/ -q      # Windows
+```
+
+26 tests, ~0.3s. Fixtures in `tests/fixtures/` are real Document
+Intelligence output, kept deliberately: the chunker's design was corrected
+three times by real markdown contradicting assumptions, so the suite
+guards against regressions on real structure rather than only on tidy
+synthetic input.
 
 ---
 
