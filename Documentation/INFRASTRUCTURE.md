@@ -74,11 +74,14 @@ D:\MOF Enjaz Chatbot\infra\        <- tracked in the repo
   .env.example                      <- template, safe to commit
   postgres-spm\init\                <- SQL run ONCE on first container creation
                                         (extensions only)
-  postgres-spm\migrations\          <- ongoing, additive SPM schema — applied
-                                        manually, see §7. projects, users,
-                                        project_assignments, document_links
-                                        all live here now.
+  postgres-spm\migrations\          <- ongoing, additive SPM schema (001-013).
+                                        Apply with the runner, never by hand
+                                        — see §7b.
+  postgres-spm\apply_migrations.py  <- the migration runner
   README.md                         <- setup + service/port/credential reference
+
+D:\MOF Enjaz Chatbot\pipeline\      <- application code (only module so far)
+  chunker.py                        <- markdown -> retrieval chunks
 
 D:\MOF_DataSample\                  <- NOT in the repo, the mock document corpus
   PRJ-01\ ... PRJ-08\                  (fictional, generated from

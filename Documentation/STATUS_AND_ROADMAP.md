@@ -113,17 +113,51 @@
   stories 4–5 (AC08–AC11) — `project_assignments` **is** the AC09 access
   boundary: a project with no row there is invisible to every user by
   construction, not by application logic.
-- [ ] **Ingestion pipeline** (SharePoint/mock-corpus scan → OCR → embed →
-  index into per-project Qdrant collections). Redis is already running for
-  this; no task code exists yet. Depends on the two items above.
-- [ ] **Workflow engine / chat backend.** No application code exists at
-  all yet — infra, SPM data, and the mock corpus are all real, but nothing
-  reads or serves any of it. Needs: language detection + rejection of
-  unsupported languages (AC01), intent routing (special vs.
+- [x] **Pre-pipeline hardening (points 1–4), each explained before applying:**
+  - **`document_content` table** (migration `010`) — caches OCR markdown +
+    the full DI JSON response, so a chunking change never forces a re-OCR.
+    Row presence doubles as the "OCR done" marker, so a failed embed step
+    never re-pays for OCR.
+  - **Diagnostics columns** (`011`) — `error_message`, `indexed_at`,
+    `chunk_count`. A failed batch becomes debuggable by query instead of
+    by re-running and watching logs.
+  - **Change detection** (`012`) — `file_hash` (SHA-256) +
+    `file_size_bytes`, letting the scanner tell new / unchanged / modified
+    apart. Closed a documented open question in
+    `SOLUTION_ARCHITECTURE.md` §3.3.
+  - **Migration runner** (`infra/postgres-spm/apply_migrations.py`) —
+    single-transaction application, records only after success, stores and
+    re-verifies checksums to catch edited migrations, pre-flight container
+    check. Plus `.gitattributes` and Python `.gitignore` entries.
+    See `INFRASTRUCTURE.md` §7b.
+- [x] **Row-level security** (migration `013`) — SQL isolation is now
+  structural rather than filter-dependent. A `SELECT`-only `spm_app` role
+  scoped by RLS policies; the pipeline keeps `spm_admin`. Fail-closed when
+  unscoped. See `INFRASTRUCTURE.md` §7c and `SOLUTION_ARCHITECTURE.md`
+  §4.2b. **Verified with 7 tests** including the pooled-connection
+  `SET LOCAL` reset.
+- [x] **Chunker** (`pipeline/chunker.py`) — structure-aware, markdown-in
+  contract so on-prem OCR can substitute later. Design corrected by
+  testing against 4 real OCR'd documents. See `SOLUTION_ARCHITECTURE.md`
+  §4.6. *(Not the app skeleton — one standalone module.)*
+- [ ] **Ingestion pipeline** (scan → OCR → chunk → embed → index into
+  per-project Qdrant collections). Redis is running, the chunker exists,
+  the schema is ready. **Stage 0 (the scanner) is what replaces the
+  currently-seeded `file_path` values with real discovery** — see the note
+  at the end of §2.
+- [ ] **Chunker follow-ups, deferred deliberately** until the pipeline can
+  measure real retrieval: unit tests (before the full corpus run), the
+  54 untested documents (`.pptx` and real English charters especially),
+  and confirming whether the Arabic line-order oddity is a synthetic-file
+  artifact.
+- [ ] **Workflow engine / chat backend.** Needs: language detection +
+  rejection of unsupported languages (AC01), intent routing (special vs.
   general/SPM-retrieval, AC02), the three-source retrieval composition
   (§3 of `SOLUTION_ARCHITECTURE.md`), grounded responses with citations
   (AC06), safe fallback for out-of-scope/missing-knowledge queries (AC07),
-  5-second response budget (AC08).
+  5-second response budget (AC08). **Must validate the requested project
+  against `project_assignments` before opening a session** — RLS cannot
+  cover that gate.
 - [ ] **Auth**: AD SSO + OTP + RBAC. Real AD isn't available in dev — needs
   a mock per the BRD's own practical note (`SOLUTION_SCOPE.md`, "Practical
   note for a demo/development build"). True OTP is a hard external
@@ -165,16 +199,33 @@
 | 2026-08-04 | SPM Postgres `projects` table created (`infra/postgres-spm/migrations/`, applied manually, not via init script) and seeded with all 9 project rows (8 fictional + TEST-PROJECT) | §2 above |
 | 2026-08-04 | Downloaded DBeaver CE (portable, no installer) to `D:\MOF_Installations\tools\dbeaver-ce-portable\` for visual Postgres browsing | User request — everything installed for this project stays under D: |
 | 2026-08-04 | Full SPM schema completed: `users`, `project_assignments`, `document_links` tables created and seeded (migrations 003–009) | §2 above — `document_links.doc_type` is free text by design, not a closed enum |
+| 2026-08-05 | Cache OCR output in `document_content` rather than discarding it (migration `010`) | OCR is paid per page and chunking is untuned; without the cache every chunking change re-OCRs the corpus |
+| 2026-08-05 | Change detection by **content hash**, not filesystem mtime (`012`) | mtime is only a hint — copying resets it, SharePoint sync may not preserve it. Stale content producing confident wrong answers beats a slower scan |
+| 2026-08-05 | Migration runner with per-migration transactions + checksum drift detection | `INFRASTRUCTURE.md` §7b — psql autocommits per statement, so a multi-statement migration could otherwise half-apply |
+| 2026-08-05 | Checksums normalise line endings before hashing | Raw-byte hashing broke under `core.autocrlf=true`, flagging every file as drifted on a fresh clone. `.gitattributes` added as a second defence |
+| 2026-08-05 | **Row-level security** with a separate SELECT-only `spm_app` role (`013`) | `SOLUTION_ARCHITECTURE.md` §4.2b — SQL was still filter-based, the same weakness rejected for Qdrant in §4.2 |
+| 2026-08-05 | Chunker contract is **markdown in**, not "Azure DI output" | `SOLUTION_ARCHITECTURE.md` §4.6 — concentrates on-prem migration risk in OCR alone, where it's substitutable |
+| 2026-08-05 | Chunking uses a **fallback ladder**, not heading-splitting alone | Testing showed 2 of 4 real documents have no headings at all; heading-only splitting would produce one unusable mega-chunk for half the corpus |
 
 ---
 
 ## 5. Immediate next step
 
-The full SPM schema (`projects`, `users`, `project_assignments`,
-`document_links`) is created and seeded, matching the complete mock
-corpus on disk. Next: the ingestion pipeline (OCR → embed → index into
-per-project Qdrant collections, updating `document_links.indexing_status`
-as it goes), then the workflow engine / chat backend.
+**The ingestion pipeline.** Everything it needs now exists: schema with
+diagnostics and change detection, OCR caching, a tested chunker, Redis,
+and verified cloud providers.
+
+Four stages:
+
+| Stage | Does | Writes |
+|---|---|---|
+| **0 — Scan** | Walk `D:\MOF_DataSample`, hash each file, upsert rows | `document_links` (**replaces the seeded `file_path` placeholders with real discovery**) |
+| **1 — OCR** | Document Intelligence `prebuilt-layout` → markdown | `document_content` |
+| **2 — Chunk + embed** | `pipeline/chunker.py`, then Azure embeddings | — |
+| **3 — Index** | Upsert vectors into `project_<code>` collections | Qdrant; `indexing_status`, `chunk_count`, `indexed_at` |
+
+Add chunker unit tests before the full corpus run, so the offset and
+table-splitting fixes can't silently regress.
 
 ## 6. Gotchas hit during this phase
 
@@ -185,6 +236,19 @@ as it goes), then the workflow engine / chat backend.
   of issue as the colleague's "PowerShell mangles UTF-8" gotcha — different
   shell, same root cause (don't trust inline args with non-ASCII on
   Windows). Always test Arabic payloads via a file, not an inline `-d`.
+- **Python's text mode writes CRLF on Windows.** Seed migrations generated
+  by a Python script were born with CRLF while Write-tool files had LF —
+  which surfaced later as spurious checksum drift. Related: `git`'s
+  `core.autocrlf=true` rewrites line endings on checkout, so **hashing raw
+  file bytes is unreliable on this machine**; normalise to LF first.
+- **`str.find()` is the wrong way to recover a substring's position.** It
+  returns the *first* match, which is simply wrong for repeated text — and
+  returns nothing at all for synthesised content. Track positions while
+  parsing instead. This produced wrong character offsets on 8 of 10 chunks
+  before being caught.
+- **Verify safety features by exercising them, not by reading them.** Both
+  the checksum-drift bug and the chunker offset bug were invisible on
+  inspection and obvious the moment the feature was actually tested.
 
 ---
 

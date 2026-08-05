@@ -5,8 +5,10 @@ file first.** It tells you what this project is, which documents to read in
 what order, and how to verify the real state of the system before changing
 anything.
 
-**Last verified:** 2026-08-04 (infra + SPM `projects` table + full mock
-corpus in place; no application code yet)
+**Last verified:** 2026-08-05 — infra, full SPM schema (13 migrations,
+row-level security enabled), complete mock corpus, and a tested chunker.
+The ingestion pipeline is the next build; there is no chat backend or
+frontend yet.
 
 ---
 
@@ -81,8 +83,13 @@ find "/d/MOF_DataSample" -maxdepth 1 -type d
 # expect 9 folders, same codes as above
 ```
 
-**No application code exists yet** — only infrastructure, the SPM
-`projects` table, and mock data. Do not look for `app.py`/`tasks.py`
+```bash
+python infra/postgres-spm/apply_migrations.py --status   # read-only; expect 13 applied, 0 pending, 0 drifted
+```
+
+**The only application code so far is `pipeline/chunker.py`** — one
+standalone, tested module (markdown in, chunks out). There is no FastAPI
+app, no Celery worker, no frontend. Do not look for `app.py`/`tasks.py`
 equivalents; they haven't been built. See `STATUS_AND_ROADMAP.md` for the
 exact done/not-done line.
 
@@ -105,6 +112,14 @@ exact done/not-done line.
 4. **Real secrets live only in `infra/.env`** (gitignored). `infra/.env.example`
    is the template with blanks. Never write real secret values into
    documentation or into `.env.example`.
+5. **The chat app connects as `spm_app`, never `spm_admin`** — and every
+   transaction must `SET LOCAL app.current_project`. A plain `SET` persists
+   on a pooled connection and leaks that scope into the next request. Only
+   the ingestion pipeline uses `spm_admin`, because it needs cross-project
+   access. See `INFRASTRUCTURE.md` §7c.
+6. **Never apply migrations by hand** — use
+   `infra/postgres-spm/apply_migrations.py`, or `schema_migrations` stops
+   reflecting reality. See `INFRASTRUCTURE.md` §7b.
 
 ---
 

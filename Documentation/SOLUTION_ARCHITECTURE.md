@@ -122,6 +122,26 @@ Read's flat OCR text. Markdown output gives clean, chunkable structure
 (headings/tables/lists) as direct input to the embedding step, and reading
 order matters more than usual here given Arabic/English/mixed, RTL content.
 
+**Verified against real documents** (not assumed), with findings that
+shaped the chunker (§4.6):
+
+- ✅ **Arabic OCR works well.** A 9-page scanned Arabic PDF with zero
+  extractable text returned in ~9 seconds with correct RTL text and intact
+  heading structure. Roughly 1 second per page, so the full 58-document
+  corpus is only minutes of API time.
+- ⚠️ **Text inside images/diagrams is NOT extracted.** That document had
+  **11 `<figure>` blocks that came back empty**. For graphics-heavy decks,
+  meaningful content will be missed — worth knowing now rather than
+  discovering it as "why can't the assistant answer this?"
+- ⚠️ **Tables are emitted as HTML `<table>`, not markdown pipe tables.**
+- ⚠️ **Headings are often absent** when the source document used visual
+  formatting instead of real heading styles.
+- ❓ **Arabic paragraph line-order appeared reversed** in some of our
+  *synthetically generated* `.docx` files. The genuinely-scanned PDF was
+  correctly ordered, so this is likely an artifact of how those test files
+  were produced rather than a Document Intelligence flaw — **unconfirmed
+  until the full corpus runs.**
+
 Embeddings and OCR deliberately live on a **different Azure account** than
 the LLM — not a deployment-on-the-same-resource setup. Credentials live in
 `infra/.env` (gitignored) under `AZURE_OPENAI_LLM_*`,
@@ -158,6 +178,38 @@ We rejected it for this solution because:
    scale where per-collection overhead costs anything meaningful. We're
    paying almost nothing for the stronger isolation property.
 
+### 4.2b Row-level security — the same guarantee for SQL
+
+§4.2 made *vector* retrieval structurally isolated. SQL was left
+filter-based, which is the identical weakness we rejected for Qdrant:
+
+```sql
+SELECT * FROM document_links;   -- before RLS: all 58 rows, 9 projects, no error
+```
+
+Migration `013` closes it. Two roles: the pipeline keeps using `spm_admin`
+(owner, bypasses RLS, legitimately needs cross-project access), while the
+chat application uses a `SELECT`-only `spm_app` role whose policies scope
+every read to `current_setting('app.current_project')`.
+
+Three properties worth recording:
+
+- **Fail-closed.** An unset session variable yields `NULL`, and `code = NULL`
+  is never true — so forgetting to scope a session returns *nothing*, not
+  everything.
+- **`SET LOCAL`, never `SET`.** A plain `SET` persists on a pooled
+  connection and leaks that scope into the next request — the isolation
+  mechanism becoming the leak. `SET LOCAL` resets on commit.
+- **Writes are denied at the database.** The BRD's "assistant performs no
+  write operations" stops being a convention and becomes enforced.
+
+What RLS does *not* cover: if a session is scoped to the wrong project, it
+faithfully serves that project. Validating the requested project against
+`project_assignments` at session creation is still application code — but
+that's one reviewable gate instead of every query ever written.
+
+Operational detail in `INFRASTRUCTURE.md` §7c.
+
 ### 4.3 Redis added for a future async job queue
 
 Not yet wired to any application code (none exists yet), but added to the
@@ -184,6 +236,54 @@ persistent data — lives under `D:\MOF_Installations`, never C:. See
 
 Exact package versions/pins are a code-time decision, not an architecture
 one — not fixed here.
+
+---
+
+### 4.6 Chunking strategy
+
+Implemented in `pipeline/chunker.py`. **Its input contract is markdown, not
+"Azure DI output"** — deliberately, so an on-prem OCR that emits markdown
+(Docling, marker, PaddleOCR plus a layout post-processor) drops in without
+rewriting it. The risk in going on-prem later is concentrated in OCR, not
+here.
+
+**The design was corrected by testing against four real OCR'd documents**
+rather than reasoning about what the markdown would contain. Three
+assumptions were wrong:
+
+| Assumed | Actual |
+|---|---|
+| Tables are markdown pipe tables | They are **HTML `<table>`** — a pipe-detection rule would never fire |
+| Documents have `##` headings to split on | **Two of four had none** — the source `.docx` used visual formatting instead of Word heading styles, which is common in real documents. Heading-only splitting produces one unusable mega-chunk |
+| Keeping tables whole is sufficient | A 13-row risk register became a single **3,331-token** chunk, diluting any one risk among twelve others |
+
+Resulting rules:
+
+1. **Fallback ladder**, not one rule: split at headings when present →
+   otherwise accumulate structural blocks → split oversized prose on
+   sentence boundaries (Arabic `؟` included).
+2. **Oversized tables split by rows, header repeated** in each part — the
+   header row is what gives every cell beneath it meaning.
+3. **Undersized chunks merged forward** (a heading plus one line carries too
+   little signal to retrieve well).
+4. **Repeated page headers/footers stripped** rather than embedded into
+   every chunk, where they would dilute each vector.
+5. **A breadcrumb prefixes each chunk's embedded text.** This matters more
+   than it appears: `"SAR 4.2M was allocated"` is nearly meaningless as a
+   vector, whereas `"Budget Report > Financial Summary > SAR 4.2M was
+   allocated"` encodes what the text is about.
+
+**Token counting is isolated behind one function** so swapping to a
+HuggingFace tokenizer for an on-prem embedding model is a single change.
+Chunk *boundaries* stay valid across embedding models — only the vector
+dimension changes, meaning re-embedding but never re-chunking.
+
+**Known-open, deliberately:** only 4 of 58 documents have been exercised
+(`.pptx` and the real English charters are untested), there are no unit
+tests yet, and the true measure — whether the right chunk comes back for a
+real question — cannot be assessed until retrieval runs. Chunking quality
+is empirical; storing the markdown (§ `document_content`) is what makes
+iterating on it free.
 
 ---
 
