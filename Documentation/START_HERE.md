@@ -41,6 +41,7 @@ This is a **different use case** than a colleague's separate build
 | 4 | `STATUS_AND_ROADMAP.md` | What's actually done vs not, decisions log, lessons learned |
 | 5 | **`NEXT_BUILD_PIPELINE.md`** | **If you are here to build the ingestion pipeline, read this** — stage contracts, non-negotiable rules, and known-unknowns |
 | 6 | `INVENTORY.md` | Every folder, container, cloud model, and library used on this machine — what it is, why, and how to access it |
+| — | `Enjaz_Solution_Guide.docx` | **For non-technical readers / stakeholders.** Plain-language guide to the whole solution: what it does, how it works, why each choice was made, and how to rebuild it. Not needed for development work |
 
 The original BRD-derived scope document also lives at
 `..\My_Prompts\SOLUTION_SCOPE.md` (verified directly against the source PDF —
