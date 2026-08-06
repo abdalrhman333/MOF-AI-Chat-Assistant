@@ -91,6 +91,13 @@ D:\MOF Enjaz Chatbot\
                                        No module reads os.environ directly
                                        or hardcodes a path/deployment name.
     chunker.py                      <- markdown -> retrieval chunks
+    db.py                           <- the spm_admin connection, and only
+                                       that one. A pipeline module wanting
+                                       spm_app is doing something wrong.
+    scanner.py                      <- Stage 0: walk DOCUMENT_ROOT, hash,
+                                       upsert document_links. Run with
+                                       `python -m pipeline.scanner
+                                        [--project CODE] [--dry-run] [--list]`
 
 D:\MOF_DataSample\                  <- NOT in the repo, the mock document corpus
   PRJ-01\ ... PRJ-08\                  (fictional, generated from
@@ -378,8 +385,15 @@ written* to *one gate that can be reviewed and tested once*.
 | `document_links` | Structured project↔document relationship (AC11), source for the knowledge-base page's type + indexing-status columns (AC10) | `project_code` (FK), `filename`, `file_path`, `doc_type` (**free text, not an enum** — real documents don't fit a closed category set), `language`, `contains_table`, `indexing_status` (`pending`/`indexing`/`indexed`/`failed`). Pipeline diagnostics: `error_message` (why it failed; cleared on later success), `indexed_at` (last successful index — lets AC10 show "indexed 3 days ago", not just "indexed"), `chunk_count` (sanity check — a 20-page doc yielding 1 chunk means the chunker broke). Change detection: `file_hash` (SHA-256; `NULL` = never scanned, treated as new) + `file_size_bytes` (cheap `stat`-based pre-check before hashing) — lets the scanner tell new/unchanged/modified apart so unchanged files are skipped free and edited ones are re-indexed |
 | `document_content` | OCR output cache, 1:1 with `document_links`. Exists so a chunking-strategy change never forces a re-OCR (which costs money per page). **The presence of a row here is the "OCR done" marker** — deliberately avoids a separate `ocr_status` column, so a failed embed/index step never re-pays for OCR | `document_link_id` (PK + FK, cascade), `markdown` (feeds chunking), `raw_response` (JSONB — full DI response, keeps structured tables/geometry that markdown drops), `page_count`, `ocr_model`, `ocr_api_version`, `extracted_at` |
 
-Current data: 9 projects, 4 users, 6 assignments, 58 document links (45
-fictional + 13 real), 0 document_content rows (populated by the ingestion
-pipeline, not yet built). Query it via `docker exec -it mof-postgres-spm
-psql -U spm_admin -d spm_data`, or visually via DBeaver (§3) — see
+Current data (2026-08-06): 9 projects, 4 users, 6 assignments, **58
+document links, all 58 carrying a real SHA-256 and a real `file_path`** —
+Stage 0 has run, so the seeded placeholders are gone. All 58 are
+`indexing_status='pending'`; **0 `document_content` rows**, because Stage 1
+(OCR) is not built yet. Query it via `docker exec -it mof-postgres-spm psql
+-U spm_admin -d spm_data`, or visually via DBeaver (§3) — see
 `STATUS_AND_ROADMAP.md` §7 for exactly what's in `TEST-PROJECT`.
+
+⚠️ **Verifying `file_path` with `LIKE` will lie to you.** `\` is `LIKE`'s
+escape character, so `file_path LIKE 'D:\MOF_DataSample\%'` matches
+**nothing** and looks exactly like a data bug. Use
+`starts_with(file_path, 'D:\MOF_DataSample\')` instead.

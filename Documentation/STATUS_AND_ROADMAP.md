@@ -1,6 +1,6 @@
 # Status & Roadmap — MOF Enjaz Chatbot
 
-**Last verified:** 2026-08-04
+**Last verified:** 2026-08-06
 
 ---
 
@@ -140,11 +140,19 @@
   contract so on-prem OCR can substitute later. Design corrected by
   testing against 4 real OCR'd documents. See `SOLUTION_ARCHITECTURE.md`
   §4.6. *(Not the app skeleton — one standalone module.)*
-- [ ] **Ingestion pipeline** (scan → OCR → chunk → embed → index into
+- [x] **Ingestion pipeline — Stage 0 (discovery)** (`pipeline/scanner.py`,
+  `pipeline/db.py`). Walks `DOCUMENT_ROOT`, hashes every file, upserts
+  `document_links`. **Run over all 58 documents**; the seeded `file_path`
+  placeholders are gone and every row carries a real SHA-256. Verified by
+  hashing all 58 files independently and comparing to the database
+  (58/58 hash + size + path match, 58 distinct hashes), by `certutil`
+  agreeing with one stored hash, and by a second run reporting
+  `unchanged 58, rows written 0`. **35 tests, all 8 mutations caught** —
+  see §9. The manifest is never read: discovery is the filesystem.
+- [ ] **Ingestion pipeline — Stages 1–3** (OCR → chunk + embed → index into
   per-project Qdrant collections). Redis is running, the chunker exists,
-  the schema is ready. **Stage 0 (the scanner) is what replaces the
-  currently-seeded `file_path` values with real discovery** — see the note
-  at the end of §2.
+  the schema is ready, and all 58 rows are `pending` with real hashes
+  waiting for Stage 1.
 - [x] **Chunker test suite** — 26 tests in `tests/`, synthetic cases plus
   three real Document Intelligence fixtures. **Validated by mutation
   testing**, not by the suite passing: removing table-header repetition,
@@ -211,26 +219,31 @@
 | 2026-08-05 | **Row-level security** with a separate SELECT-only `spm_app` role (`013`) | `SOLUTION_ARCHITECTURE.md` §4.2b — SQL was still filter-based, the same weakness rejected for Qdrant in §4.2 |
 | 2026-08-05 | Chunker contract is **markdown in**, not "Azure DI output" | `SOLUTION_ARCHITECTURE.md` §4.6 — concentrates on-prem migration risk in OCR alone, where it's substitutable |
 | 2026-08-05 | Chunking uses a **fallback ladder**, not heading-splitting alone | Testing showed 2 of 4 real documents have no headings at all; heading-only splitting would produce one unusable mega-chunk for half the corpus |
+| 2026-08-06 | Stage 0 decides **five** outcomes per file, not the three in the brief — `PATH_UPDATED` added | `SOLUTION_ARCHITECTURE.md` §4.8. `DOCUMENT_ROOT` is a setting, so repointing it leaves identical bytes at new paths. Treating that as UNCHANGED strands every stored `file_path`; treating it as MODIFIED re-OCRs the whole corpus for a move |
+| 2026-08-06 | A `document_links` row whose file is gone from disk is **reported, never touched** | `SOLUTION_ARCHITECTURE.md` §4.8. One mis-set `DOCUMENT_ROOT` makes every project look empty, and deleting on that signal cascades away the paid-for OCR cache. Chosen over marking it `failed` (conflates two different facts, and the AC10 page would show a red badge for a merely-deleted file) and over adding a `missing` status (a migration for a case with zero observed instances) |
+| 2026-08-06 | `MODIFIED` deletes the `document_content` row; `BACKFILL` keeps it | That row's presence **is** the "OCR done" marker, so a stale one left behind makes Stage 1 skip re-OCR and change detection silently does nothing. A NULL hash means "never scanned", not "content changed" — no evidence the cache is stale, and OCR is billed per page |
+| 2026-08-06 | New files get `doc_type = 'Unclassified'`; existing `doc_type`/`language`/`contains_table` are **never overwritten** | The filesystem cannot know a document's type — classification belongs after OCR, where the text can be read. Guessing from the filename would work only because we generated the fictional filenames ourselves, which is exactly the demo-corpus coupling Stage 0 exists to avoid |
+| 2026-08-06 | Discovery is **recursive**; `filename` stores the project-relative POSIX path | Identical to the bare name for today's flat corpus (verified: 0 spurious inserts across all 58 rows), but a real SharePoint export has folders, and a non-recursive walk would make those documents silently invisible — no error, just missing answers |
 
 ---
 
 ## 5. Immediate next step
 
-**The ingestion pipeline.** Everything it needs now exists: schema with
-diagnostics and change detection, OCR caching, a tested chunker, Redis,
-and verified cloud providers.
+**Stage 1 of the ingestion pipeline — OCR.** Stage 0 is done, so all 58
+rows are `pending` with real hashes and real paths, waiting for it.
 
-Four stages:
+| Stage | Does | Writes | State |
+|---|---|---|---|
+| **0 — Scan** | Walk `DOCUMENT_ROOT`, hash each file, upsert rows | `document_links` (seeded `file_path` placeholders **replaced with real discovery**) | ✅ done, 58/58 |
+| **1 — OCR** | Document Intelligence `prebuilt-layout` → markdown | `document_content` | ⬅ next |
+| **2 — Chunk + embed** | `pipeline/chunker.py`, then Azure embeddings | — | not started |
+| **3 — Index** | Upsert vectors into `project_<code>` collections | Qdrant; `indexing_status`, `chunk_count`, `indexed_at` | not started |
 
-| Stage | Does | Writes |
-|---|---|---|
-| **0 — Scan** | Walk `D:\MOF_DataSample`, hash each file, upsert rows | `document_links` (**replaces the seeded `file_path` placeholders with real discovery**) |
-| **1 — OCR** | Document Intelligence `prebuilt-layout` → markdown | `document_content` |
-| **2 — Chunk + embed** | `pipeline/chunker.py`, then Azure embeddings | — |
-| **3 — Index** | Upsert vectors into `project_<code>` collections | Qdrant; `indexing_status`, `chunk_count`, `indexed_at` |
-
-Add chunker unit tests before the full corpus run, so the offset and
-table-splitting fixes can't silently regress.
+**Stage 1 is where real money starts being spent** (OCR is billed per
+page), so run a single document and read the markdown before batching.
+Its skip condition is the presence of a `document_content` row, which
+Stage 0 already maintains correctly: it drops that row on a content
+change and keeps it otherwise.
 
 ## 6. Gotchas hit during this phase
 
@@ -263,6 +276,37 @@ table-splitting fixes can't silently regress.
 - **Commit working changes before mutating code.** Reverting a mutation
   with `git checkout` also discarded an uncommitted bug fix, which then
   showed up as a mysterious failure after "restoring".
+- **Postgres `LIKE` eats Windows path separators.** `\` is `LIKE`'s default
+  escape character, so
+  `file_path LIKE 'D:\MOF_DataSample\TEST-PROJECT\%'` silently matched
+  **zero** of 13 correct rows — it reads as escaped `M`, `T` and a literal
+  `%`. This looks exactly like a data bug and isn't one. Use
+  `starts_with(file_path, '...')` when verifying Windows paths, and treat a
+  surprising `0` in a verification query as suspect before believing it.
+- **Python byte literals are ASCII-only.** `b"version two — different"` is
+  a `SyntaxError`, not a runtime surprise: `bytes can only contain ASCII
+  literal characters`. Write `"...".encode("utf-8")` in tests that need
+  non-ASCII bytes — which, in this corpus, is most of them.
+- **A setting nobody wrote down is a setting nobody knows exists.**
+  `config.py` read `DOCUMENT_ROOT`, `CHUNK_*` and the OCR model name via
+  `_optional()` defaults, so everything worked — while none of them
+  appeared in `.env` or `.env.example`. The whole "repointing at real
+  SharePoint is a config change" claim rested on a variable that was
+  literally undocumented. `.env.example` had also grown a duplicated
+  `AZURE_DOCUMENT_INTELLIGENCE` block. Anything `config.py` reads belongs
+  in `.env.example`, including the optional ones.
+- **A documented optimisation that optimises nothing.** The schema notes
+  called `file_size_bytes` a "cheap pre-check" that avoids hashing. It
+  doesn't: a differing size proves the file changed, but the new hash still
+  has to be computed in order to be *stored*, so hashing is never actually
+  skipped. The column is worth keeping as a diagnostic — the claim about it
+  was not.
+- **Injecting a connection into a test also excludes the commit path.** The
+  scanner's integration tests pass in a transaction they roll back, which
+  is what keeps them clean — and it means the real
+  `admin_connection()` commit was never exercised by any test. Closed by
+  running the stage live against the corpus; worth remembering for every
+  stage that follows.
 
 ---
 
@@ -272,7 +316,15 @@ table-splitting fixes can't silently regress.
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-26 tests, ~0.3s. Fixtures in `tests/fixtures/` are real Document
+**61 tests, ~2.5s** — `test_chunker.py` 26 + `test_scanner.py` 35.
+
+The scanner's 11 integration tests need `mof-postgres-spm` running. They
+create a throwaway project, exercise the **real** schema and constraints,
+and always roll back — nothing survives the run (verified: no stray rows,
+`document_content` still empty afterwards). If the container is down they
+skip with a clear message rather than failing obscurely.
+
+Fixtures in `tests/fixtures/` are real Document
 Intelligence output, kept deliberately: the chunker's design was corrected
 three times by real markdown contradicting assumptions, so the suite
 guards against regressions on real structure rather than only on tidy
@@ -314,3 +366,44 @@ project content would be actively wrong, not just a style choice.
 **SPM row**: `TEST-PROJECT` exists in the `projects` table (§2 above,
 status `'testing'`, no budget/dates — doesn't map to a real PMO project
 record, it's explicitly a test/QA grouping).
+
+---
+
+## 9. Stage 0 — how it was actually verified (2026-08-06)
+
+Recorded because "the tests pass" is not evidence, and §6 already contains
+two bugs that were invisible on inspection.
+
+**Run on `TEST-PROJECT` first** (13 real files — Arabic filenames, spaces,
+a `.pptx`), then the full 58.
+
+| Property | How it was proven |
+|---|---|
+| Discovery matches the seeded rows | 58 files → `insert 0`, `missing 0`. Any drift in how `filename` is derived would have surfaced as spurious inserts **plus** an equal number of rows reported missing — the two failures are linked, which is what makes the zero meaningful |
+| Hashes are correct | `certutil -hashfile` (an independent tool) on `MOZN Project Charter-V0.1.docx` produced the exact string stored in Postgres |
+| Every row matches disk | All 58 files re-hashed independently and compared: 58/58 match on hash **and** size **and** path; 58 distinct hashes |
+| Idempotent | Second run: `unchanged 58`, `rows written 0` |
+| Curated columns survive | `doc_type`/`language` unchanged; `0` rows became `'Unclassified'` |
+| `--dry-run` is honest | Before/after both `58 rows, 0 hashed` |
+| Tests leave nothing behind | After the suite: no stray project rows, `document_content` still empty |
+
+**The live change-detection proof**, run end-to-end because the
+integration tests inject a rolled-back connection and therefore never
+exercise the real commit path:
+
+1. Copied `TEST-PROJECT` to a scratch folder, repointed `DOCUMENT_ROOT` at
+   it with **no code change** → `path_updated 13`, no re-OCR triggered.
+2. Gave one document a cached `document_content` row and marked it
+   `indexed`, then genuinely edited its bytes → `modified 1`,
+   `unchanged 12`, `OCR cache rows dropped: 1`. Row went
+   `indexed → pending`, hash changed, `indexed_at`/`chunk_count`/
+   `error_message` all cleared.
+3. Repointed back to the real corpus → `path_updated 12` + `modified 1`,
+   ending in a state verified identical to disk.
+
+**Mutation testing — all 8 caught**, each by the test written for it:
+dropping the OCR-cache delete on MODIFIED; dropping it on BACKFILL too;
+treating a moved file as UNCHANGED; clobbering the curated `doc_type`;
+making discovery non-recursive; storing the bare filename instead of the
+relative path; trusting size as a change signal; and letting `--dry-run`
+write. Per §6, the code was committed *before* mutating.

@@ -20,8 +20,8 @@ open it" reference.
 | `My_Prompts\` | `SOLUTION_SCOPE.md` (BRD-derived scope, assistant-authored) + `PRE_PIPELINE_ENHANCEMENTS.md` (user-authored) | Requirements/planning source material |
 | `infra\` | `docker-compose.yml`, `.env` / `.env.example`, `postgres-spm\init\` (one-time) + `migrations\` (13 SQL files, ongoing), `apply_migrations.py`, `README.md` | All infrastructure-as-code |
 | `mock-data\` | `spm_manifest.json` — the 8-project / 4-user / 45-document source data | Small structured data, worth versioning |
-| `pipeline\` | `__init__.py`, `config.py` (all settings), `chunker.py` | The only application code that exists so far |
-| `tests\` | `test_chunker.py` (26 tests) + `tests\fixtures\` (3 real OCR samples) | Test suite plus the real-world data it guards against |
+| `pipeline\` | `__init__.py`, `config.py` (all settings), `chunker.py`, `db.py` (the `spm_admin` connection), `scanner.py` (Stage 0 — discovery) | The only application code that exists so far |
+| `tests\` | `test_chunker.py` (26) + `test_scanner.py` (35) + `tests\fixtures\` (3 real OCR samples) | Test suite plus the real-world data it guards against. The scanner's 11 integration tests need `mof-postgres-spm` up; they roll back and leave nothing behind |
 | `requirements.txt` / `requirements-dev.txt` | Pinned Python dependencies | Reproducible environment |
 | `.venv\` | Project virtualenv | **Gitignored** — machine-specific, never committed |
 | `Tools ACC\` | One screenshot | Not created by the assistant — the chat app's own attachment storage |
@@ -122,6 +122,10 @@ Never into system Python — one of the four gaps closed before the pipeline pha
 ```bash
 docker ps --format "{{.Names}}: {{.Status}}"                     # 11 containers
 python infra/postgres-spm/apply_migrations.py --status           # 13 applied, 0 pending
-.venv/Scripts/python -m pytest tests/ -q                         # 26 passed
+.venv/Scripts/python -m pytest tests/ -q                         # 61 passed
 find /d/MOF_DataSample -maxdepth 1 -type d                       # 9 project folders
+
+# Stage 0 has run — every document_links row carries a real hash:
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.scanner --dry-run
+#   -> unchanged 58, rows written 0
 ```

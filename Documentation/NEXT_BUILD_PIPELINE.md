@@ -30,33 +30,45 @@ D:\MOF_DataSample\<PROJECT>\<file>
 
 ## 2. Stage contracts
 
-### Stage 0 — scan (**start here**)
+### Stage 0 — scan ✅ **BUILT** (`pipeline/scanner.py`, 2026-08-06)
 
-Walk `settings.document_root`, and for every file: derive `project_code`
-from the folder name, compute SHA-256, and **upsert** into
-`document_links`.
+Done and run over all 58 documents. The seeded `file_path` placeholders are
+gone; every row carries a real SHA-256, and all 58 sit at `pending` waiting
+for Stage 1.
 
-⚠️ **The `file_path` values currently in the database are seeded
-placeholders** generated from `mock-data/spm_manifest.json`. Stage 0 is
-what replaces them with real discovery. This is the step that makes the
-solution *dynamic* — dropping a new file into a project folder must make
-it appear, with no code change. The pipeline must never read the manifest.
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.scanner --dry-run
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.scanner --project TEST-PROJECT --list
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.scanner
+```
 
-Decide per file using the stored hash:
+It decides **five** outcomes per file, not the three this brief originally
+specified — `PATH_UPDATED` and the BACKFILL/MODIFIED split were both
+needed. Full reasoning in `SOLUTION_ARCHITECTURE.md` §4.8; verification
+record (mutation testing, live change-detection run) in
+`STATUS_AND_ROADMAP.md` §9.
 
-| Condition | Action |
-|---|---|
-| No row exists | insert, status `pending` |
-| `file_hash` matches | **skip entirely** — already processed, costs nothing |
-| `file_hash` differs | re-OCR and re-index |
+Two corrections to what this brief said:
 
-`file_size_bytes` is a cheap pre-check: a different size proves a change
-without hashing.
+- **`file_size_bytes` is not a cheap pre-check that avoids hashing.** A
+  differing size does prove the file changed, but the new hash still has to
+  be computed in order to be stored — so hashing is never skipped. It's
+  kept as a diagnostic.
+- **The three-row decision table was incomplete.** It has no answer for a
+  file whose bytes are identical but whose path moved (which is what
+  repointing `DOCUMENT_ROOT` produces), nor for a row that has never been
+  scanned but already has cached OCR.
 
-### Stage 1 — OCR
+### Stage 1 — OCR (**start here**)
 
 Only for documents with no `document_content` row (its presence **is** the
-"OCR done" marker — so a failed embed never re-pays for OCR).
+"OCR done" marker — so a failed embed never re-pays for OCR). Stage 0
+already maintains that marker correctly: it drops the row when a file's
+content changes and keeps it otherwise, so the skip condition can be
+trusted.
+
+⚠️ **This is where real money starts being spent** — OCR is billed per
+page. Run one document and read the markdown before batching.
 
 - Model: `settings.models.ocr_model` (`prebuilt-layout`)
 - Must request `outputContentFormat=markdown`
@@ -117,6 +129,17 @@ clear `error_message`.
    `error_message`. Debugging a 58-document batch without it means
    re-running blind.
 5. **Idempotent.** Running twice must not duplicate rows or vectors.
+   Stage 0 demonstrates the bar: a second run over an unchanged corpus
+   reports `unchanged 58, rows written 0`.
+6. **Never overwrite curated data with a derived default.** `doc_type`,
+   `language` and `contains_table` were curated; a stage that can't know
+   them must leave them alone. Stage 0's `'Unclassified'` applies to new
+   rows only.
+7. **Prove a safety feature by breaking it.** Every check added here should
+   be mutation-tested — deliberately broken, with the intended test
+   confirmed to catch it. Commit first: reverting a mutation with
+   `git checkout` will take uncommitted work with it
+   (`STATUS_AND_ROADMAP.md` §6).
 
 ---
 
@@ -127,20 +150,29 @@ clear `error_message`.
 - Use the venv: `.venv/Scripts/python`, never system Python.
 - Full corpus run ≈ **a few minutes** of API time (~1 s/page) and single-
   digit dollars.
-- Test on **one project first** (`PRJ-05`, only 4 documents) before all 58.
+- Test on **one project first** before all 58 — `PRJ-05` is the cheapest
+  (4 documents), `TEST-PROJECT` the most revealing.
 - `TEST-PROJECT` holds 13 real-world files including `.pptx` and a
   scanned PDF — the untested shapes. Expect surprises there and treat
   them as findings, not failures.
+- A Windows console defaults to cp1252 and will crash a working stage the
+  moment it prints an Arabic filename. `pipeline/scanner.py` forces UTF-8
+  on stdout in `main()` rather than relying on the operator remembering
+  `PYTHONIOENCODING` — worth copying into every stage that has a CLI.
 
 ---
 
 ## 5. Verify with
 
 ```bash
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q     # 26 pass
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q     # 61 pass
 
 docker exec -i mof-postgres-spm psql -U spm_admin -d spm_data -c \
   "SELECT indexing_status, count(*) FROM document_links GROUP BY 1;"
+# today: pending | 58
+
+docker exec -i mof-postgres-spm psql -U spm_admin -d spm_data -c \
+  "SELECT count(*) FROM document_content;"     # 0 until Stage 1 runs
 
 curl -s -H "api-key: $QDRANT_API_KEY" http://localhost:6333/collections
 ```

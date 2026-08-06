@@ -5,10 +5,11 @@ file first.** It tells you what this project is, which documents to read in
 what order, and how to verify the real state of the system before changing
 anything.
 
-**Last verified:** 2026-08-05 — infra, full SPM schema (13 migrations,
-row-level security enabled), complete mock corpus, and a tested chunker.
-The ingestion pipeline is the next build; there is no chat backend or
-frontend yet.
+**Last verified:** 2026-08-06 — infra, full SPM schema (13 migrations,
+row-level security enabled), complete mock corpus, a tested chunker, and
+**Stage 0 of the ingestion pipeline (discovery) built and run over all 58
+documents**. Stages 1–3 (OCR → chunk+embed → index) are the next build;
+there is no chat backend or frontend yet.
 
 ---
 
@@ -90,6 +91,18 @@ find "/d/MOF_DataSample" -maxdepth 1 -type d
 python infra/postgres-spm/apply_migrations.py --status   # read-only; expect 13 applied, 0 pending, 0 drifted
 ```
 
+Stage 0 has run, so every `document_links` row now carries a real
+SHA-256 and a real path — not the seeded placeholders:
+
+```bash
+MSYS_NO_PATHCONV=1 docker exec -i mof-postgres-spm psql -U spm_admin -d spm_data -c \
+  "SELECT count(*) total, count(file_hash) hashed FROM document_links;"
+# expect 58 | 58
+
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.scanner --dry-run
+# expect: unchanged 58, rows written 0 — a corpus that hasn't changed is free to re-scan
+```
+
 **Python environment** — use the project venv, never system Python:
 
 ```bash
@@ -101,11 +114,18 @@ If `.venv/` doesn't exist yet: `python -m venv .venv`, then install.
 `infra/postgres-spm/apply_migrations.py` intentionally needs no
 third-party packages, so the database can be rebuilt without the venv.
 
-**The only application code so far is `pipeline/chunker.py`** — one
-standalone, tested module (markdown in, chunks out). There is no FastAPI
-app, no Celery worker, no frontend. Do not look for `app.py`/`tasks.py`
-equivalents; they haven't been built. See `STATUS_AND_ROADMAP.md` for the
-exact done/not-done line.
+**The application code so far is four modules in `pipeline/`** —
+`config.py` (all settings), `chunker.py` (markdown in, chunks out),
+`db.py` (the `spm_admin` connection), and `scanner.py` (Stage 0,
+discovery). There is no FastAPI app, no Celery worker, no frontend. Do not
+look for `app.py`/`tasks.py` equivalents; they haven't been built. See
+`STATUS_AND_ROADMAP.md` for the exact done/not-done line.
+
+The test suite is **61 tests** (`tests/test_chunker.py` 26 +
+`tests/test_scanner.py` 35). The scanner's integration tests need
+`mof-postgres-spm` running — they use the real schema inside a
+transaction they always roll back, and skip with a clear message if the
+container is down.
 
 ---
 

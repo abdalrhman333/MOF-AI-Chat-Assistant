@@ -328,6 +328,62 @@ real question — cannot be assessed until retrieval runs. Chunking quality
 is empirical; storing the markdown (§ `document_content`) is what makes
 iterating on it free.
 
+### 4.8 Stage 0 (discovery) — what the scanner decides, and why
+
+Implemented in `pipeline/scanner.py`. `NEXT_BUILD_PIPELINE.md` §2 specifies
+three outcomes per file; the built stage has **five**, and the two extra
+ones are the interesting part.
+
+| Outcome | When | Effect |
+|---|---|---|
+| `INSERT` | no row exists | new row, `pending`, `doc_type='Unclassified'` |
+| `BACKFILL` | row exists, `file_hash IS NULL` | fill hash/size/path — the seeded-placeholder case |
+| `UNCHANGED` | hash matches, path matches | **zero writes** |
+| `PATH_UPDATED` | hash matches, path differs | update path only |
+| `MODIFIED` | hash differs | reset to `pending` **and drop the OCR cache** |
+
+**`PATH_UPDATED` exists because `DOCUMENT_ROOT` is a setting.** §4.1's
+whole "repointing at real SharePoint is a config change" claim implies the
+root will move — and when it does, the corpus arrives as identical bytes
+at new paths. Calling that `UNCHANGED` strands every stored `file_path` and
+Stage 1 fails to open any of them; calling it `MODIFIED` re-OCRs the entire
+corpus for what was only a move, at per-page billing. Neither of the
+brief's three outcomes is correct for it.
+
+**The `document_content` deletion is the load-bearing line.** That row's
+*presence* is the "OCR done" marker (`INFRASTRUCTURE.md` §8), deliberately
+chosen so a failed embed never re-pays for OCR. The consequence is that a
+stale row left behind on a changed file makes Stage 1 skip re-OCR — and
+change detection, the entire point of migration `012`, silently does
+nothing while appearing to work. So `MODIFIED` deletes it. `BACKFILL`
+does **not**: a NULL hash means "never scanned", not "content changed", so
+there is no evidence the cache is stale.
+
+**A row whose file has vanished is reported, never touched.** The
+alternatives were considered and rejected: marking it `failed` conflates
+"deleted" with "OCR error" and would show a red badge on the AC10
+knowledge-base page for a document that simply no longer exists; adding a
+`missing` status means a migration and a new state for the chat backend to
+handle, designed against zero observed cases. Deleting the row is the
+genuinely dangerous one — one mis-set `DOCUMENT_ROOT` makes every project
+look empty, and the cascade would take the paid-for OCR cache with it. The
+accepted trade-off is real and worth naming: a document deleted from
+SharePoint keeps showing as `indexed` and keeps its vectors until cleanup
+is built. That is a visible bug we can fix deliberately, rather than data
+loss noticed only afterwards.
+
+**Classification is deferred, not guessed.** A newly discovered file gets
+`doc_type='Unclassified'`, and Stage 0 never overwrites `doc_type`,
+`language` or `contains_table` on a row that already exists — those were
+curated from the manifest and the filesystem cannot know them. Deriving the
+type from the filename would have worked on this corpus precisely because
+we generated the filenames, and would fail on `client_template.pptx` or
+`MOZN Project Charter-V0.1.docx`. That is the static-to-the-demo-corpus
+trap this stage exists to avoid.
+
+Verification record — including the mutation testing and the live
+change-detection run — is in `STATUS_AND_ROADMAP.md` §9.
+
 ---
 
 ## 5. Relationship to the colleague's RiskIntel platform
