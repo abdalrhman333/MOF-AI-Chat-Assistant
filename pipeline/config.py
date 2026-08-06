@@ -90,6 +90,28 @@ class AzureModelSettings:
 
 
 @dataclass(frozen=True)
+class ScannerSettings:
+    """Stage 0 (discovery) parameters.
+
+    `ignore_patterns` exists because a real SharePoint sync folder is not
+    just documents. Word writes `~$name.docx` lock files while a document
+    is open, Windows drops `Thumbs.db`/`desktop.ini`, and sync clients
+    leave dotfiles. Without this the scanner would faithfully insert them
+    as documents and Stage 1 would pay Document Intelligence to OCR a lock
+    file.
+
+    `default_doc_type` is what a NEWLY discovered file gets. The filesystem
+    genuinely does not know what kind of document it is holding —
+    classification belongs after OCR, where the text can actually be read.
+    Guessing from the filename would work only because we generated the
+    fictional filenames ourselves, which is exactly the demo-corpus
+    coupling this pipeline must not have.
+    """
+    default_doc_type: str = "Unclassified"
+    ignore_patterns: tuple[str, ...] = ("~$*", ".*", "Thumbs.db", "desktop.ini")
+
+
+@dataclass(frozen=True)
 class ChunkingSettings:
     """Chunking parameters, overridable per deployment via .env.
 
@@ -115,6 +137,19 @@ class Settings:
     qdrant: QdrantSettings
     models: AzureModelSettings
     chunking: ChunkingSettings = field(default_factory=ChunkingSettings)
+    scanner: ScannerSettings = field(default_factory=ScannerSettings)
+
+
+def _scanner_from_env() -> ScannerSettings:
+    """Allow per-deployment tuning without touching code."""
+    raw = _optional("SCANNER_IGNORE_PATTERNS", "")
+    patterns = tuple(p.strip() for p in raw.split(",") if p.strip())
+    return ScannerSettings(
+        default_doc_type=_optional(
+            "SCANNER_DEFAULT_DOC_TYPE", ScannerSettings.default_doc_type
+        ),
+        ignore_patterns=patterns or ScannerSettings.ignore_patterns,
+    )
 
 
 def _chunking_from_env() -> ChunkingSettings:
@@ -174,4 +209,5 @@ def get_settings() -> Settings:
             llm_deployment=_require("AZURE_OPENAI_LLM_DEPLOYMENT"),
         ),
         chunking=_chunking_from_env(),
+        scanner=_scanner_from_env(),
     )
