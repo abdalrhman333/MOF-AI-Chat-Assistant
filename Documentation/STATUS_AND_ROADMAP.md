@@ -318,11 +318,21 @@ change and keeps it otherwise.
 
 **61 tests, ~2.5s** — `test_chunker.py` 26 + `test_scanner.py` 35.
 
-The scanner's 11 integration tests need `mof-postgres-spm` running. They
+The scanner's **9** integration tests need `mof-postgres-spm` running. They
 create a throwaway project, exercise the **real** schema and constraints,
 and always roll back — nothing survives the run (verified: no stray rows,
 `document_content` still empty afterwards). If the container is down they
-skip with a clear message rather than failing obscurely.
+skip with a clear message rather than failing obscurely: the suite reports
+`52 passed, 9 skipped` and takes ~55s instead of ~2s (nine connection
+timeouts). **This was observed for real**, not designed and assumed —
+Docker Desktop restarted mid-session on 2026-08-06 and the suite behaved
+exactly as intended. The same restart also confirmed §4.4 of
+`INFRASTRUCTURE.md`: all 11 containers came back unprompted.
+
+⚠️ Counting note: an earlier draft of this document said "11 integration
+tests". That number came from a `pytest -k` run whose filter also matched
+pure unit tests with similar names. The Docker outage gave the honest
+count. Don't infer a subset's size from a filtered run.
 
 Fixtures in `tests/fixtures/` are real Document
 Intelligence output, kept deliberately: the chunker's design was corrected

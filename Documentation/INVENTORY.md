@@ -21,7 +21,7 @@ open it" reference.
 | `infra\` | `docker-compose.yml`, `.env` / `.env.example`, `postgres-spm\init\` (one-time) + `migrations\` (13 SQL files, ongoing), `apply_migrations.py`, `README.md` | All infrastructure-as-code |
 | `mock-data\` | `spm_manifest.json` — the 8-project / 4-user / 45-document source data | Small structured data, worth versioning |
 | `pipeline\` | `__init__.py`, `config.py` (all settings), `chunker.py`, `db.py` (the `spm_admin` connection), `scanner.py` (Stage 0 — discovery) | The only application code that exists so far |
-| `tests\` | `test_chunker.py` (26) + `test_scanner.py` (35) + `tests\fixtures\` (3 real OCR samples) | Test suite plus the real-world data it guards against. The scanner's 11 integration tests need `mof-postgres-spm` up; they roll back and leave nothing behind |
+| `tests\` | `test_chunker.py` (26) + `test_scanner.py` (35) + `tests\fixtures\` (3 real OCR samples) | Test suite plus the real-world data it guards against. The scanner's 9 integration tests need `mof-postgres-spm` up; they roll back and leave nothing behind. Stack down = `52 passed, 9 skipped`, not a failure |
 | `requirements.txt` / `requirements-dev.txt` | Pinned Python dependencies | Reproducible environment |
 | `.venv\` | Project virtualenv | **Gitignored** — machine-specific, never committed |
 | `Tools ACC\` | One screenshot | Not created by the assistant — the chat app's own attachment storage |
