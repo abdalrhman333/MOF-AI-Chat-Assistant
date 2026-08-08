@@ -99,13 +99,32 @@ def _run_stage(name: str, work) -> dict:
     return {"stage": name, "ok": True, "skipped": False, "seconds": elapsed, **summary}
 
 
+def _summarise(detail) -> str:
+    """One short line describing what a stage produced for one document.
+
+    The stages hand back different things — Stage 1 an `Extraction`, the
+    indexer a chunk count — and logging the object itself is not an option
+    for the former: `Extraction.raw_response` holds the provider's full
+    word-level geometry, so `"%s" % extraction` writes megabytes per
+    document into the log. Found by watching a real scheduled run do
+    exactly that.
+    """
+    markdown = getattr(detail, "markdown", None)
+    if markdown is not None:
+        pages = getattr(detail, "page_count", "?")
+        seconds = getattr(detail, "seconds", "?")
+        via = " via fallback" if getattr(detail, "via_fallback", False) else ""
+        return f"{pages}p, {len(markdown):,} chars, {seconds}s{via}"
+    return f"{detail} chunks"
+
+
 def _progress(stage: str):
     """Per-document logging, so a long run is visible in `docker logs`."""
     def report(doc, detail, error):
         if error:
             log.error("%s: %s FAILED — %s", stage, doc.label, error)
         else:
-            log.info("%s: %s ok (%s)", stage, doc.label, detail)
+            log.info("%s: %s ok (%s)", stage, doc.label, _summarise(detail))
     return report
 
 

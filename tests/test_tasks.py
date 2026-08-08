@@ -239,3 +239,46 @@ def test_ingest_does_not_retry_the_whole_pipeline():
     the stages retry internally. Retrying ingest would repeat work that
     already succeeded — including paid OCR."""
     assert not getattr(tasks.app.tasks["pipeline.ingest"], "autoretry_for", ())
+
+
+# ---------------------------------------------------------------------------
+# Progress logging
+# ---------------------------------------------------------------------------
+
+class FakeExtraction:
+    """Shaped like pipeline.ocr.Extraction, including the huge field."""
+    markdown = "# عنوان\n\nنص عربي."
+    page_count = 9
+    seconds = 1.92
+    via_fallback = False
+    raw_response = {"words": [{"content": "w", "polygon": [1, 2, 3, 4]}] * 5000}
+
+
+def test_ocr_progress_does_not_log_the_whole_provider_response():
+    """REGRESSION: the first version logged the Extraction object itself.
+    `raw_response` carries word-level geometry, so every document wrote
+    megabytes into the log — observed doing exactly that during a real
+    scheduled run. A log that large is a disk-space incident, and it buries
+    the line anyone was actually reading."""
+    line = tasks._summarise(FakeExtraction())
+
+    assert "polygon" not in line
+    assert len(line) < 80
+    assert "9p" in line and "seconds" not in line
+
+
+def test_ocr_progress_reports_what_matters():
+    line = tasks._summarise(FakeExtraction())
+    assert "9p" in line          # pages billed
+    assert "1.92s" in line       # how long it took
+
+
+def test_a_fallback_extraction_is_marked_as_such():
+    """Which extractor ran is worth seeing in the log, not only in the row."""
+    extraction = FakeExtraction()
+    extraction.via_fallback = True
+    assert "via fallback" in tasks._summarise(extraction)
+
+
+def test_the_indexer_detail_is_a_chunk_count():
+    assert tasks._summarise(7) == "7 chunks"
