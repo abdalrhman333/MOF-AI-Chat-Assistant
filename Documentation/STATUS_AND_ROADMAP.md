@@ -170,6 +170,18 @@
 - [x] **The ingestion pipeline is complete end to end** — scan → OCR →
   chunk → embed → index. Every stage is free to re-run on an unchanged
   corpus. Total spend across the whole project: **~$2.51**.
+- [x] **Operational health check** (`pipeline/status.py`) — one command
+  answering when ingestion last succeeded, whether anything failed, and
+  **whether Qdrant still agrees with Postgres**. That last check is the one
+  nothing else performs: the two are written in a single per-document
+  transaction but are separate systems, so a worker killed between the
+  Qdrant upsert and the Postgres commit leaves them disagreeing while every
+  stage still reports no work left. Exit 0 healthy / 1 needs attention, so
+  it works as a cron or container check. **Verified by deliberately
+  deleting 5 vectors** — it went red, named the mismatch, and exited 1.
+  Full observability (OTLP into Grafana) is deliberately deferred to the
+  chat backend, which needs Langfuse alongside it; designing that layer for
+  the pipeline alone would mean designing it blind.
 - [x] **The pipeline is operational, not just working** (2026-08-08).
   It runs as a **containerised Celery worker** (`mof-pipeline-worker`) with
   a scheduler (`mof-pipeline-beat`), both healthchecked and
@@ -259,6 +271,8 @@
 | 2026-08-08 | Vectors are **deleted before upsert**, not upserted alone | An edited document yielding fewer chunks leaves surplus points behind. They stay retrievable and answer current questions with deleted content, with nothing reporting an error |
 | 2026-08-08 | Embedding results re-sorted by the API's own `index` | Trusting arrival order pairs every vector with the wrong payload — invisible, and makes retrieval confidently wrong |
 | 2026-08-08 | Indexing **retries failed documents by default** — opposite of Stage 1 | Cost asymmetry, not inconsistency: re-OCR re-bills per page, re-embedding the whole corpus costs under a cent. When retrying is nearly free, hiding failures serves nobody |
+| 2026-08-08 | Ingest runs on a **daily wall-clock schedule** (13:00 Asia/Amman), not an interval | An interval drifts against the clock every time beat restarts, so "1 PM" slowly stops being 1 PM. The **timezone is part of the schedule**: containers run on UTC, so `hour=13` alone fires at 16:00 in a UTC+3 deployment |
+| 2026-08-08 | Operational monitoring is a **status command**, not OTLP — for now | `pipeline/status.py`. Full observability belongs with the chat backend, which needs Langfuse for LLM traces alongside Grafana for timing; building it for the pipeline alone means designing it blind to its main consumer. The status command has no design decisions that get thrown away when that arrives |
 | 2026-08-08 | `document_links.file_path` stored **relative to DOCUMENT_ROOT**, not absolute | §12. Found by containerising: the host wrote `D:\...` and the worker wrote `/data/...`, so each rewrote all 58 rows every run and Stage 1 could not open a file the other had recorded. A relative path is valid in both |
 | 2026-08-08 | Pipeline runs as a **containerised** Celery worker, not a host process | `SOLUTION_ARCHITECTURE.md` §4.11. Matches every other service (restart-safe, data on D:) and sidesteps Celery's prefork pool not working on Windows, which would have forced `--pool=solo` with no concurrency |
 | 2026-08-08 | **One Celery task per stage**, not per document | Coarse retries are safe *because* the stages are idempotent — a retried OCR task over a finished corpus calls Azure zero times. Per-document fan-out buys parallelism 58 documents don't need |
@@ -427,19 +441,20 @@ What the chat backend walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**178 tests, ~10s** — `test_chunker.py` 26 + `test_scanner.py` 40 +
+**199 tests, ~10s** — `test_chunker.py` 26 + `test_scanner.py` 38 +
 `test_ocr.py` 23 + `test_native_extract.py` 22 + `test_indexer.py` 23 +
-`test_config.py` 13 + `test_locking.py` 12 + `test_tasks.py` 19.
+`test_config.py` 13 + `test_locking.py` 12 + `test_tasks.py` 27 +
+`test_status.py` 15. *(Counted from `--collect-only`, not estimated — this
+number has needed correcting three times when it was inferred instead.)*
 
 `test_locking.py` and `test_tasks.py` need **Redis** as well as Postgres —
 they exercise the real lock, because atomic set-if-absent, expiry and
 compare-and-delete are exactly the properties a fake dictionary would not
 have.
 
-**45 of the 125 tests need `mof-postgres-spm` running** — 9 in
-`test_scanner.py`, all 19 in `test_ocr.py`, 17 in `test_indexer.py`
-(counted from the fixtures, not guessed; see the note below). They create a
-throwaway
+**Most of the 199 tests need `mof-postgres-spm` running**, and
+`test_locking.py` / `test_tasks.py` / `test_status.py` need **Redis** as
+well. They create a throwaway
 project, exercise the **real** schema and constraints, and always roll
 back; nothing survives the run (verified: no stray rows, `document_content`
 untouched). If the container is down they skip with a clear message rather

@@ -190,12 +190,35 @@ def test_all_four_tasks_are_registered():
                           "pipeline.index", "pipeline.ingest"}
 
 
-def test_the_schedule_is_configured_from_settings():
+def test_the_schedule_is_a_daily_wall_clock_time(fake_stages=None):
+    """Not an interval. An interval drifts against the clock every time
+    beat restarts, so "1 PM" slowly stops being 1 PM."""
+    from celery.schedules import crontab
     from pipeline.config import get_settings
 
     entry = tasks.app.conf.beat_schedule["ingest-corpus"]
+    settings = get_settings()
     assert entry["task"] == "pipeline.ingest"
-    assert entry["schedule"] == float(get_settings().celery.schedule_seconds)
+    assert isinstance(entry["schedule"], crontab)
+    assert entry["schedule"].hour == {settings.celery.schedule_hour}
+    assert entry["schedule"].minute == {settings.celery.schedule_minute}
+
+
+def test_the_schedule_timezone_is_applied_to_the_app():
+    """REGRESSION-GUARD: containers run on UTC, so a schedule of hour=13
+    without this fires at 16:00 in a UTC+3 deployment — three hours from
+    what anyone asking for "1 PM" meant."""
+    from pipeline.config import get_settings
+
+    assert str(tasks.app.conf.timezone) == get_settings().celery.schedule_timezone
+    assert str(tasks.app.conf.timezone) != "UTC" or         get_settings().celery.schedule_timezone == "UTC"
+
+
+def test_a_missed_tick_expires_rather_than_firing_a_stale_run():
+    """A machine switched on the next morning must not trigger yesterday's
+    job as though it were due now."""
+    entry = tasks.app.conf.beat_schedule["ingest-corpus"]
+    assert 0 < entry["options"]["expires"] <= 12 * 60 * 60
 
 
 def test_only_json_is_accepted():

@@ -175,11 +175,20 @@ class CelerySettings:
 
     The timeout must exceed the longest plausible run (the full corpus OCR
     took ~5 minutes) or a slow run releases its own lock mid-flight.
+
+    **The schedule is a daily wall-clock time, and the timezone is part of
+    it.** Containers run on UTC, so `hour=13` alone would fire at 13:00 UTC
+    — 16:00 in a UTC+3 deployment, three hours from what anyone asking for
+    "1 PM" meant. Naming the zone is what makes the setting say what it
+    means, and it survives daylight-saving changes that a fixed offset
+    would not.
     """
     broker_url: str
     result_backend: str
     lock_timeout_seconds: int = 3600
-    schedule_seconds: int = 3600
+    schedule_hour: int = 13
+    schedule_minute: int = 0
+    schedule_timezone: str = "Asia/Amman"
 
 
 @dataclass(frozen=True)
@@ -289,8 +298,14 @@ def _celery_from_env() -> CelerySettings:
         lock_timeout_seconds=int(
             _optional("CELERY_LOCK_TIMEOUT", str(CelerySettings.lock_timeout_seconds))
         ),
-        schedule_seconds=int(
-            _optional("INGEST_SCHEDULE_SECONDS", str(CelerySettings.schedule_seconds))
+        schedule_hour=int(
+            _optional("INGEST_SCHEDULE_HOUR", str(CelerySettings.schedule_hour))
+        ),
+        schedule_minute=int(
+            _optional("INGEST_SCHEDULE_MINUTE", str(CelerySettings.schedule_minute))
+        ),
+        schedule_timezone=_optional(
+            "INGEST_SCHEDULE_TIMEZONE", CelerySettings.schedule_timezone
         ),
     )
 

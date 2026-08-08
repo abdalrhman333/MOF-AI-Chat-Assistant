@@ -27,6 +27,7 @@ import logging
 import time
 
 from celery import Celery
+from celery.schedules import crontab
 from celery.signals import setup_logging
 
 from pipeline import indexer, ocr, scanner
@@ -47,13 +48,17 @@ app = Celery(
     backend=_settings.celery.result_backend,
 )
 app.conf.update(
+    # The schedule is a wall-clock time, so the app's timezone IS part of
+    # the schedule. Containers run on UTC; leaving this at UTC would fire a
+    # "1 PM" job at 16:00 in a UTC+3 deployment.
+    timezone=_settings.celery.schedule_timezone,
+    enable_utc=True,
     task_track_started=True,
     # A worker killed mid-task re-queues it. Safe precisely because every
     # stage is idempotent: the replay skips whatever already completed.
     task_acks_late=True,
     worker_prefetch_multiplier=1,     # long tasks: don't hoard queued work
     result_expires=60 * 60 * 24,
-    timezone="UTC",
     # Reject rather than silently accept anything but JSON.
     task_serializer="json",
     result_serializer="json",
@@ -245,11 +250,19 @@ def ingest(project: str | None = None) -> dict:
 app.conf.beat_schedule = {
     "ingest-corpus": {
         "task": "pipeline.ingest",
-        "schedule": float(_settings.celery.schedule_seconds),
+        # Once a day at a fixed wall-clock time, in the timezone configured
+        # above — not an interval. An interval drifts relative to the clock
+        # every time beat restarts, so "1 PM" would slowly stop being 1 PM.
+        "schedule": crontab(
+            hour=_settings.celery.schedule_hour,
+            minute=_settings.celery.schedule_minute,
+        ),
         "args": (),
-        # If beat was down when a tick was due, run once on return rather
-        # than replaying every missed tick.
-        "options": {"expires": _settings.celery.schedule_seconds},
+        # If beat was down when the tick was due, run once on return rather
+        # than firing a run that is now most of a day stale. 6 hours is
+        # generous enough to cover a restart, short enough that a machine
+        # switched on the next morning does not trigger yesterday's job.
+        "options": {"expires": 6 * 60 * 60},
     }
 }
 

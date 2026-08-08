@@ -107,8 +107,13 @@ D:\MOF Enjaz Chatbot\
                                        idempotence does not stop two runs
                                        overlapping and both paying for OCR.
     tasks.py                        <- Celery app, one task per stage, the
-                                       schedule, and a manual trigger:
+                                       schedule (daily 13:00 Asia/Amman),
+                                       and a manual trigger:
                                        `python -m pipeline.tasks ingest --wait`
+    status.py                       <- operational health check. Exit 0
+                                       healthy / 1 needs attention, so it
+                                       works as a cron or container check:
+                                       `python -m pipeline.status [--json]`
     scanner.py                      <- Stage 0: walk DOCUMENT_ROOT, hash,
                                        upsert document_links. Run with
                                        `python -m pipeline.scanner

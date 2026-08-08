@@ -120,8 +120,10 @@ first, and note `--limit N` exists. The whole corpus is ~154 pages ≈ $1.50.
 entire corpus is 295,232 tokens, under a cent.
 
 **Running the pipeline.** It runs itself — `mof-pipeline-beat` fires a full
-ingest every `INGEST_SCHEDULE_SECONDS` (default hourly), so dropping a file
-into a project folder is enough. To trigger one by hand:
+ingest **daily at 13:00 `Asia/Amman`** (`INGEST_SCHEDULE_HOUR` /
+`_MINUTE` / `_TIMEZONE`), so dropping a file into a project folder is
+enough. ⚠️ The timezone is part of the schedule: containers run on UTC, so
+`hour=13` without it would fire at 16:00 local. To trigger one by hand:
 
 ```bash
 # whole corpus, wait for the result
@@ -135,6 +137,21 @@ docker compose exec pipeline-worker python -m pipeline.tasks scan --wait
 
 docker logs -f mof-pipeline-worker      # per-document progress
 ```
+
+**Is it healthy?** One command answers the operational questions —
+when ingestion last succeeded, whether anything failed, and whether Qdrant
+still agrees with Postgres. **Exit 0 healthy, 1 needs attention**, so it
+works as a cron check without parsing the output:
+
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status --json
+```
+
+The Postgres↔Qdrant comparison is the part nothing else does: the two are
+written in one per-document transaction but are separate systems, so a
+worker killed between the Qdrant upsert and the Postgres commit leaves them
+disagreeing while every stage still reports no work left.
 
 A healthy no-op run looks like this — every stage reporting nothing to do:
 
@@ -189,9 +206,9 @@ as a containerised Celery worker** — `mof-pipeline-worker` and
 `mof-pipeline-beat`. There is still no FastAPI app and no frontend. See
 `STATUS_AND_ROADMAP.md` for the exact done/not-done line.
 
-The test suite is **125 tests** (chunker 26, scanner 35, ocr 19,
-native_extract 22, indexer 23). **45 of them need `mof-postgres-spm`
-running** — they use the real schema inside a transaction they always roll
+The test suite is **199 tests** (chunker 26, scanner 38, ocr 23,
+native_extract 22, indexer 23, config 13, locking 12, tasks 27, status 15). **Most need `mof-postgres-spm`
+running, and the locking/tasks/status suites need Redis too** — they use the real schema inside a transaction they always roll
 back, and skip with a clear message if the container is down. The OCR tests
 stub Azure and the indexer tests stub both the embedding API and Qdrant, so
 both paid stages are covered without a paid call or a write to the live
@@ -236,10 +253,11 @@ vector store.
 > ingestion pipeline, also read `Documentation\NEXT_BUILD_PIPELINE.md`.
 >
 > Then verify the live system rather than trusting the docs: 13 containers
-> up, 13 migrations applied and 0 drifted, 125 tests passing, all three
+> up, 13 migrations applied and 0 drifted, 199 tests passing, all three
 > pipeline stages reporting nothing to do (`--dry-run` on
-> `pipeline.scanner`, `pipeline.ocr` and `pipeline.indexer`), and Qdrant
-> holding 9 collections / 678 points.
+> `pipeline.scanner`, `pipeline.ocr` and `pipeline.indexer`), Qdrant
+> holding 9 collections / 678 points, and `python -m pipeline.status`
+> exiting 0.
 >
 > Three working rules: use `.venv/Scripts/python`, never system Python;
 > prefix commands that print with `PYTHONIOENCODING=utf-8`, since most of
