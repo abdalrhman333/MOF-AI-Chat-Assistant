@@ -1,6 +1,6 @@
 # Solution Architecture — MOF Enjaz Chatbot
 
-**Last verified:** 2026-08-04
+**Last verified:** 2026-08-08
 
 This document describes **what the solution must do** (derived from the
 BRD) and **how we decided to build it** — the retrieval architecture, the
@@ -130,7 +130,7 @@ shaped the chunker (§4.6):
   heading structure. Roughly 1 second per page, so the full 58-document
   corpus is only minutes of API time.
 - ⚠️ **Text inside images/diagrams is mostly not extracted.** That document
-  had 11 `<figure>` blocks. Counted precisely on 2026-08-06: **7 were
+  had 11 `<figure>` blocks. Counted precisely on 2026-08-08: **7 were
   completely empty, 3 held a single stray character** (`\+`, `0`, `?`,
   `C`), **and 1 produced a genuine caption** ("Tickets by Category, 156
   Open Tickets in Period"). So Document Intelligence *can* recover figure
@@ -142,7 +142,7 @@ shaped the chunker (§4.6):
 - ⚠️ **Tables are emitted as HTML `<table>`, not markdown pipe tables.**
 - ⚠️ **Headings are often absent** when the source document used visual
   formatting instead of real heading styles.
-- ✅ **Arabic paragraph line-order — RESOLVED 2026-08-06, it does not
+- ✅ **Arabic paragraph line-order — RESOLVED 2026-08-08, it does not
   reproduce.** This was flagged as suspected reversal in some of our
   *synthetically generated* `.docx` files. The full corpus run says
   otherwise. Checked two ways rather than by eye alone: structurally, the

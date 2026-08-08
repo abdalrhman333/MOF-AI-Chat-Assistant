@@ -1,6 +1,6 @@
 # Inventory — Folders, Tools, Models, Libraries
 
-**Last verified:** 2026-08-05
+**Last verified:** 2026-08-08
 
 A tracking reference for everything installed, downloaded, or created on
 this machine for this project — what it is, why it exists, and how to

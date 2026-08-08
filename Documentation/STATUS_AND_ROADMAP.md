@@ -1,6 +1,6 @@
 # Status & Roadmap — MOF Enjaz Chatbot
 
-**Last verified:** 2026-08-06
+**Last verified:** 2026-08-08
 
 ---
 
@@ -163,7 +163,8 @@
   the schema is ready, and **all 58 documents now have markdown** waiting
   for the chunker — including the 54 shapes it has never been tested
   against.
-- [x] **Chunker test suite** — 26 tests in `tests/`, synthetic cases plus
+- [x] **Chunker test suite** — 26 tests in `tests/test_chunker.py`
+  (the suite is now 102 across four modules), synthetic cases plus
   three real Document Intelligence fixtures. **Validated by mutation
   testing**, not by the suite passing: removing table-header repetition,
   disabling the small-chunk merge, and reverting offsets to `str.find()`
@@ -229,16 +230,16 @@
 | 2026-08-05 | **Row-level security** with a separate SELECT-only `spm_app` role (`013`) | `SOLUTION_ARCHITECTURE.md` §4.2b — SQL was still filter-based, the same weakness rejected for Qdrant in §4.2 |
 | 2026-08-05 | Chunker contract is **markdown in**, not "Azure DI output" | `SOLUTION_ARCHITECTURE.md` §4.6 — concentrates on-prem migration risk in OCR alone, where it's substitutable |
 | 2026-08-05 | Chunking uses a **fallback ladder**, not heading-splitting alone | Testing showed 2 of 4 real documents have no headings at all; heading-only splitting would produce one unusable mega-chunk for half the corpus |
-| 2026-08-06 | Stage 0 decides **five** outcomes per file, not the three in the brief — `PATH_UPDATED` added | `SOLUTION_ARCHITECTURE.md` §4.8. `DOCUMENT_ROOT` is a setting, so repointing it leaves identical bytes at new paths. Treating that as UNCHANGED strands every stored `file_path`; treating it as MODIFIED re-OCRs the whole corpus for a move |
-| 2026-08-06 | A `document_links` row whose file is gone from disk is **reported, never touched** | `SOLUTION_ARCHITECTURE.md` §4.8. One mis-set `DOCUMENT_ROOT` makes every project look empty, and deleting on that signal cascades away the paid-for OCR cache. Chosen over marking it `failed` (conflates two different facts, and the AC10 page would show a red badge for a merely-deleted file) and over adding a `missing` status (a migration for a case with zero observed instances) |
-| 2026-08-06 | `MODIFIED` deletes the `document_content` row; `BACKFILL` keeps it | That row's presence **is** the "OCR done" marker, so a stale one left behind makes Stage 1 skip re-OCR and change detection silently does nothing. A NULL hash means "never scanned", not "content changed" — no evidence the cache is stale, and OCR is billed per page |
-| 2026-08-06 | New files get `doc_type = 'Unclassified'`; existing `doc_type`/`language`/`contains_table` are **never overwritten** | The filesystem cannot know a document's type — classification belongs after OCR, where the text can be read. Guessing from the filename would work only because we generated the fictional filenames ourselves, which is exactly the demo-corpus coupling Stage 0 exists to avoid |
-| 2026-08-06 | Discovery is **recursive**; `filename` stores the project-relative POSIX path | Identical to the bare name for today's flat corpus (verified: 0 spurious inserts across all 58 rows), but a real SharePoint export has folders, and a non-recursive walk would make those documents silently invisible — no error, just missing answers |
-| 2026-08-06 | **Every format goes to Document Intelligence**, including `.docx`/`.pptx` whose text is free to read from XML | `SOLUTION_ARCHITECTURE.md` §4.9. Measured across 11 files; **the measurement reversed the recommendation**. The saving native extraction promised evaporates because DI bills a `.docx` as one page — the whole corpus is ~$3 — while native costs merged-cell duplication, a crash, and a second markdown dialect for the chunker |
-| 2026-08-06 | **No native PDF fallback**, ever | Native PDF text is unusable, not merely worse: 36 Arabic characters against DI's 2,623, because text arrives as Arabic presentation forms in visual order. A fallback here would push confident garbage into the vector store with no error anywhere |
-| 2026-08-06 | **Native Office extraction as a fallback only**, after DI fails | DI rejected a valid 749 KB `.docx` as "corrupted" — it was repackaged by a non-Word tool. Without a fallback that document contributes nothing at all. `ocr_model` records which extractor ran, and a rescued document bills 0 pages |
-| 2026-08-06 | A failed OCR writes **no** `document_content` row; a thin result **does** | The row's presence is the "OCR done" marker, so writing one on failure skips a paid step forever. Conversely a scan whose content lives in images can never improve, so marking it `failed` would re-bill it on every future run — it is stored, flagged, and left for a human |
-| 2026-08-06 | Stage 1 commits **per document**, not per run | Unlike Stage 0, whose work is cheap and repeatable, every row here cost money. A batch dying on document 40 must not roll back the 39 already paid for |
+| 2026-08-08 | Stage 0 decides **five** outcomes per file, not the three in the brief — `PATH_UPDATED` added | `SOLUTION_ARCHITECTURE.md` §4.8. `DOCUMENT_ROOT` is a setting, so repointing it leaves identical bytes at new paths. Treating that as UNCHANGED strands every stored `file_path`; treating it as MODIFIED re-OCRs the whole corpus for a move |
+| 2026-08-08 | A `document_links` row whose file is gone from disk is **reported, never touched** | `SOLUTION_ARCHITECTURE.md` §4.8. One mis-set `DOCUMENT_ROOT` makes every project look empty, and deleting on that signal cascades away the paid-for OCR cache. Chosen over marking it `failed` (conflates two different facts, and the AC10 page would show a red badge for a merely-deleted file) and over adding a `missing` status (a migration for a case with zero observed instances) |
+| 2026-08-08 | `MODIFIED` deletes the `document_content` row; `BACKFILL` keeps it | That row's presence **is** the "OCR done" marker, so a stale one left behind makes Stage 1 skip re-OCR and change detection silently does nothing. A NULL hash means "never scanned", not "content changed" — no evidence the cache is stale, and OCR is billed per page |
+| 2026-08-08 | New files get `doc_type = 'Unclassified'`; existing `doc_type`/`language`/`contains_table` are **never overwritten** | The filesystem cannot know a document's type — classification belongs after OCR, where the text can be read. Guessing from the filename would work only because we generated the fictional filenames ourselves, which is exactly the demo-corpus coupling Stage 0 exists to avoid |
+| 2026-08-08 | Discovery is **recursive**; `filename` stores the project-relative POSIX path | Identical to the bare name for today's flat corpus (verified: 0 spurious inserts across all 58 rows), but a real SharePoint export has folders, and a non-recursive walk would make those documents silently invisible — no error, just missing answers |
+| 2026-08-08 | **Every format goes to Document Intelligence**, including `.docx`/`.pptx` whose text is free to read from XML | `SOLUTION_ARCHITECTURE.md` §4.9. Measured across 11 files; **the measurement reversed the recommendation**. The saving native extraction promised evaporates because DI bills a `.docx` as one page — the whole corpus is ~$3 — while native costs merged-cell duplication, a crash, and a second markdown dialect for the chunker |
+| 2026-08-08 | **No native PDF fallback**, ever | Native PDF text is unusable, not merely worse: 36 Arabic characters against DI's 2,623, because text arrives as Arabic presentation forms in visual order. A fallback here would push confident garbage into the vector store with no error anywhere |
+| 2026-08-08 | **Native Office extraction as a fallback only**, after DI fails | DI rejected a valid 749 KB `.docx` as "corrupted" — it was repackaged by a non-Word tool. Without a fallback that document contributes nothing at all. `ocr_model` records which extractor ran, and a rescued document bills 0 pages |
+| 2026-08-08 | A failed OCR writes **no** `document_content` row; a thin result **does** | The row's presence is the "OCR done" marker, so writing one on failure skips a paid step forever. Conversely a scan whose content lives in images can never improve, so marking it `failed` would re-bill it on every future run — it is stored, flagged, and left for a human |
+| 2026-08-08 | Stage 1 commits **per document**, not per run | Unlike Stage 0, whose work is cheap and repeatable, every row here cost money. A batch dying on document 40 must not roll back the 39 already paid for |
 
 ---
 
@@ -384,7 +385,7 @@ including the failure path and the native fallback — is tested against the
 real schema **without a single paid API call**.
 
 **The degradation was observed for real**, not designed and assumed:
-Docker Desktop restarted mid-session on 2026-08-06 and the suite reported
+Docker Desktop restarted mid-session on 2026-08-08 and the suite reported
 `52 passed, 9 skipped` exactly as intended. The same restart also
 confirmed `INFRASTRUCTURE.md` §4.4 — all 11 containers came back
 unprompted.
@@ -440,7 +441,7 @@ record, it's explicitly a test/QA grouping).
 
 ---
 
-## 9. Stage 0 — how it was actually verified (2026-08-06)
+## 9. Stage 0 — how it was actually verified (2026-08-08)
 
 Recorded because "the tests pass" is not evidence, and §6 already contains
 two bugs that were invisible on inspection.
@@ -481,7 +482,7 @@ write. Per §6, the code was committed *before* mutating.
 
 ---
 
-## 10. Stage 1 — the extraction measurement, and how it was verified (2026-08-06)
+## 10. Stage 1 — the extraction measurement, and how it was verified (2026-08-08)
 
 ### 10a. Native extraction vs Document Intelligence, 11 files
 

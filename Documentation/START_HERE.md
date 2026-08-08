@@ -5,7 +5,7 @@ file first.** It tells you what this project is, which documents to read in
 what order, and how to verify the real state of the system before changing
 anything.
 
-**Last verified:** 2026-08-06 — infra, full SPM schema (13 migrations,
+**Last verified:** 2026-08-08 — infra, full SPM schema (13 migrations,
 row-level security enabled), complete mock corpus, a tested chunker, and
 **Stages 0 and 1 of the ingestion pipeline built and run over all 58
 documents** (discovery + OCR — the whole corpus is extracted). Stages 2–3
@@ -178,15 +178,23 @@ so the whole extraction write path is covered without a paid API call.
 > and `Documentation\INFRASTRUCTURE.md`. If the task is building the
 > ingestion pipeline, also read `Documentation\NEXT_BUILD_PIPELINE.md`.
 >
-> Then verify the live system rather than trusting the docs: containers are
-> up, 13 migrations applied, 26 tests passing.
+> Then verify the live system rather than trusting the docs: 11 containers
+> up, 13 migrations applied and 0 drifted, 102 tests passing, and both
+> built stages reporting nothing to do (`pipeline.scanner --dry-run` →
+> `rows written : 0`; `pipeline.ocr --dry-run` → `candidates : 0`).
 >
-> Two working rules: use `.venv/Scripts/python`, never system Python; and
+> Three working rules: use `.venv/Scripts/python`, never system Python;
 > prefix commands that print with `PYTHONIOENCODING=utf-8`, since most of
-> the corpus is Arabic.
+> the corpus is Arabic; and remember `pipeline.ocr` spends money — always
+> `--dry-run` first.
 >
 > Design principle to hold to: **everything must be dynamic, not hardcoded
 > to this specific demo case** — settings belong in `pipeline/config.py`,
 > not as literals in code.
+>
+> Working method that has repeatedly paid for itself here: prove a safety
+> feature by deliberately breaking it and confirming the right test
+> catches it, and commit before doing so. Four real test gaps were found
+> that way; none were visible on inspection.
 >
 > My request: <what you want>

@@ -30,7 +30,7 @@ D:\MOF_DataSample\<PROJECT>\<file>
 
 ## 2. Stage contracts
 
-### Stage 0 — scan ✅ **BUILT** (`pipeline/scanner.py`, 2026-08-06)
+### Stage 0 — scan ✅ **BUILT** (`pipeline/scanner.py`, 2026-08-08)
 
 Done and run over all 58 documents. The seeded `file_path` placeholders are
 gone; every row carries a real SHA-256, and all 58 sit at `pending` waiting
@@ -59,7 +59,7 @@ Two corrections to what this brief said:
   repointing `DOCUMENT_ROOT` produces), nor for a row that has never been
   scanned but already has cached OCR.
 
-### Stage 1 — OCR ✅ **BUILT** (`pipeline/ocr.py`, 2026-08-06)
+### Stage 1 — OCR ✅ **BUILT** (`pipeline/ocr.py`, 2026-08-08)
 
 Done and run over all 58 documents — 57 via `prebuilt-layout`, 1 via the
 native fallback after Azure rejected it. 154 pages billed, ~$1.50.
@@ -218,7 +218,7 @@ whether the right chunk comes back. Chunking quality is empirical, and
 
 ## 6. Known-unknowns, flagged honestly
 
-**Closed by the Stage 1 run (2026-08-06):**
+**Closed by the Stage 1 run (2026-08-08):**
 
 - ~~Only 4 of 58 documents have been through OCR~~ — **all 58 now have
   markdown.** `.pptx` and the real English charters are no longer untested
