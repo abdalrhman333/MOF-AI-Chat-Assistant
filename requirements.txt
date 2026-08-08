@@ -27,6 +27,24 @@ celery[redis]==5.6.3                    # see SOLUTION_ARCHITECTURE.md 4.5
 azure-ai-documentintelligence==1.0.2    # OCR: prebuilt-layout
 openai==2.53.0                          # Azure OpenAI: embeddings + LLM
 
+# ---- Native Office fallback (pipeline/native_extract.py) --------------
+# NOT the primary extraction path. Document Intelligence handles every
+# format; these are used only when it REJECTS an Office file, which it
+# does to valid .docx files repackaged by tools other than Word — the
+# error even claims the content is corrupted when it demonstrably isn't.
+# Without them such a document contributes nothing at all.
+python-docx==1.2.0
+python-pptx==1.0.2
+
+# pdfplumber is deliberately NOT here. It was installed to measure native
+# PDF extraction against Document Intelligence, and the measurement is why
+# there is no PDF fallback: our own generated Arabic PDF yielded 36 Arabic
+# characters against DI's 2,623, because text comes back as Arabic
+# presentation forms in visual order, and an English PDF came back with
+# every letter doubled. It may still be present in a developer venv from
+# that experiment — that is not a dependency, and PDF text must not be
+# extracted this way.
+
 # ---- Chunking ---------------------------------------------------------
 tiktoken==0.13.0                        # token counting. Swap for a HF
                                         # tokenizer when moving to an

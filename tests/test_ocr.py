@@ -292,6 +292,101 @@ def test_a_normal_result_is_not_flagged_thin(db, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Native fallback — only when Document Intelligence refuses an Office file
+# ---------------------------------------------------------------------------
+
+def make_docx(path: pathlib.Path, paragraphs=("Hello",), heading: str | None = None):
+    docx = pytest.importorskip("docx")
+    document = docx.Document()
+    if heading:
+        document.add_heading(heading, level=1)
+    for text in paragraphs:
+        document.add_paragraph(text)
+    document.save(str(path))
+    return path
+
+
+def test_a_rejected_docx_is_rescued_natively(db, tmp_path):
+    """The case this exists for: DI calls a perfectly readable .docx
+    'corrupted', and without a fallback the document contributes nothing."""
+    path = make_docx(tmp_path / "rescued.docx",
+                     paragraphs=["نص عربي للاختبار", "Second paragraph"],
+                     heading="Design Document")
+    link_id = db.execute(
+        "INSERT INTO document_links (project_code, filename, file_path, doc_type) "
+        "VALUES (%s,%s,%s,%s) RETURNING id",
+        (TEST_CODE, "rescued.docx", str(path), "Software Design Document"),
+    ).fetchone()[0]
+
+    report = go(db, StubClient(fail_on="PK"))     # every .docx starts with PK
+
+    assert report.succeeded == [f"{TEST_CODE}/rescued.docx"]
+    assert [label for label, _ in report.recovered] == [f"{TEST_CODE}/rescued.docx"]
+    assert report.failed == []
+    markdown, model = one(db,
+        "SELECT markdown, ocr_model FROM document_content WHERE document_link_id=%s",
+        (link_id,))
+    assert model == "native:python-docx"          # provenance is never ambiguous
+    assert "# Design Document" in markdown        # DI's heading convention
+    assert "نص عربي للاختبار" in markdown
+
+
+def test_a_rescued_document_bills_zero_pages(db, tmp_path):
+    path = make_docx(tmp_path / "free.docx")
+    db.execute("INSERT INTO document_links (project_code, filename, file_path, doc_type) "
+               "VALUES (%s,%s,%s,%s)", (TEST_CODE, "free.docx", str(path), "Charter"))
+
+    report = go(db, StubClient(fail_on="PK"))
+
+    assert report.pages_billed == 0
+
+
+def test_a_rejected_pdf_is_NOT_rescued(db, tmp_path):
+    """Native PDF text was measured as garbage — 36 Arabic characters
+    against DI's 2,623. A fallback that silently produces nonsense is worse
+    than an honest failure, so PDFs must fail."""
+    link_id, _ = add_document(db, tmp_path, name="scan.pdf", body=b"POISON pdf bytes")
+
+    report = go(db, StubClient(fail_on="POISON"))
+
+    assert report.recovered == []
+    assert len(report.failed) == 1
+    rows, = one(db, "SELECT count(*) FROM document_content WHERE document_link_id=%s",
+                (link_id,))
+    assert rows == 0
+
+
+def test_when_both_extractors_fail_the_error_names_both(db, tmp_path):
+    """A batch is debugged through error_message. If it only mentioned the
+    fallback, nobody would know DI was tried first."""
+    link_id, _ = add_document(db, tmp_path, name="broken.docx", body=b"POISON not-a-zip")
+
+    report = go(db, StubClient(fail_on="POISON"))
+
+    assert report.succeeded == []
+    error, = one(db, "SELECT error_message FROM document_links WHERE id=%s", (link_id,))
+    assert "Document Intelligence failed" in error
+    assert "native fallback also failed" in error
+
+
+def test_the_fallback_never_runs_when_azure_succeeds(db, tmp_path):
+    """It is a fallback, not a router. DI stays primary for every format."""
+    path = make_docx(tmp_path / "normal.docx")
+    link_id = db.execute(
+        "INSERT INTO document_links (project_code, filename, file_path, doc_type) "
+        "VALUES (%s,%s,%s,%s) RETURNING id",
+        (TEST_CODE, "normal.docx", str(path), "Charter")).fetchone()[0]
+
+    report = go(db, StubClient(content="# From Azure", pages=3))
+
+    assert report.recovered == []
+    assert report.pages_billed == 3
+    model, = one(db, "SELECT ocr_model FROM document_content WHERE document_link_id=%s",
+                 (link_id,))
+    assert model == "prebuilt-layout"
+
+
+# ---------------------------------------------------------------------------
 # Dry run
 # ---------------------------------------------------------------------------
 

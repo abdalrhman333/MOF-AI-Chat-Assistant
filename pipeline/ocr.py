@@ -66,6 +66,10 @@ class Extraction:
     api_version: str
     model_id: str
     seconds: float
+    # True when Document Intelligence refused the file and a native
+    # extractor rescued it. Recorded so "how was this document read?" is a
+    # query, never a guess — `ocr_model` carries the same fact in the row.
+    via_fallback: bool = False
 
 
 @dataclass
@@ -75,6 +79,7 @@ class OcrReport:
     succeeded: list[str] = field(default_factory=list)
     failed: list[tuple[str, str]] = field(default_factory=list)
     thin: list[tuple[str, int]] = field(default_factory=list)
+    recovered: list[tuple[str, str]] = field(default_factory=list)
     pages_billed: int = 0
     raw_bytes: int = 0
     seconds: float = 0.0
@@ -156,6 +161,32 @@ def extract(path: pathlib.Path, settings: Settings, client) -> Extraction:
     )
 
 
+def extract_natively(path: pathlib.Path) -> Extraction:
+    """Fallback for an Office file Document Intelligence refused.
+
+    Only reached after DI has already failed, and only for the formats
+    `native_extract` supports — a PDF has no honest fallback, because
+    native PDF text was measured as garbage rather than merely worse.
+    """
+    from pipeline import native_extract
+
+    started = time.time()
+    markdown, model_label, version, pages = native_extract.extract(path)
+    return Extraction(
+        markdown=markdown,
+        # No provider JSON exists here. Recording why the fallback ran
+        # keeps `raw_response` meaningful rather than an empty object that
+        # looks like a truncated API result.
+        raw_response={"extractor": model_label, "extractor_version": version,
+                      "note": "native fallback — Document Intelligence rejected this file"},
+        page_count=pages,
+        api_version=version,
+        model_id=model_label,
+        seconds=round(time.time() - started, 2),
+        via_fallback=True,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Persistence
 # ---------------------------------------------------------------------------
@@ -186,6 +217,27 @@ def _store(cursor, doc: PendingDocument, extraction: Extraction) -> None:
         "UPDATE document_links SET indexing_status='pending', error_message=NULL "
         "WHERE id=%s", (doc.id,),
     )
+
+
+def _try_fallback(path: pathlib.Path, primary_error: Exception) -> Extraction:
+    """Rescue an Office file, or re-raise so the failure stays honest.
+
+    The re-raised error mentions both attempts. Debugging a batch through
+    `error_message` is much harder if the record only says the fallback
+    failed and never mentions that Document Intelligence was tried first.
+    """
+    from pipeline import native_extract
+
+    if not native_extract.can_handle(path):
+        raise primary_error
+    try:
+        return extract_natively(path)
+    except Exception as fallback_error:               # noqa: BLE001
+        raise RuntimeError(
+            f"Document Intelligence failed ({type(primary_error).__name__}: "
+            f"{primary_error}); native fallback also failed "
+            f"({type(fallback_error).__name__}: {fallback_error})"
+        ) from fallback_error
 
 
 def _record_failure(cursor, doc: PendingDocument, message: str) -> None:
@@ -258,10 +310,19 @@ def _run_with(conn, settings: Settings, project: str | None, dry_run: bool,
                 # Caught before the API call — a missing file is free to
                 # fail, and paying to discover it would be silly.
                 raise FileNotFoundError(f"file not on disk: {path}")
-            extraction = extract(path, settings, client)
+            try:
+                extraction = extract(path, settings, client)
+            except Exception as primary_error:       # noqa: BLE001
+                # Document Intelligence refused the file. For an Office
+                # format that is recoverable — a valid .docx repackaged by
+                # something other than Word is rejected as "corrupted"
+                # while being perfectly readable. Anything else, including
+                # every PDF, fails honestly.
+                extraction = _try_fallback(path, primary_error)
+                report.recovered.append((doc.label, f"{type(primary_error).__name__}"))
             _store(cursor, doc, extraction)
             report.succeeded.append(doc.label)
-            report.pages_billed += extraction.page_count
+            report.pages_billed += 0 if extraction.via_fallback else extraction.page_count
             report.raw_bytes += len(str(extraction.raw_response))
             if len(extraction.markdown) < settings.ocr.thin_result_chars:
                 report.thin.append((doc.label, len(extraction.markdown)))
@@ -305,6 +366,14 @@ def format_report(report: OcrReport, list_files: bool = False) -> str:
             f"  raw_response : {report.raw_bytes / 1_048_576:.1f} MB",
             f"  elapsed    : {report.seconds}s",
         ]
+        if report.recovered:
+            lines.append("")
+            lines.append(
+                f"  RECOVERED — {len(report.recovered)} document(s) were rejected by "
+                f"Document Intelligence and extracted natively instead. Billed 0 pages. "
+                f"Check `ocr_model` to see which extractor produced them:"
+            )
+            lines.extend(f"      {label} — DI raised {err}" for label, err in report.recovered)
         if report.thin:
             lines.append("")
             lines.append(
