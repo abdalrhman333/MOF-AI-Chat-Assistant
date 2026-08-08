@@ -107,6 +107,11 @@ The three sources from `SOLUTION_ARCHITECTURE.md` §3.3:
 | Live SPM | Structured fields by project code from Postgres | yes — Postgres |
 | CAG | Documents uploaded mid-chat, OCR'd into session context only | **no** — session-scoped |
 
+**When two sources disagree, show both.** Attribute each — "SPM, updated
+2026-08-01" vs "Weekly Status Report, 2026-07-12" — and let the project
+manager judge. Do not rank them and return a winner. §3.3 of
+`SOLUTION_ARCHITECTURE.md` has the reasoning and the implementation notes.
+
 Citations come free: every payload already carries `filename`, `doc_type`,
 `page`, `section`, plus `char_start`/`char_end` for parent-document
 expansion if it turns out to be needed.
@@ -140,13 +145,19 @@ infrastructure was built; `grafana-lgtm:4317` accepts OTLP gRPC.
 4. **Answers are grounded only in retrieved content**, with the source
    cited (AC06). An answer the model produced from its own knowledge is a
    defect, not a bonus.
-5. **Prove a safety feature by breaking it.** Every check should be
+5. **Never silently resolve a conflict between sources.** When SPM and an
+   indexed document disagree about the same fact, present **both**,
+   attribute each with its date, and let the project manager decide. The
+   assistant is informational and has no authority to adjudicate — and
+   picking a winner invisibly means the PM never learns the sources
+   disagree, which is often the most useful thing in the answer.
+6. **Prove a safety feature by breaking it.** Every check should be
    mutation-tested — deliberately broken, with the intended test confirmed
    to catch it. Commit *before* mutating: `git checkout` will take
    uncommitted work with it. 44 mutations were run across the pipeline and
    four real test gaps were found this way; none were visible on
    inspection.
-6. **Verify against the running system, not against a document.** Three of
+7. **Verify against the running system, not against a document.** Three of
    the pipeline's worst defects were invisible to a passing test suite and
    appeared only when something was actually run (§6).
 
@@ -154,11 +165,16 @@ infrastructure was built; `grafana-lgtm:4317` accepts OTLP gRPC.
 
 ## 5. Known-unknowns, flagged honestly
 
-- **⚠️ Source arbitration is an unresolved DESIGN decision, not a coding
-  one.** `SOLUTION_ARCHITECTURE.md` §3.3 has carried it as open since the
-  architecture was written: what wins when a weekly report and SPM's status
-  field disagree about the same project? This blocks Step 3 and should be
-  decided with the user, not guessed.
+- ~~Source arbitration is an unresolved design decision~~ — **decided
+  2026-08-09, no longer blocking.** When a weekly report and SPM's status
+  field disagree, **present both, attribute each to its source, and let the
+  project manager decide.** Never silently pick a winner: the assistant is
+  purely informational and has no authority to adjudicate, and resolving it
+  invisibly means the PM never learns the sources disagree. Full reasoning
+  and implementation notes in `SOLUTION_ARCHITECTURE.md` §3.3 — read them
+  before building step 3, particularly that conflict detection is a
+  prompting concern, not a deterministic diff, and that attribution must
+  carry dates.
 - **AC06 and AC08 pull against each other.** Reranking, retrieving more
   candidates, or expanding to parent documents all improve grounding and
   all cost seconds. The 5-second budget is the constraint; the evaluation

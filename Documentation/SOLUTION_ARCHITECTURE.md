@@ -83,10 +83,45 @@ AD login (SSO + OTP)
   preserve it, and stale content producing confidently wrong answers is
   worse than a slower scan. Migration `012`.
 
+- ~~Source arbitration when RAG-indexed files and live SPM data disagree~~
+  — **answered 2026-08-09 by the user: present BOTH, attribute each to its
+  source, and let the project manager decide.**
+
+  The alternative was to rank the sources and silently return the winner
+  (SPM's structured field beats a weekly report, or the most recent wins).
+  Rejected, for three reasons:
+
+  1. **The assistant has no authority to adjudicate.** The BRD defines it
+     as purely informational and read-only. Choosing between a weekly
+     report saying "delayed" and SPM saying "on track" is a project
+     judgement, and making it invisibly means the PM never learns the two
+     disagree — which is itself often the most useful thing in the answer.
+  2. **It is what AC06 already requires.** Answers must be grounded with
+     the source cited. Two grounded, cited claims is a *fuller* answer than
+     one, not a hedge.
+  3. **Neither source is reliably right.** SPM is the system of record for
+     status, but a weekly report can be more recent, or carry the reason
+     behind a number that the field cannot express.
+
+  **Implementation notes for whoever builds it** (`NEXT_BUILD_CHAT_BACKEND.md`
+  §3, step 3):
+
+  - Conflict detection is **not a deterministic diff**. "Status: at-risk"
+    in SPM and a sentence in a weekly report are the same fact in different
+    shapes. The mechanism is to hand the LLM both sources with explicit
+    provenance and instruct it to *surface* disagreement rather than
+    resolve it — never to compute a winner in code.
+  - **Attribution must carry dates.** "SPM, updated 2026-08-01" against
+    "Weekly Status Report, 2026-07-12" is often all a PM needs to decide.
+    Without dates, presenting both is just confusing.
+  - **Do not over-trigger.** Flagging a conflict on every wording
+    difference turns a useful signal into noise. Only genuine factual
+    disagreement about the same attribute.
+  - Costs essentially nothing against the AC08 five-second budget: this is
+    a prompting and presentation decision, not extra retrieval.
+
 **Open questions, not yet resolved:**
-- Source arbitration when RAG-indexed files and live SPM data disagree or
-  overlap (e.g. project status appears in both a weekly report and SPM's
-  status field).
+- *(none currently)*
 
 ---
 
