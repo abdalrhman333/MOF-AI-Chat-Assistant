@@ -1,0 +1,1215 @@
+<title>MOF Enjaz Chatbot — How the Built System Works</title>
+
+<style>
+  :root {
+    --paper:   #F2F4F3;
+    --panel:   #E8ECEB;
+    --panel-2: #DEE4E2;
+    --ink:     #0E1918;
+    --ink-2:   #4C5C5A;
+    --rule:    #C6D0CE;
+    --petrol:  #0B5D59;
+    --ochre:   #8A5A06;
+    --ochre-bg:#F0E3CC;
+    --crimson: #8E2B2B;
+
+    --serif: "Palatino Linotype", "Book Antiqua", "Iowan Old Style", Palatino, Georgia, serif;
+    --sans:  "Aptos", "Segoe UI Variable Text", "Segoe UI", -apple-system, system-ui, sans-serif;
+    --mono:  "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", ui-monospace, monospace;
+
+    --measure: 68ch;
+    --wide: 1080px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:   #0C1413;
+      --panel:   #141F1E;
+      --panel-2: #1B2827;
+      --ink:     #E3ECEA;
+      --ink-2:   #94A8A5;
+      --rule:    #273533;
+      --petrol:  #58C5BB;
+      --ochre:   #D9A24A;
+      --ochre-bg:#2A2113;
+      --crimson: #E08A8A;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:   #0C1413;
+    --panel:   #141F1E;
+    --panel-2: #1B2827;
+    --ink:     #E3ECEA;
+    --ink-2:   #94A8A5;
+    --rule:    #273533;
+    --petrol:  #58C5BB;
+    --ochre:   #D9A24A;
+    --ochre-bg:#2A2113;
+    --crimson: #E08A8A;
+  }
+  :root[data-theme="light"] {
+    --paper:   #F2F4F3;
+    --panel:   #E8ECEB;
+    --panel-2: #DEE4E2;
+    --ink:     #0E1918;
+    --ink-2:   #4C5C5A;
+    --rule:    #C6D0CE;
+    --petrol:  #0B5D59;
+    --ochre:   #8A5A06;
+    --ochre-bg:#F0E3CC;
+    --crimson: #8E2B2B;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: var(--wide);
+    margin: 0 auto;
+    padding: 0 28px 96px;
+  }
+
+  .col { max-width: var(--measure); }
+
+  /* ---- masthead ---- */
+  .masthead {
+    padding: 56px 0 28px;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 4px;
+  }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--petrol);
+    margin-bottom: 18px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(2.1rem, 4.6vw, 3.1rem);
+    line-height: 1.12;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+    margin-bottom: 16px;
+  }
+  .standfirst {
+    max-width: 62ch;
+    font-size: 1.1rem;
+    color: var(--ink-2);
+  }
+  .underrule { height: 1px; background: var(--rule); margin-bottom: 44px; }
+
+  /* ---- verified strip ---- */
+  .strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin-bottom: 20px;
+  }
+  .cell { background: var(--paper); padding: 16px 18px; }
+  .cell .n {
+    font-family: var(--mono);
+    font-size: 1.5rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    display: block;
+    line-height: 1.1;
+  }
+  .cell .k {
+    font-size: 12.5px;
+    color: var(--ink-2);
+    display: block;
+    margin-top: 5px;
+  }
+  .stamp {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-2);
+    margin-bottom: 56px;
+  }
+  .stamp b { color: var(--petrol); font-weight: 600; }
+
+  /* ---- sections ---- */
+  section { margin-bottom: 68px; scroll-margin-top: 20px; }
+  .shead { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+  .snum {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--petrol);
+    letter-spacing: 0.1em;
+    padding-top: 6px;
+    white-space: nowrap;
+  }
+  h2 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 1.85rem;
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+  .srule { height: 1px; background: var(--rule); margin: 14px 0 22px; }
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 1.02rem;
+    letter-spacing: 0.005em;
+    margin: 30px 0 8px;
+  }
+  p { margin-bottom: 16px; max-width: var(--measure); }
+  .lead { font-size: 1.06rem; }
+  .lead strong { font-weight: 600; }
+
+  ul { margin: 0 0 18px 0; padding: 0; list-style: none; max-width: var(--measure); }
+  ul li {
+    position: relative;
+    padding-left: 20px;
+    margin-bottom: 10px;
+  }
+  ul li::before {
+    content: "";
+    position: absolute;
+    left: 2px; top: 0.66em;
+    width: 6px; height: 1px;
+    background: var(--petrol);
+  }
+  li strong { font-weight: 600; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.855em;
+    background: var(--panel);
+    padding: 1px 5px;
+    border-radius: 2px;
+    word-break: break-word;
+  }
+
+  /* ---- figures ---- */
+  figure {
+    margin: 30px 0 34px;
+    max-width: var(--wide);
+  }
+  .scroller { overflow-x: auto; padding-bottom: 4px; }
+  figure svg { display: block; width: 100%; min-width: 660px; height: auto; }
+  figcaption {
+    font-size: 13.5px;
+    color: var(--ink-2);
+    margin-top: 14px;
+    max-width: 76ch;
+    border-left: 2px solid var(--rule);
+    padding-left: 12px;
+  }
+
+  /* svg drawing classes */
+  .dg { color: var(--ink-2); }
+  .dg .bx   { fill: var(--panel); stroke: var(--rule); stroke-width: 1; }
+  .dg .bx-a { fill: var(--panel); stroke: var(--petrol); stroke-width: 1.5; }
+  .dg .bx-c { fill: var(--ochre-bg); stroke: var(--ochre); stroke-width: 1.5; }
+  .dg .bx-o { fill: none; stroke: var(--rule); stroke-width: 1; stroke-dasharray: 5 4; }
+  .dg .ln   { stroke: currentColor; fill: none; stroke-width: 1.25; }
+  .dg .ln-d { stroke: currentColor; fill: none; stroke-width: 1.25; stroke-dasharray: 4 4; }
+  .dg .t    { fill: var(--ink); font: 600 13px var(--sans); }
+  .dg .tm   { fill: var(--ink); font: 500 12px var(--mono); }
+  .dg .s    { fill: var(--ink-2); font: 400 11.5px var(--sans); }
+  .dg .lbl  { fill: var(--ink-2); font: 400 10.5px var(--mono); letter-spacing: 0.02em; }
+  .dg .warm { color: var(--ochre); }
+  .dg .warm .t, .dg .warm .tm { fill: var(--ochre); }
+  .dg .warm .lbl { fill: var(--ochre); }
+  .dg .bad { color: var(--crimson); }
+  .dg .bad .t, .dg .bad .lbl { fill: var(--crimson); }
+  .dg text.bad { fill: var(--crimson); }
+  .dg .mk-w { fill: var(--ochre); }
+  .dg .mk-r { fill: var(--crimson); }
+  .dg .tealtext { fill: var(--petrol); font: 600 12px var(--mono); }
+
+  /* ---- tables ---- */
+  .tbl-wrap { overflow-x: auto; margin: 22px 0 26px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 520px;
+    font-size: 14.5px;
+  }
+  caption {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    padding-bottom: 10px;
+  }
+  th {
+    text-align: left;
+    font-weight: 600;
+    font-size: 12.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-2);
+    border-bottom: 1px solid var(--ink);
+    padding: 0 14px 8px 0;
+    vertical-align: bottom;
+  }
+  td {
+    padding: 9px 14px 9px 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  td.num, th.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; padding-right: 22px; }
+  th.num { text-align: right; }
+  td .mono, .mono { font-family: var(--mono); font-size: 0.9em; }
+
+  /* container grid */
+  .cgrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin: 24px 0 10px;
+  }
+  .cbox { background: var(--paper); padding: 13px 15px; }
+  .cbox .cn { font-family: var(--mono); font-size: 12.5px; color: var(--ink); display: block; }
+  .cbox .cd { font-size: 12.5px; color: var(--ink-2); display: block; margin-top: 3px; line-height: 1.45; }
+  .cbox.app { background: var(--panel-2); }
+  .cbox.app .cn { color: var(--petrol); font-weight: 700; }
+
+  /* callout */
+  .note {
+    border-left: 3px solid var(--petrol);
+    background: var(--panel);
+    padding: 15px 18px;
+    margin: 24px 0;
+    font-size: 15px;
+    max-width: var(--measure);
+  }
+  .note.cost { border-left-color: var(--ochre); background: var(--ochre-bg); }
+  .note .nh {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--petrol);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .note.cost .nh { color: var(--ochre); }
+  .note p:last-child { margin-bottom: 0; }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    font-size: 12.5px;
+    color: var(--ink-2);
+    font-family: var(--mono);
+    margin: 4px 0 34px;
+    padding: 12px 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
+  .legend span { display: flex; align-items: center; gap: 8px; }
+  .sw { width: 14px; height: 10px; border: 1.5px solid var(--rule); background: var(--panel); }
+  .sw.a { border-color: var(--petrol); }
+  .sw.c { border-color: var(--ochre); background: var(--ochre-bg); }
+  .sw.d { border-style: dashed; background: none; }
+
+  footer {
+    border-top: 2px solid var(--ink);
+    padding-top: 20px;
+    font-size: 13.5px;
+    color: var(--ink-2);
+    max-width: var(--measure);
+  }
+  footer .mono { display: block; margin-top: 8px; }
+
+  a { color: var(--petrol); }
+  a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--petrol); outline-offset: 3px; }
+
+  @media (max-width: 620px) {
+    body { font-size: 16px; }
+    .wrap { padding: 0 18px 72px; }
+    .shead { flex-direction: column; gap: 2px; }
+    .snum { padding-top: 0; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="kicker">MOF · منصة إنجاز · Build state as of 9 August 2026</div>
+    <h1>How the Enjaz assistant works today</h1>
+    <p class="standfirst">A walk through everything that has actually been built — the infrastructure it runs on, the database underneath it, and the four-stage pipeline that turns 58 project documents on a disk into 678 searchable vectors, kept in nine sealed per-project compartments.</p>
+  </header>
+  <div class="underrule"></div>
+
+  <div class="strip">
+    <div class="cell"><span class="n">13</span><span class="k">containers running</span></div>
+    <div class="cell"><span class="n">13</span><span class="k">migrations applied, 0 drifted</span></div>
+    <div class="cell"><span class="n">199</span><span class="k">tests passing</span></div>
+    <div class="cell"><span class="n">58</span><span class="k">documents, all indexed</span></div>
+    <div class="cell"><span class="n">678</span><span class="k">vectors in 9 collections</span></div>
+    <div class="cell"><span class="n">0</span><span class="k">failed · 0 pending</span></div>
+  </div>
+  <p class="stamp">Every number above was read from the running system, not from a document — <b>docker compose ps</b>, <b>apply_migrations.py --status</b>, <b>pytest</b>, <b>pipeline.status</b> (exit 0, HEALTHY) and <b>pipeline.scanner --dry-run</b> (rows written 0).</p>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">01</span><h2>The whole machine, in one picture</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">Project documents sit in folders on disk. The system's job is to read every one of them, understand what is inside, and store it in a form a computer can search by meaning rather than by keyword — <strong>without ever mixing one project's documents with another's</strong>, and without ever paying twice to read the same file.</p>
+
+    <p>Four stages do that work, in a fixed order. Each one only does the work the one before it left behind, so any stage can be run again safely — on a corpus that has not changed, running the whole thing again does nothing at all and costs nothing.</p>
+
+    <figure>
+      <div class="scroller">
+      <svg class="dg" viewBox="0 0 1080 540" role="img" aria-label="The ingestion pipeline: a scheduler triggers a worker, which runs scan, OCR and index in order, reading files from disk, writing rows to Postgres and vectors to Qdrant. The OCR and embedding steps are billed.">
+        <defs>
+          <marker id="a1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="currentColor"/>
+          </marker>
+          <marker id="a1w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon class="mk-w" points="0,1 10,5 0,9"/>
+          </marker>
+        </defs>
+
+        <!-- operating layer -->
+        <rect class="bx-o" x="20" y="16" width="1040" height="76" rx="2"/>
+        <text class="lbl" x="34" y="34">THE OPERATING LAYER — RUNS WITHOUT ANYONE WATCHING</text>
+        <rect class="bx" x="34" y="42" width="212" height="38" rx="2"/>
+        <text class="tm" x="46" y="60">mof-pipeline-beat</text>
+        <text class="s" x="46" y="74">fires daily, 13:00 Asia/Amman</text>
+        <line class="ln" x1="246" y1="61" x2="292" y2="61" marker-end="url(#a1)"/>
+        <rect class="bx" x="296" y="42" width="212" height="38" rx="2"/>
+        <text class="tm" x="308" y="60">mof-pipeline-worker</text>
+        <text class="s" x="308" y="74">Celery, concurrency 2</text>
+        <text class="s" x="536" y="57">Each stage takes its own lock in Redis first,</text>
+        <text class="s" x="536" y="73">so two runs can never overlap and pay twice.</text>
+
+        <line class="ln-d" x1="402" y1="92" x2="402" y2="158" marker-end="url(#a1)"/>
+        <text class="lbl" x="412" y="126">runs the three stages, in order</text>
+
+        <!-- stage row -->
+        <rect class="bx" x="20" y="166" width="150" height="96" rx="2"/>
+        <text class="tm" x="32" y="192">D:\MOF_DataSample</text>
+        <text class="s" x="32" y="210">9 project folders</text>
+        <text class="s" x="32" y="226">58 files: .docx .pdf .pptx</text>
+        <text class="s" x="32" y="248">mounted read-only</text>
+
+        <line class="ln" x1="170" y1="214" x2="212" y2="214" marker-end="url(#a1)"/>
+        <text class="lbl" x="166" y="204">reads bytes</text>
+
+        <rect class="bx-a" x="214" y="166" width="176" height="96" rx="2"/>
+        <text class="tealtext" x="228" y="188">STAGE 0</text>
+        <text class="t" x="228" y="208">Discover</text>
+        <text class="s" x="228" y="228">Walk the folders,</text>
+        <text class="s" x="228" y="244">SHA-256 every file,</text>
+        <text class="s" x="228" y="260">spot what changed.</text>
+
+        <line class="ln" x1="390" y1="214" x2="432" y2="214" marker-end="url(#a1)"/>
+
+        <g class="warm">
+          <rect class="bx-c" x="434" y="166" width="176" height="96" rx="2"/>
+          <text class="tm" x="448" y="188">STAGE 1 · $ per page</text>
+          <text class="t" x="448" y="208">Extract</text>
+        </g>
+        <text class="s" x="448" y="228">Azure Document</text>
+        <text class="s" x="448" y="244">Intelligence reads each</text>
+        <text class="s" x="448" y="260">file into markdown.</text>
+
+        <line class="ln" x1="610" y1="214" x2="652" y2="214" marker-end="url(#a1)"/>
+        <text class="lbl" x="604" y="204">markdown</text>
+
+        <g class="warm">
+          <rect class="bx-c" x="654" y="166" width="196" height="96" rx="2"/>
+          <text class="tm" x="668" y="188">STAGE 2+3 · $ per token</text>
+          <text class="t" x="668" y="208">Chunk, embed, index</text>
+        </g>
+        <text class="s" x="668" y="228">Cut into passages, turn</text>
+        <text class="s" x="668" y="244">each into a vector, write</text>
+        <text class="s" x="668" y="260">it to this project's store.</text>
+
+        <line class="ln" x1="850" y1="214" x2="892" y2="214" marker-end="url(#a1)"/>
+
+        <rect class="bx-a" x="894" y="166" width="166" height="96" rx="2"/>
+        <text class="tm" x="908" y="190">mof-qdrant</text>
+        <text class="s" x="908" y="210">9 collections</text>
+        <text class="s" x="908" y="226">678 vectors</text>
+        <text class="s" x="908" y="248">one per project — never</text>
+        <text class="s" x="908" y="262">a shared index</text>
+
+        <!-- down arrows to postgres -->
+        <line class="ln" x1="302" y1="262" x2="302" y2="398" marker-end="url(#a1)"/>
+        <text class="lbl" x="312" y="300">upsert one row</text>
+        <text class="lbl" x="312" y="316">per file found</text>
+
+        <g class="warm">
+          <line class="ln" x1="500" y1="262" x2="500" y2="398" marker-end="url(#a1w)"/>
+          <text class="lbl" x="510" y="300">store the markdown</text>
+          <text class="lbl" x="510" y="316">+ the raw response</text>
+        </g>
+        <line class="ln-d" x1="560" y1="398" x2="560" y2="262" marker-end="url(#a1)"/>
+        <text class="lbl" x="570" y="348">no stored text yet?</text>
+        <text class="lbl" x="570" y="364">then it needs OCR</text>
+
+        <line class="ln" x1="752" y1="262" x2="752" y2="398" marker-end="url(#a1)"/>
+        <text class="lbl" x="762" y="300">mark indexed,</text>
+        <text class="lbl" x="762" y="316">record chunk count</text>
+
+        <!-- postgres band -->
+        <rect class="bx-a" x="214" y="400" width="636" height="98" rx="2"/>
+        <text class="tm" x="230" y="424">mof-postgres-spm — the record of what exists and what state it is in</text>
+        <rect class="bx" x="230" y="436" width="196" height="46" rx="2"/>
+        <text class="tm" x="242" y="456">document_links</text>
+        <text class="s" x="242" y="472">58 rows · hash · status</text>
+        <rect class="bx" x="442" y="436" width="196" height="46" rx="2"/>
+        <text class="tm" x="454" y="456">document_content</text>
+        <text class="s" x="454" y="472">58 rows · the OCR cache</text>
+        <rect class="bx" x="654" y="436" width="180" height="46" rx="2"/>
+        <text class="tm" x="666" y="456">projects · users</text>
+        <text class="s" x="666" y="472">assignments</text>
+
+        <text class="lbl" x="894" y="424">LEGEND</text>
+        <rect class="bx-c" x="894" y="436" width="18" height="12"/>
+        <text class="s" x="920" y="446">costs money</text>
+        <line class="ln-d" x1="894" y1="466" x2="912" y2="466"/>
+        <text class="s" x="920" y="470">a check, not a write</text>
+      </svg>
+      </div>
+      <figcaption>The full path a document takes. The two amber steps are the only ones that cost money — everything is arranged so neither can be triggered twice for the same unchanged file.</figcaption>
+    </figure>
+
+    <div class="note cost">
+      <span class="nh">The idea the whole design turns on</span>
+      <p>Reading a page through Azure costs about one cent, and the corpus is ~154 pages. That is small — but a pipeline that re-reads everything each time it runs would burn that repeatedly and, worse, hide the fact that nothing changed. So every stage asks a question first: <em>is there already a result for this exact file?</em> If yes, it does nothing.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">02</span><h2>Where it all runs</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">Everything lives in Docker containers on one PC. Thirteen are running right now. Eleven are infrastructure — databases and monitoring tools that came first — and two are the pipeline itself, the only application code that exists.</p>
+
+    <p>One hard rule shaped this: <strong>nothing Docker-related touches the C: drive.</strong> Docker's own engine disk was moved to <code>D:\MOF_Installations\docker-data</code>, and every container's data is bind-mounted to a plain, browsable folder under <code>D:\MOF_Installations\volumes\</code>.</p>
+
+    <div class="cgrid">
+      <div class="cbox app"><span class="cn">mof-pipeline-worker</span><span class="cd">The pipeline itself, as a background worker. The document folder is mounted read-only, so it physically cannot alter the source files.</span></div>
+      <div class="cbox app"><span class="cn">mof-pipeline-beat</span><span class="cd">The alarm clock. Fires one full ingest a day at 13:00 Amman time.</span></div>
+      <div class="cbox"><span class="cn">mof-postgres-spm</span><span class="cd">The project database — projects, users, assignments, documents, and the cached OCR text.</span></div>
+      <div class="cbox"><span class="cn">mof-qdrant</span><span class="cd">The vector store. One separate collection per project.</span></div>
+      <div class="cbox"><span class="cn">mof-redis</span><span class="cd">The job queue behind the worker, and the place stage locks are held.</span></div>
+      <div class="cbox"><span class="cn">mof-langfuse-web</span><span class="cd">A UI for tracing what an AI model was asked and what it answered. Running, not yet connected to anything.</span></div>
+      <div class="cbox"><span class="cn">mof-langfuse-worker</span><span class="cd">Langfuse's own background processing.</span></div>
+      <div class="cbox"><span class="cn">mof-langfuse-postgres</span><span class="cd">Langfuse's private database, deliberately separate from the project one.</span></div>
+      <div class="cbox"><span class="cn">mof-langfuse-clickhouse</span><span class="cd">Langfuse's trace store. The one service on a named volume — it needs filesystem behaviour a Windows bind mount cannot provide.</span></div>
+      <div class="cbox"><span class="cn">mof-langfuse-redis</span><span class="cd">Langfuse's own queue.</span></div>
+      <div class="cbox"><span class="cn">mof-langfuse-minio</span><span class="cd">Langfuse's file storage.</span></div>
+      <div class="cbox"><span class="cn">mof-grafana-lgtm</span><span class="cd">Dashboards for timings, logs and metrics across services. Running, not yet connected.</span></div>
+      <div class="cbox"><span class="cn">mof-portainer</span><span class="cd">A web UI for managing the containers themselves.</span></div>
+      <div class="cbox"><span class="cn">mof-langfuse-minio-init</span><span class="cd">Runs once to create a storage bucket, then exits. Showing as “Exited (0)” is correct, not a failure.</span></div>
+    </div>
+    <p class="stamp">All fourteen entries above were confirmed present; the first thirteen are up and healthy.</p>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">03</span><h2>What the database holds, and who is allowed to see it</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">Five tables, built up through thirteen numbered migration files that are applied by a script — never by hand. The script runs each file inside a single transaction, records it only after it succeeds, and stores a checksum so that editing an already-applied file is caught rather than silently accepted.</p>
+
+    <p>The most important table is the smallest. <code>project_assignments</code> is the list of which person may see which project. A project with no row there is invisible to everyone — not because code checks for it, but because there is nothing to find.</p>
+
+    <figure>
+      <div class="scroller">
+      <svg class="dg" viewBox="0 0 1080 470" role="img" aria-label="Database tables and the two roles: the pipeline connects as spm_admin and sees everything, while the chat application connects as spm_app, which is read-only and constrained by row-level security to one project per transaction.">
+        <defs>
+          <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <text class="lbl" x="24" y="26">THE FIVE TABLES</text>
+
+        <rect class="bx-a" x="24" y="40" width="200" height="64" rx="2"/>
+        <text class="tm" x="38" y="62">projects</text>
+        <text class="s" x="38" y="80">9 rows — name, status,</text>
+        <text class="s" x="38" y="94">dates, budget</text>
+
+        <rect class="bx" x="24" y="152" width="200" height="58" rx="2"/>
+        <text class="tm" x="38" y="174">users</text>
+        <text class="s" x="38" y="192">4 mock AD accounts</text>
+
+        <rect class="bx-a" x="24" y="252" width="200" height="72" rx="2"/>
+        <text class="tm" x="38" y="274">project_assignments</text>
+        <text class="s" x="38" y="292">6 rows — who may see</text>
+        <text class="s" x="38" y="306">which project</text>
+
+        <rect class="bx" x="300" y="40" width="216" height="86" rx="2"/>
+        <text class="tm" x="314" y="62">document_links</text>
+        <text class="s" x="314" y="80">58 rows — filename, type,</text>
+        <text class="s" x="314" y="94">SHA-256 hash, status,</text>
+        <text class="s" x="314" y="110">chunk count, last error</text>
+
+        <rect class="bx" x="300" y="168" width="216" height="86" rx="2"/>
+        <text class="tm" x="314" y="190">document_content</text>
+        <text class="s" x="314" y="208">58 rows — the extracted</text>
+        <text class="s" x="314" y="222">markdown and the full</text>
+        <text class="s" x="314" y="238">provider response, 3.3 MB</text>
+
+        <!-- fks -->
+        <line class="ln" x1="224" y1="72" x2="296" y2="72" marker-end="url(#a2)"/>
+        <text class="lbl" x="230" y="64">has many</text>
+        <line class="ln" x1="408" y1="126" x2="408" y2="164" marker-end="url(#a2)"/>
+        <text class="lbl" x="416" y="150">one-to-one</text>
+        <polyline class="ln" points="44,104 14,104 14,288 20,288" marker-end="url(#a2)"/>
+        <line class="ln" x1="184" y1="210" x2="184" y2="248" marker-end="url(#a2)"/>
+
+        <text class="lbl" x="300" y="304">A ROW HERE IS THE “OCR IS DONE” MARKER.</text>
+        <text class="lbl" x="300" y="320">NO SEPARATE STATUS COLUMN, ON PURPOSE —</text>
+        <text class="lbl" x="300" y="336">SO A LATER FAILURE CAN NEVER</text>
+        <text class="lbl" x="300" y="352">RE-TRIGGER A PAID READ.</text>
+
+        <!-- roles -->
+        <line class="ln-d" x1="596" y1="30" x2="596" y2="440"/>
+        <text class="lbl" x="628" y="26">TWO DATABASE LOGINS, AND THE DIFFERENCE MATTERS</text>
+
+        <rect class="bx-a" x="628" y="40" width="200" height="66" rx="2"/>
+        <text class="tm" x="642" y="62">spm_admin</text>
+        <text class="s" x="642" y="80">used by the pipeline</text>
+        <text class="s" x="642" y="96">owns the tables</text>
+
+        <line class="ln" x1="628" y1="73" x2="522" y2="73" marker-end="url(#a2)"/>
+        <text class="lbl" x="528" y="64">sees everything</text>
+
+        <rect class="bx" x="628" y="168" width="200" height="66" rx="2"/>
+        <text class="tm" x="642" y="190">spm_app</text>
+        <text class="s" x="642" y="208">for the chat application</text>
+        <text class="s" x="642" y="224">SELECT only — cannot write</text>
+
+        <line class="ln" x1="828" y1="201" x2="880" y2="201" marker-end="url(#a2)"/>
+        <rect class="bx-a" x="884" y="152" width="176" height="98" rx="2"/>
+        <text class="tm" x="896" y="176">SET LOCAL</text>
+        <text class="tm" x="896" y="194">app.current_project</text>
+        <text class="s" x="896" y="214">the database itself then</text>
+        <text class="s" x="896" y="230">hides every other project's</text>
+        <text class="s" x="896" y="246">rows, in every query</text>
+
+        <rect class="bx-o" x="628" y="286" width="432" height="150" rx="2"/>
+        <text class="lbl" x="644" y="308">WHY IT IS DONE IN THE DATABASE AND NOT IN CODE</text>
+        <text class="s" x="644" y="332">A filter written in application code has to be remembered by</text>
+        <text class="s" x="644" y="350">every query anyone ever writes. Forgetting it once leaks another</text>
+        <text class="s" x="644" y="368">project's documents, and nothing errors.</text>
+        <text class="s" x="644" y="394">Here, forgetting to set the project returns nothing at all —</text>
+        <text class="s" x="644" y="412">the safe direction. And because the transaction resets it on</text>
+        <text class="s" x="644" y="430">commit, one request's scope cannot bleed into the next.</text>
+      </svg>
+      </div>
+      <figcaption>The tables on the left, the two logins on the right. The pipeline needs to reach across all projects, so it uses the owner account; anything user-facing gets the restricted one.</figcaption>
+    </figure>
+
+    <p>Both behaviours were tested rather than assumed: a plain <code>UPDATE</code> as <code>spm_app</code> returns <em>permission denied</em>, and a session that forgets to declare its project sees zero rows instead of all 58.</p>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">04</span><h2>Stage 0 — finding out what is there</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">The scanner walks every project folder, reads each file, and calculates a SHA-256 fingerprint of its contents. Then it compares that fingerprint against what the database already knows, and takes one of five decisions.</p>
+
+    <p>It deliberately never reads the manifest that generated the mock data. <strong>The filesystem is the only source of truth</strong> — which is what makes dropping a new file into a folder enough to get it picked up, with no code change.</p>
+
+    <figure>
+      <div class="scroller">
+      <svg class="dg" viewBox="0 0 1080 430" role="img" aria-label="Stage 0 decision ladder: for each file, four questions in sequence produce one of five outcomes — insert, backfill, modified, path updated, or unchanged.">
+        <defs>
+          <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <rect class="bx-a" x="24" y="24" width="212" height="58" rx="2"/>
+        <text class="t" x="38" y="48">One file on disk</text>
+        <text class="s" x="38" y="68">read it, hash it: SHA-256</text>
+
+        <line class="ln" x1="130" y1="82" x2="130" y2="112" marker-end="url(#a3)"/>
+
+        <!-- ladder -->
+        <rect class="bx" x="24" y="114" width="212" height="42" rx="2"/>
+        <text class="tm" x="38" y="140">No row in the database?</text>
+        <line class="ln" x1="236" y1="135" x2="330" y2="135" marker-end="url(#a3)"/>
+        <text class="lbl" x="252" y="127">yes</text>
+        <rect class="bx-a" x="334" y="112" width="726" height="46" rx="2"/>
+        <text class="tm" x="348" y="132">INSERT</text>
+        <text class="s" x="440" y="132">A brand-new document. Create the row, mark it pending, type “Unclassified”.</text>
+        <text class="s" x="348" y="150">The filesystem cannot know what kind of document it is, so it does not guess.</text>
+
+        <line class="ln" x1="130" y1="156" x2="130" y2="176" marker-end="url(#a3)"/>
+        <rect class="bx" x="24" y="178" width="212" height="42" rx="2"/>
+        <text class="tm" x="38" y="204">Row exists, but no hash?</text>
+        <line class="ln" x1="236" y1="199" x2="330" y2="199" marker-end="url(#a3)"/>
+        <text class="lbl" x="252" y="191">yes</text>
+        <rect class="bx" x="334" y="176" width="726" height="46" rx="2"/>
+        <text class="tm" x="348" y="196">BACKFILL</text>
+        <text class="s" x="440" y="196">Never scanned before. Fill in the hash, size and path.</text>
+        <text class="s" x="348" y="214">Keeps any cached OCR: “never scanned” is not the same as “the content changed”.</text>
+
+        <line class="ln" x1="130" y1="220" x2="130" y2="240" marker-end="url(#a3)"/>
+        <rect class="bx" x="24" y="242" width="212" height="42" rx="2"/>
+        <text class="tm" x="38" y="268">Hash is different?</text>
+        <line class="ln" x1="236" y1="263" x2="330" y2="263" marker-end="url(#a3)"/>
+        <text class="lbl" x="252" y="255">yes</text>
+        <g class="warm">
+          <rect class="bx-c" x="334" y="240" width="726" height="46" rx="2"/>
+          <text class="tm" x="348" y="260">MODIFIED</text>
+        </g>
+        <text class="s" x="452" y="260">Someone edited the file. Reset it to pending — and delete the cached OCR.</text>
+        <text class="s" x="348" y="278">That deletion is load-bearing: leave it, and the next stage thinks the file is already done.</text>
+
+        <line class="ln" x1="130" y1="284" x2="130" y2="304" marker-end="url(#a3)"/>
+        <rect class="bx" x="24" y="306" width="212" height="42" rx="2"/>
+        <text class="tm" x="38" y="332">Same bytes, new location?</text>
+        <line class="ln" x1="236" y1="327" x2="330" y2="327" marker-end="url(#a3)"/>
+        <text class="lbl" x="252" y="319">yes</text>
+        <rect class="bx" x="334" y="304" width="726" height="46" rx="2"/>
+        <text class="tm" x="348" y="324">PATH_UPDATED</text>
+        <text class="s" x="470" y="324">Update the path and nothing else.</text>
+        <text class="s" x="348" y="342">Calling a moved file “modified” would re-read the entire corpus at a cent a page, for a move.</text>
+
+        <line class="ln" x1="130" y1="348" x2="130" y2="368" marker-end="url(#a3)"/>
+        <rect class="bx" x="24" y="370" width="212" height="42" rx="2"/>
+        <text class="tm" x="38" y="396">Otherwise</text>
+        <line class="ln" x1="236" y1="391" x2="330" y2="391" marker-end="url(#a3)"/>
+        <rect class="bx-a" x="334" y="368" width="726" height="44" rx="2"/>
+        <text class="tm" x="348" y="388">UNCHANGED</text>
+        <text class="s" x="470" y="388">Zero writes. This is what all 58 files report today.</text>
+        <text class="s" x="348" y="405">A re-run over an untouched corpus is genuinely free.</text>
+      </svg>
+      </div>
+      <figcaption>Five outcomes, not three. The two extra ones — telling a moved file apart from an edited one, and telling “never scanned” apart from “changed” — are what stop a harmless move from triggering a full paid re-read.</figcaption>
+    </figure>
+
+    <h3>Two details worth knowing</h3>
+    <ul>
+      <li><strong>Paths are stored relative</strong> — <code>PRJ-01/charter.docx</code>, not <code>D:\MOF_DataSample\PRJ-01\charter.docx</code>. The Windows PC and the Linux container mount the same folder at different places, and storing the full path made each of them rewrite all 58 rows every time the other one ran.</li>
+      <li><strong>A row whose file has vanished is reported, never deleted.</strong> If the folder setting were ever pointed one level too high, every project would look empty — and deleting on that signal would take the paid-for extracted text with it.</li>
+    </ul>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">05</span><h2>Stage 1 — reading the documents</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">Each document is sent to Azure Document Intelligence, which returns its contents as markdown — headings, paragraphs, tables and reading order, rather than a flat wall of text. This is the step that costs money, billed by the page.</p>
+
+    <p>Every format goes through it, including Word and PowerPoint files whose text could technically be read for free. That was <strong>measured across 11 files rather than assumed, and the measurement reversed the original plan</strong>: reading a PDF's text directly returned Arabic as scrambled display glyphs (36 usable characters against Azure's 2,623), Word files duplicated merged table cells, and a Word document is billed as a single page no matter how long it is. The saving was imaginary; the damage was not.</p>
+
+    <figure>
+      <div class="scroller">
+      <svg class="dg" viewBox="0 0 1080 400" role="img" aria-label="Stage 1: documents with no stored text are sent to Azure Document Intelligence. Success stores markdown and bills pages. If Azure rejects an Office file, a native fallback rescues it at no cost. A rejected PDF fails honestly and no content row is written.">
+        <defs>
+          <marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="currentColor"/>
+          </marker>
+          <marker id="a4r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon class="mk-r" points="0,1 10,5 0,9"/>
+          </marker>
+        </defs>
+
+        <rect class="bx-a" x="24" y="120" width="196" height="86" rx="2"/>
+        <text class="t" x="38" y="146">Which files need it?</text>
+        <text class="s" x="38" y="166">Only those with no stored</text>
+        <text class="s" x="38" y="182">text yet. Today: none —</text>
+        <text class="s" x="38" y="198">all 58 already done.</text>
+
+        <line class="ln" x1="220" y1="163" x2="272" y2="163" marker-end="url(#a4)"/>
+
+        <g class="warm">
+          <rect class="bx-c" x="276" y="120" width="204" height="86" rx="2"/>
+          <text class="tm" x="290" y="144">Azure Document</text>
+          <text class="tm" x="290" y="160">Intelligence</text>
+        </g>
+        <text class="s" x="290" y="180">model: prebuilt-layout</text>
+        <text class="s" x="290" y="196">output: markdown</text>
+
+        <line class="ln" x1="480" y1="146" x2="560" y2="112" marker-end="url(#a4)"/>
+        <text class="lbl" x="566" y="48">it worked · 57 files</text>
+        <line class="ln bad" x1="480" y1="184" x2="560" y2="228" marker-end="url(#a4r)"/>
+        <text class="lbl bad" x="566" y="188">rejected · 1 file</text>
+
+        <rect class="bx-a" x="564" y="58" width="234" height="86" rx="2"/>
+        <text class="t" x="578" y="82">Store it</text>
+        <text class="s" x="578" y="102">markdown for chunking, plus</text>
+        <text class="s" x="578" y="118">the full raw response, which</text>
+        <text class="s" x="578" y="134">keeps table geometry markdown drops</text>
+
+        <rect class="bx" x="564" y="196" width="234" height="86" rx="2"/>
+        <text class="tm" x="578" y="220">Is it a Word or PowerPoint file?</text>
+        <text class="s" x="578" y="240">Azure called one valid .docx</text>
+        <text class="s" x="578" y="256">“corrupted”. It was not — it had</text>
+        <text class="s" x="578" y="272">simply been repackaged by another tool.</text>
+
+        <line class="ln" x1="798" y1="220" x2="856" y2="196" marker-end="url(#a4)"/>
+        <text class="lbl" x="806" y="192">yes</text>
+        <rect class="bx" x="860" y="150" width="200" height="76" rx="2"/>
+        <text class="tm" x="872" y="172">Read it locally</text>
+        <text class="s" x="872" y="190">Rescued in 0.13s.</text>
+        <text class="s" x="872" y="206">0 pages billed, and the</text>
+        <text class="s" x="872" y="222">row records which tool read it.</text>
+
+        <line class="ln bad" x1="798" y1="256" x2="856" y2="286" marker-end="url(#a4r)"/>
+        <text class="lbl bad" x="782" y="306">no — a PDF</text>
+        <rect class="bx" x="860" y="256" width="200" height="76" rx="2"/>
+        <text class="tm bad" x="872" y="278">Fail honestly</text>
+        <text class="s" x="872" y="296">Record the error, and write</text>
+        <text class="s" x="872" y="312">no stored text — so a retry</text>
+        <text class="s" x="872" y="328">actually retries it.</text>
+
+        <polyline class="ln" points="960,150 960,100 802,100" marker-end="url(#a4)"/>
+        <text class="lbl" x="812" y="94">rescued — stored the same way</text>
+
+        <rect class="bx-o" x="24" y="256" width="440" height="120" rx="2"/>
+        <text class="lbl" x="40" y="280">WHAT IT ACTUALLY PRODUCED, ACROSS ALL 58</text>
+        <text class="s" x="40" y="304">57 read by Azure · 1 by the local fallback</text>
+        <text class="s" x="40" y="324">154 pages billed ≈ $1.50 · 3.3 MB of text stored</text>
+        <text class="s" x="40" y="344">Running it again finds 0 candidates — it cannot re-bill</text>
+        <text class="s" x="40" y="364">an unchanged corpus, because the stored text is the marker.</text>
+      </svg>
+      </div>
+      <figcaption>One extractor for everything, with a local rescue path for Office files Azure refuses — and deliberately no rescue path for PDFs, because reading a PDF's text directly produces convincing nonsense rather than an error.</figcaption>
+    </figure>
+
+    <div class="note">
+      <span class="nh">A judgement call built into the code</span>
+      <p>A scanned document whose content lives inside images comes back nearly empty. That is <em>flagged for a human</em>, not marked failed — because a file like that can never improve, and marking it failed would re-bill it on every future run forever.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">06</span><h2>Cutting documents into searchable passages</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">A whole document is too big to search meaningfully — ask about one risk and you would get back a page containing twelve. So each document is cut into passages of roughly 600 words' worth of tokens. How to cut is the interesting part, and the design was corrected three times by real documents disagreeing with the plan.</p>
+
+    <p>Three assumptions turned out to be wrong: tables come back as HTML rather than tidy markdown tables; <strong>two of the first four documents had no headings at all</strong>, because whoever wrote them used bold text instead of real heading styles; and keeping a big table whole produced one 3,331-token block in which any single row was drowned out.</p>
+
+    <figure>
+      <div class="scroller">
+      <svg class="dg" viewBox="0 0 1080 440" role="img" aria-label="The chunker: markdown is parsed into blocks, then a ladder of four rules decides where to cut, small chunks are merged, and each finished chunk is prefixed with a breadcrumb before being embedded.">
+        <defs>
+          <marker id="a5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <rect class="bx-a" x="24" y="40" width="200" height="112" rx="2"/>
+        <text class="t" x="38" y="64">Read the markdown</text>
+        <text class="s" x="38" y="86">Identify headings, tables,</text>
+        <text class="s" x="38" y="102">figures and prose.</text>
+        <text class="s" x="38" y="122">Track page numbers and the</text>
+        <text class="s" x="38" y="138">exact character positions.</text>
+
+        <line class="ln" x1="224" y1="96" x2="272" y2="96" marker-end="url(#a5)"/>
+
+        <rect class="bx" x="276" y="40" width="200" height="112" rx="2"/>
+        <text class="t" x="290" y="64">Throw away the noise</text>
+        <text class="s" x="290" y="86">Page headers and footers</text>
+        <text class="s" x="290" y="102">repeat identically on every</text>
+        <text class="s" x="290" y="118">page. Embedding them would</text>
+        <text class="s" x="290" y="134">water down every passage.</text>
+
+        <line class="ln" x1="476" y1="96" x2="524" y2="96" marker-end="url(#a5)"/>
+
+        <rect class="bx-a" x="528" y="24" width="532" height="144" rx="2"/>
+        <text class="lbl" x="542" y="46">THE LADDER — TRY EACH RULE IN TURN</text>
+        <text class="tm" x="542" y="70">1</text><text class="s" x="566" y="70">Split at headings, when the document has any.</text>
+        <text class="tm" x="542" y="94">2</text><text class="s" x="566" y="94">If it has none, gather blocks together until they reach the target size.</text>
+        <text class="tm" x="542" y="118">3</text><text class="s" x="566" y="118">Split over-long prose at sentence ends — Arabic “؟” included.</text>
+        <text class="tm" x="542" y="142">4</text><text class="s" x="566" y="142">Split an over-long table by rows, repeating the header row in each part.</text>
+        <text class="s" x="566" y="160">The header is what gives every cell below it meaning.</text>
+
+        <line class="ln" x1="794" y1="168" x2="794" y2="208" marker-end="url(#a5)"/>
+
+        <rect class="bx" x="528" y="210" width="532" height="56" rx="2"/>
+        <text class="t" x="542" y="234">Merge the runts</text>
+        <text class="s" x="542" y="254">Just a heading and one line is too thin to retrieve, so it folds into the next passage.</text>
+
+        <line class="ln" x1="794" y1="266" x2="794" y2="306" marker-end="url(#a5)"/>
+
+        <rect class="bx-a" x="528" y="308" width="532" height="112" rx="2"/>
+        <text class="t" x="542" y="332">Add a breadcrumb, then store</text>
+        <text class="s" x="542" y="354">This matters more than it looks. On its own, “SAR 4.2M was allocated” means</text>
+        <text class="s" x="542" y="372">almost nothing to a search engine. What actually gets stored is:</text>
+        <text class="tm" x="542" y="398">Budget Report — PRJ-03 &gt; Financial Summary &gt; SAR 4.2M was allocated…</text>
+
+        <rect class="bx-o" x="24" y="196" width="452" height="224" rx="2"/>
+        <text class="lbl" x="40" y="220">WHAT THE WHOLE CORPUS PRODUCED</text>
+        <text class="s" x="40" y="246">678 passages from 58 documents · median 418 tokens</text>
+        <text class="s" x="40" y="266">0 documents that produced nothing</text>
+        <text class="s" x="40" y="286">0 documents collapsed into one giant unusable block —</text>
+        <text class="s" x="40" y="302">including the 16 that have no headings at all</text>
+        <text class="s" x="40" y="322">0 broken character positions out of 678</text>
+        <text class="s" x="40" y="342">5 mildly odd sizes, each inspected by hand and left alone</text>
+        <text class="s" x="40" y="368">Half of all passages contain a table, which is why 16 documents</text>
+        <text class="s" x="40" y="384">needed table-row splitting — 116 extra parts.</text>
+        <text class="s" x="40" y="410">All of this was checked before spending a cent on embedding.</text>
+      </svg>
+      </div>
+      <figcaption>The cutting rules, and what happened when they met all 58 real documents. Chunking costs nothing, so the entire corpus was run through it as a free safety check before any paid step.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">07</span><h2>Stages 2 and 3 — turning passages into searchable vectors</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">Each passage is sent to an Azure embedding model, which returns a list of 1,536 numbers describing its meaning. Passages about similar things end up with similar numbers, which is what lets a question in Arabic find an answer written in different words.</p>
+
+    <p>Chunking and embedding were built as one step rather than two, for a blunt reason: chunking is free, embedding is paid. A boundary between them would end with hundreds of paid-for vectors held in memory that nothing had saved yet. <strong>An embedding that is not stored is money thrown away</strong>, so the paid call and the durable write live in the same per-document transaction.</p>
+
+    <figure>
+      <div class="scroller">
+      <svg class="dg" viewBox="0 0 1080 450" role="img" aria-label="Stages 2 and 3: passages are batched and embedded, results are re-sorted by the API index, each point is given a deterministic ID, old vectors for the document are deleted before the new ones are written, and the row is marked indexed.">
+        <defs>
+          <marker id="a6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <text class="lbl" x="24" y="26">ONE DOCUMENT, ONE TRANSACTION</text>
+        <rect class="bx-o" x="16" y="36" width="800" height="312" rx="2"/>
+
+        <rect class="bx" x="36" y="60" width="168" height="66" rx="2"/>
+        <text class="t" x="50" y="84">Its passages</text>
+        <text class="s" x="50" y="104">grouped into batches of</text>
+        <text class="s" x="50" y="120">≤32, or ≤16,000 tokens</text>
+
+        <line class="ln" x1="204" y1="93" x2="248" y2="93" marker-end="url(#a6)"/>
+
+        <g class="warm">
+          <rect class="bx-c" x="252" y="60" width="180" height="66" rx="2"/>
+          <text class="tm" x="266" y="84">Azure embeddings</text>
+        </g>
+        <text class="s" x="266" y="104">text-embedding-3-small</text>
+        <text class="s" x="266" y="120">1,536 numbers each</text>
+
+        <line class="ln" x1="432" y1="93" x2="476" y2="93" marker-end="url(#a6)"/>
+
+        <rect class="bx" x="480" y="60" width="316" height="66" rx="2"/>
+        <text class="t" x="494" y="82">Put the results back in order</text>
+        <text class="s" x="494" y="102">Sorted by the index the API returns,</text>
+        <text class="s" x="494" y="118">never by the order they arrive in.</text>
+
+        <line class="ln" x1="416" y1="126" x2="416" y2="156" marker-end="url(#a6)"/>
+
+        <rect class="bx" x="36" y="158" width="380" height="70" rx="2"/>
+        <text class="t" x="50" y="182">Give each one a predictable name</text>
+        <text class="s" x="50" y="202">The ID comes from the document and passage number, so</text>
+        <text class="s" x="50" y="218">a re-run overwrites in place instead of duplicating.</text>
+
+        <rect class="bx-a" x="440" y="158" width="356" height="70" rx="2"/>
+        <text class="t" x="454" y="182">Delete the old vectors first</text>
+        <text class="s" x="454" y="202">Overwriting is not enough: if an edited document</text>
+        <text class="s" x="454" y="218">yields fewer passages, leftovers stay findable.</text>
+
+        <line class="ln" x1="416" y1="228" x2="416" y2="258" marker-end="url(#a6)"/>
+
+        <rect class="bx" x="36" y="260" width="380" height="70" rx="2"/>
+        <text class="t" x="50" y="284">Write them into this project's collection</text>
+        <text class="s" x="50" y="304">Stored with each vector: filename, type, page, section,</text>
+        <text class="s" x="50" y="320">and the text itself — a citation needs no second lookup.</text>
+
+        <rect class="bx" x="440" y="260" width="356" height="70" rx="2"/>
+        <text class="t" x="454" y="284">Mark the row indexed</text>
+        <text class="s" x="454" y="304">Record the time and how many passages it made.</text>
+        <text class="s" x="454" y="320">A long document yielding one passage would stand out.</text>
+
+        <!-- collections -->
+        <line class="ln" x1="816" y1="192" x2="856" y2="192" marker-end="url(#a6)"/>
+        <text class="lbl" x="860" y="26">NINE SEALED COMPARTMENTS</text>
+        <rect class="bx-a" x="860" y="36" width="200" height="356" rx="2"/>
+        <text class="tm" x="874" y="60">project_PRJ-01</text><text class="s" x="1046" y="60" text-anchor="end">30</text>
+        <text class="tm" x="874" y="82">project_PRJ-02</text><text class="s" x="1046" y="82" text-anchor="end">49</text>
+        <text class="tm" x="874" y="104">project_PRJ-03</text><text class="s" x="1046" y="104" text-anchor="end">61</text>
+        <text class="tm" x="874" y="126">project_PRJ-04</text><text class="s" x="1046" y="126" text-anchor="end">37</text>
+        <text class="tm" x="874" y="148">project_PRJ-05</text><text class="s" x="1046" y="148" text-anchor="end">29</text>
+        <text class="tm" x="874" y="170">project_PRJ-06</text><text class="s" x="1046" y="170" text-anchor="end">43</text>
+        <text class="tm" x="874" y="192">project_PRJ-07</text><text class="s" x="1046" y="192" text-anchor="end">32</text>
+        <text class="tm" x="874" y="214">project_PRJ-08</text><text class="s" x="1046" y="214" text-anchor="end">39</text>
+        <text class="tm" x="874" y="240">project_TEST-</text>
+        <text class="tm" x="874" y="256">PROJECT</text><text class="s" x="1046" y="256" text-anchor="end">358</text>
+        <line class="ln" x1="874" y1="270" x2="1046" y2="270"/>
+        <text class="s" x="874" y="290">Separate collections, not</text>
+        <text class="s" x="874" y="306">one shared index + a filter.</text>
+        <text class="s" x="874" y="328">A session on one project</text>
+        <text class="s" x="874" y="344">cannot reach another's —</text>
+        <text class="s" x="874" y="360">there is nothing shared</text>
+        <text class="s" x="874" y="376">to mis-filter.</text>
+
+        <rect class="bx-o" x="16" y="366" width="800" height="66" rx="2"/>
+        <text class="lbl" x="36" y="390">WHY PER-DOCUMENT AND NOT PER-RUN</text>
+        <text class="s" x="36" y="414">Every document above cost money to produce. A batch dying on document 40 must not undo the 39 already paid for.</text>
+      </svg>
+      </div>
+      <figcaption>Each of the four rules on this page is a <em>silent</em> failure if broken — no error, no failed row, just confidently wrong search results. All four were verified by deliberately breaking them and confirming a test caught it.</figcaption>
+    </figure>
+
+    <p>The isolation was not taken on trust. Every one of the 678 stored payloads was read back and checked against the collection it sits in: <strong>zero cross-project contamination.</strong></p>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">08</span><h2>How it runs itself</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">For most of the build, the three stages were commands a person typed. That is fine for building them and useless for operating them — dropping a file into a folder did nothing until someone remembered to run the scanner. Now a scheduler fires one full ingest a day, and dropping a file in is the entire procedure.</p>
+
+    <p>The timezone is part of the schedule, not decoration. Containers run on UTC, so asking for 13:00 without naming the zone would have fired the job at 16:00 local time.</p>
+
+    <figure>
+      <div class="scroller">
+      <svg class="dg" viewBox="0 0 1080 420" role="img" aria-label="Scheduling and locking: beat queues a job in Redis, the worker picks it up and runs each stage under its own Redis lock. A person running the same stage by hand is refused with exit code 2, while dry runs are exempt.">
+        <defs>
+          <marker id="a7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="currentColor"/>
+          </marker>
+          <marker id="a7r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon class="mk-r" points="0,1 10,5 0,9"/>
+          </marker>
+        </defs>
+
+        <rect class="bx" x="24" y="40" width="184" height="62" rx="2"/>
+        <text class="tm" x="38" y="64">pipeline-beat</text>
+        <text class="s" x="38" y="84">daily 13:00 Asia/Amman</text>
+
+        <line class="ln" x1="208" y1="71" x2="252" y2="71" marker-end="url(#a7)"/>
+        <text class="lbl" x="210" y="62">queues</text>
+
+        <rect class="bx" x="256" y="40" width="164" height="62" rx="2"/>
+        <text class="tm" x="270" y="64">Redis</text>
+        <text class="s" x="270" y="84">the job queue</text>
+
+        <line class="ln" x1="420" y1="71" x2="464" y2="71" marker-end="url(#a7)"/>
+
+        <rect class="bx-a" x="468" y="40" width="196" height="62" rx="2"/>
+        <text class="tm" x="482" y="64">pipeline-worker</text>
+        <text class="s" x="482" y="84">runs scan → ocr → index</text>
+
+        <line class="ln" x1="566" y1="102" x2="566" y2="140" marker-end="url(#a7)"/>
+        <text class="lbl" x="576" y="126">takes a lock per stage</text>
+
+        <rect class="bx-a" x="360" y="142" width="412" height="82" rx="2"/>
+        <text class="lbl" x="376" y="164">THREE LOCKS, HELD IN REDIS</text>
+        <rect class="bx" x="376" y="174" width="120" height="34" rx="2"/>
+        <text class="tm" x="390" y="196">lock: scan</text>
+        <rect class="bx" x="508" y="174" width="120" height="34" rx="2"/>
+        <text class="tm" x="522" y="196">lock: ocr</text>
+        <rect class="bx" x="640" y="174" width="116" height="34" rx="2"/>
+        <text class="tm" x="654" y="196">lock: index</text>
+
+        <rect class="bx" x="24" y="142" width="288" height="82" rx="2"/>
+        <text class="tm" x="38" y="166">A person, at a terminal</text>
+        <text class="s" x="38" y="186">python -m pipeline.ocr</text>
+        <text class="s" x="38" y="206">— the most likely collision of all</text>
+
+        <polyline class="ln bad" points="168,224 168,250 568,250 568,212" marker-end="url(#a7r)"/>
+        <text class="lbl bad" x="182" y="266">refused: “already running” · exit 2</text>
+
+        <rect class="bx-o" x="24" y="284" width="512" height="118" rx="2"/>
+        <text class="lbl" x="40" y="308">WHY A LOCK IS NEEDED AT ALL</text>
+        <text class="s" x="40" y="332">Every stage can safely be re-run — that stops a repeat.</text>
+        <text class="s" x="40" y="352">It does nothing about an overlap. Two runs starting together</text>
+        <text class="s" x="40" y="372">both see the same file as unread, both call Azure, and both</text>
+        <text class="s" x="40" y="392">are billed. The database sorts out the rows; the money is gone.</text>
+
+        <rect class="bx-o" x="560" y="284" width="500" height="118" rx="2"/>
+        <text class="lbl" x="576" y="308">HOW THE LOCK BEHAVES</text>
+        <text class="s" x="576" y="332">Busy? Stand down rather than queue — by the time a waiting run</text>
+        <text class="s" x="576" y="352">started, its work would already have been done.</text>
+        <text class="s" x="576" y="372">It expires, so a killed worker cannot wedge the pipeline forever,</text>
+        <text class="s" x="576" y="392">and it is owner-stamped so no run can release someone else's lock.</text>
+      </svg>
+      </div>
+      <figcaption>A dry run needs no lock and is never refused — it writes nothing and sends nothing, so blocking it would be pure obstruction.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">09</span><h2>Knowing whether it is healthy</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">One command answers the three questions an operator actually asks: when did this last work, is anything broken, and <em>do the two stores still agree with each other?</em> It exits 0 for healthy and 1 for needs-attention, so it works as an automated check without anyone reading its output.</p>
+
+    <p>That third question is the one nothing else in the system can answer. The database row and the vectors are written for each document together, but they live in two separate systems — and there is a moment between the two writes.</p>
+
+    <figure>
+      <div class="scroller">
+      <svg class="dg" viewBox="0 0 1080 330" role="img" aria-label="The consistency check: vectors are written to Qdrant, then the row is committed in Postgres. A worker killed between the two leaves the stores disagreeing while every stage still reports no work left. The status command compares them per project.">
+        <defs>
+          <marker id="a8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="currentColor"/>
+          </marker>
+          <marker id="a8r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon class="mk-r" points="0,1 10,5 0,9"/>
+          </marker>
+        </defs>
+
+        <rect class="bx" x="24" y="40" width="196" height="60" rx="2"/>
+        <text class="tm" x="38" y="64">write the vectors</text>
+        <text class="s" x="38" y="84">into Qdrant</text>
+
+        <line class="ln" x1="220" y1="70" x2="300" y2="70" marker-end="url(#a8)"/>
+
+        <rect class="bx" x="304" y="40" width="196" height="60" rx="2"/>
+        <text class="tm" x="318" y="64">commit the row</text>
+        <text class="s" x="318" y="84">in Postgres</text>
+
+        <g class="bad">
+          <line class="ln" x1="260" y1="128" x2="260" y2="78" marker-end="url(#a8r)"/>
+          <text class="lbl" x="196" y="140">the worker dies here</text>
+        </g>
+
+        <rect class="bx-o" x="24" y="150" width="476" height="146" rx="2"/>
+        <text class="lbl" x="40" y="176">WHAT THAT LEAVES BEHIND</text>
+        <text class="s" x="40" y="200">Qdrant holds vectors the database does not know about, or</text>
+        <text class="s" x="40" y="220">the database claims a document is indexed when it is not.</text>
+        <text class="s" x="40" y="246">Every stage still reports “nothing left to do”. The scanner is</text>
+        <text class="s" x="40" y="266">happy, OCR is happy, indexing is happy. Nothing is wrong anywhere</text>
+        <text class="s" x="40" y="286">— except the answers people get.</text>
+
+        <line class="ln-d" x1="500" y1="70" x2="560" y2="70" marker-end="url(#a8)"/>
+        <text class="lbl" x="502" y="60">compares</text>
+
+        <rect class="bx-a" x="564" y="40" width="496" height="234" rx="2"/>
+        <text class="t" x="580" y="66">python -m pipeline.status</text>
+        <text class="s" x="580" y="90">Compares the two, project by project, and says so plainly:</text>
+        <text class="tm" x="580" y="120">ok  project_PRJ-01     pg=30    qdrant=30</text>
+        <text class="tm" x="580" y="142">ok  project_PRJ-03     pg=61    qdrant=61</text>
+        <text class="tm" x="580" y="164">ok  project_TEST-PROJECT   pg=358   qdrant=358</text>
+        <line class="ln" x1="580" y1="180" x2="1044" y2="180"/>
+        <text class="s" x="580" y="204">It also reports when ingestion last succeeded, anything failed or</text>
+        <text class="s" x="580" y="224">stuck, and whether a stage lock is currently held.</text>
+        <text class="s" x="580" y="252">Proved by deliberately deleting 5 vectors: it went red, named the</text>
+        <text class="s" x="580" y="268">exact mismatch, and exited 1.</text>
+      </svg>
+      </div>
+      <figcaption>The gap between two writes to two separate systems is invisible to every other signal in the pipeline. This is the only thing that looks for it.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">10</span><h2>How any of this is known to work</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">199 automated tests, running in about eleven seconds. But the tests are not the interesting part — the method used to check the tests themselves is.</p>
+
+    <p><strong>Every safety feature was proved by deliberately breaking it</strong> and confirming that the intended test caught the break. 44 such deliberate breakages were run across the pipeline. Four of them slipped through, which exposed four real gaps in the test suite that were invisible on inspection — including a test that quietly passed against broken code because it imported the very constant it was supposed to be checking.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <caption>The test suite, by module</caption>
+        <thead>
+          <tr><th>Tests for</th><th class="num">Tests</th><th>What they exercise</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="mono">test_scanner.py</td><td class="num">38</td><td>All five discovery outcomes against the real database schema</td></tr>
+          <tr><td class="mono">test_tasks.py</td><td class="num">27</td><td>The background tasks, the schedule, and stage sequencing</td></tr>
+          <tr><td class="mono">test_chunker.py</td><td class="num">26</td><td>Cutting rules, including three real Document Intelligence samples</td></tr>
+          <tr><td class="mono">test_ocr.py</td><td class="num">23</td><td>The full extraction path with Azure stubbed — no paid calls</td></tr>
+          <tr><td class="mono">test_indexer.py</td><td class="num">23</td><td>Embedding and indexing with both the API and Qdrant stubbed</td></tr>
+          <tr><td class="mono">test_native_extract.py</td><td class="num">22</td><td>The local fallback reader for Office files</td></tr>
+          <tr><td class="mono">test_status.py</td><td class="num">15</td><td>Health judgements, including the two-store comparison</td></tr>
+          <tr><td class="mono">test_config.py</td><td class="num">13</td><td>Settings loading, and refusing an absolute stored path</td></tr>
+          <tr><td class="mono">test_locking.py</td><td class="num">12</td><td>The real Redis lock — expiry, ownership, contention</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>What the tests deliberately do not fake</h3>
+    <ul>
+      <li><strong>The database is real.</strong> Tests run against the actual schema and constraints inside a transaction they always roll back, so nothing survives the run. If the container is down they skip with a clear message rather than failing obscurely.</li>
+      <li><strong>The lock is real.</strong> Set-if-absent, expiry and compare-and-delete are precisely the properties a fake dictionary would not have.</li>
+      <li><strong>The paid services are stubbed.</strong> Both money-spending stages are fully tested — including their failure paths — without a single billed call and without touching the live vector store.</li>
+    </ul>
+
+    <div class="note">
+      <span class="nh">The lesson that keeps repeating</span>
+      <p>Three of the pipeline's worst defects were invisible to a passing test suite and only appeared when something was actually run: a connection that closed itself, character positions that were wrong on 8 of 10 passages, and a stored path that only broke once a second machine mounted the same folder somewhere else.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">11</span><h2>What it all cost, and what exists</h2></div>
+    <div class="srule"></div>
+
+    <div class="tbl-wrap">
+      <table>
+        <caption>Money spent, to date</caption>
+        <thead>
+          <tr><th>Item</th><th class="num">Units</th><th class="num">Cost</th><th>Note</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Reading the corpus</td><td class="num">154 pages</td><td class="num">≈ $1.54</td><td>All 58 documents, once. Re-running bills nothing.</td></tr>
+          <tr><td>The extraction experiment</td><td class="num">87 pages</td><td class="num">≈ $0.87</td><td>Comparing Azure against free local reading — it reversed the plan</td></tr>
+          <tr><td>Embedding everything</td><td class="num">295,232 tokens</td><td class="num">&lt; $0.01</td><td>The whole corpus, for less than a cent</td></tr>
+          <tr><td><strong>Total</strong></td><td class="num"></td><td class="num"><strong>≈ $2.50</strong></td><td>For a complete, re-runnable, searchable corpus</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <caption>The corpus, project by project</caption>
+        <thead>
+          <tr><th>Project</th><th class="num">Passages indexed</th><th>What it is</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="mono">PRJ-01</td><td class="num">30</td><td rowspan="8">Eight fictional projects, generated from a manifest: charters, weekly reports, meeting minutes, risk registers, budget reports, handovers and lessons learned. A deliberate mix of Arabic, English and mixed-language documents, most containing tables.</td></tr>
+          <tr><td class="mono">PRJ-02</td><td class="num">49</td></tr>
+          <tr><td class="mono">PRJ-03</td><td class="num">61</td></tr>
+          <tr><td class="mono">PRJ-04</td><td class="num">37</td></tr>
+          <tr><td class="mono">PRJ-05</td><td class="num">29</td></tr>
+          <tr><td class="mono">PRJ-06</td><td class="num">43</td></tr>
+          <tr><td class="mono">PRJ-07</td><td class="num">32</td></tr>
+          <tr><td class="mono">PRJ-08</td><td class="num">39</td></tr>
+          <tr><td class="mono">TEST-PROJECT</td><td class="num">358</td><td>13 genuine real-world documents, kept with their original filenames — including a PowerPoint deck and a scanned, image-only PDF. This is where surprises come from.</td></tr>
+          <tr><td><strong>Total</strong></td><td class="num"><strong>678</strong></td><td>Matching the database exactly, on every project</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>The code that exists</h3>
+    <p>Eleven Python modules in one folder, and nothing else. There is no web application and no user interface yet — the pipeline is the entire codebase.</p>
+    <ul>
+      <li><code>config.py</code> — every setting, read from one file. No other module reads an environment variable or hardcodes a path, which is exactly why the pipeline moved into a container without a single code change.</li>
+      <li><code>scanner.py</code>, <code>ocr.py</code>, <code>native_extract.py</code>, <code>chunker.py</code>, <code>indexer.py</code> — the four stages and the fallback reader.</li>
+      <li><code>tasks.py</code>, <code>locking.py</code>, <code>status.py</code> — the layer that makes it run unattended.</li>
+      <li><code>db.py</code> — deliberately exposes only the pipeline's own database login. A pipeline module reaching for the restricted one is a pipeline module doing something wrong.</li>
+    </ul>
+  </section>
+
+  <footer>
+    <p>Compiled 9 August 2026 from the running system on this machine. Every figure on this page was read from live output, not copied from documentation.</p>
+    <span class="mono">docker compose ps · apply_migrations.py --status · pytest tests/ -q · pipeline.status · pipeline.scanner --dry-run</span>
+  </footer>
+
+</div>

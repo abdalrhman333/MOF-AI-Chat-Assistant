@@ -44,6 +44,7 @@ This is a **different use case** than a colleague's separate build
 | 5 | **`NEXT_BUILD_CHAT_BACKEND.md`** | **If you are here to build the chat backend — the next thing — read this.** Acceptance criteria, the AC09 session gate, build order, non-negotiable rules, known-unknowns |
 | 6 | `NEXT_BUILD_PIPELINE.md` | The ingestion pipeline's brief. **Now a record, not a to-do** — what was specified, what was built, and the five places they differ |
 | 7 | `INVENTORY.md` | Every folder, container, cloud model, and library used on this machine — what it is, why, and how to access it |
+| — | `SYSTEM_WORKFLOW.html` | **Visual walkthrough of what is built, in plain language.** Eight diagrams: the whole machine, the container map, the schema and the two database roles, all four pipeline stages, the scheduler and its locks, and the health check. Open it in a browser. Describes the current state only — no roadmap |
 | — | `Enjaz_Solution_Guide.docx` | **For non-technical readers / stakeholders.** Plain-language guide to the whole solution: what it does, how it works, why each choice was made, and how to rebuild it. Not needed for development work |
 
 The original BRD-derived scope document also lives at

@@ -317,9 +317,10 @@ What the chat backend walks into, flagged in advance:
   (`INFRASTRUCTURE.md` §7c).
 - **`SET LOCAL`, never `SET`** — a plain `SET` persists on a pooled
   connection and leaks the previous request's project scope into the next.
-- **Source arbitration is still unresolved** (§3.3 of
-  `SOLUTION_ARCHITECTURE.md`): what wins when a weekly report and SPM's
-  status field disagree.
+- **Source arbitration is decided** (2026-08-09, §3.3 of
+  `SOLUTION_ARCHITECTURE.md`): when a weekly report and SPM's status field
+  disagree, present **both**, attribute each with its date, and let the
+  project manager decide. Never silently pick a winner.
 - **Nothing emits traces yet.** Langfuse and Grafana are both running and
   both unwired.
 

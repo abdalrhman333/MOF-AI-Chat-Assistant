@@ -19,8 +19,9 @@ Windows (Docker Desktop, WSL2 backend, engine disk relocated to D:)
     ├── postgres-spm ......... postgres:16-alpine   :5432   SPM project entity data
     ├── qdrant ............... qdrant/qdrant:latest :6333/:6334   vector DB, one
     │                          collection per project, API-key auth
-    ├── redis ................ redis:7-alpine       :6379   app job queue
-    │                          (SharePoint ingest / OCR / embed — not wired yet)
+    ├── redis ................ redis:7-alpine       :6379   Celery broker + result
+    │                          backend for the ingestion worker, and the store
+    │                          behind the cross-process stage locks
     │
     ├── langfuse-postgres .... postgres:16-alpine    :5433   Langfuse's own metadata DB
     ├── langfuse-clickhouse .. clickhouse-server:24  :8123, :9004   Langfuse trace store
@@ -244,7 +245,7 @@ Bash tool.
 ```bash
 cd "D:\MOF Enjaz Chatbot\infra"
 docker compose up -d
-docker compose ps                                  # all 11 (+1 one-shot) present
+docker compose ps                                  # all 13 (+1 one-shot) present
 ```
 
 First boot pulls a lot (Langfuse's full v3 stack + Grafana's all-in-one LGTM

@@ -134,7 +134,7 @@ Never into system Python — one of the four gaps closed before the pipeline pha
 ```bash
 docker ps --format "{{.Names}}: {{.Status}}"                     # 13 containers
 python infra/postgres-spm/apply_migrations.py --status           # 13 applied, 0 pending
-.venv/Scripts/python -m pytest tests/ -q                         # 125 passed
+.venv/Scripts/python -m pytest tests/ -q                         # 199 passed
 find /d/MOF_DataSample -maxdepth 1 -type d                       # 9 project folders
 
 # The whole pipeline has run. Every stage is free to re-run unchanged:
