@@ -19,9 +19,17 @@ What Stage 0 decides, per file:
     no row                  -> INSERT, status 'pending'
     row, file_hash IS NULL  -> BACKFILL (the seeded-placeholder case)
     hash matches, path same -> UNCHANGED, zero writes
-    hash matches, path moved-> PATH_UPDATED (root repointed; only the path)
+    hash matches, path moved-> PATH_UPDATED (moved within the corpus, or a
+                               row still holding a pre-fix absolute path)
     hash differs            -> MODIFIED: reset to 'pending' AND drop the
                                stale OCR cache
+
+`file_path` is stored **relative to DOCUMENT_ROOT** (`PRJ-01/x.docx`). It
+was absolute until containerising proved that wrong: the Windows host and
+the Linux worker mount the same corpus at different roots, so every run
+rewrote every row and Stage 1 could not open a file the other environment
+had recorded. Relative is valid in both, and makes PATH_UPDATED mean
+"moved" instead of "a different machine ran last".
 
 That last deletion is the one with teeth. `document_content`'s *presence*
 is the "OCR done" marker (INFRASTRUCTURE.md 8), so leaving a stale row
@@ -51,6 +59,7 @@ from enum import Enum
 
 from pipeline.config import Settings, get_settings
 from pipeline.db import admin_connection
+from pipeline.locking import AlreadyRunning, optional_stage_lock
 
 # Read in blocks rather than slurping the file: a SharePoint export can
 # contain video and archives, and the scanner must not be the thing that
@@ -71,11 +80,25 @@ class DiscoveredFile:
     """A file found on disk, before the database has been consulted."""
     project_code: str
     filename: str          # path RELATIVE to the project folder, POSIX form
-    path: pathlib.Path     # absolute, as stored in document_links.file_path
+    path: pathlib.Path     # absolute, for reading the bytes right now
     size_bytes: int
 
     @property
     def label(self) -> str:
+        return f"{self.project_code}/{self.filename}"
+
+    @property
+    def stored_path(self) -> str:
+        """What goes into `document_links.file_path`.
+
+        **Relative to DOCUMENT_ROOT, POSIX-separated** — `PRJ-01/x.docx`,
+        never `D:\\MOF_DataSample\\PRJ-01\\x.docx`. An absolute path is
+        only valid on the machine that wrote it: the Windows host and the
+        Linux worker container mount the same corpus at different roots, so
+        storing absolutes made every run rewrite every row and left Stage 1
+        unable to open a file the other environment had recorded.
+        POSIX separators keep the value identical on both.
+        """
         return f"{self.project_code}/{self.filename}"
 
 
@@ -156,9 +179,10 @@ def decide(
         return Action.BACKFILL
     if row.file_hash != file_hash:
         return Action.MODIFIED
-    if row.file_path != str(disc.path):
-        # Same bytes, different location: DOCUMENT_ROOT was repointed. The
-        # stored path is now stale and Stage 1 would fail to open it.
+    if row.file_path != disc.stored_path:
+        # Same bytes, a different place in the corpus — or a row still
+        # holding a pre-fix absolute path. Either way the stored value is
+        # stale and Stage 1 would resolve it wrongly.
         return Action.PATH_UPDATED
     return Action.UNCHANGED
 
@@ -260,7 +284,7 @@ def _apply(cursor, action: Action, disc: DiscoveredFile, file_hash: str,
                  file_hash, file_size_bytes, indexing_status)
             VALUES (%s, %s, %s, %s, %s, %s, 'pending')
             """,
-            (disc.project_code, disc.filename, str(disc.path),
+            (disc.project_code, disc.filename, disc.stored_path,
              settings.scanner.default_doc_type, file_hash, disc.size_bytes),
         )
         return 0
@@ -273,14 +297,14 @@ def _apply(cursor, action: Action, disc: DiscoveredFile, file_hash: str,
         # indexing_status: re-OCRing identical bytes is paying twice.
         cursor.execute(
             "UPDATE document_links SET file_path = %s, file_size_bytes = %s WHERE id = %s",
-            (str(disc.path), disc.size_bytes, row.id),
+            (disc.stored_path, disc.size_bytes, row.id),
         )
         return 0
 
     if action in (Action.BACKFILL, Action.MODIFIED):
         cursor.execute(
             f"UPDATE document_links SET {_RESET_COLUMNS} WHERE id = %s",
-            (str(disc.path), file_hash, disc.size_bytes, row.id),
+            (disc.stored_path, file_hash, disc.size_bytes, row.id),
         )
         if action is Action.MODIFIED:
             # The hash differs, so the cached OCR describes bytes that are
@@ -348,6 +372,24 @@ def _scan_with(conn, settings: Settings, project: str | None,
             f"Folders present: {sorted(p.name for p in root.iterdir() if p.is_dir())}"
         )
 
+    if not discovered:
+        # An empty corpus is legitimate on a fresh install, and a hard error
+        # would block the very first run. It is NOT legitimate when the
+        # database already knows about documents: that combination means
+        # DOCUMENT_ROOT is pointing somewhere wrong, and continuing would
+        # report every existing document as missing. Refusing protects the
+        # rows — and the paid-for OCR cache hanging off them.
+        cursor.execute("SELECT count(*) FROM document_links")
+        known_documents = cursor.fetchone()[0]
+        if known_documents:
+            raise RuntimeError(
+                f"No files found anywhere under DOCUMENT_ROOT ({root}), but the "
+                f"database already holds {known_documents} document(s). This almost "
+                f"always means DOCUMENT_ROOT is set to the wrong directory. "
+                f"Refusing to continue, so that every existing document is not "
+                f"reported as missing. Check DOCUMENT_ROOT in infra/.env."
+            )
+
     # A folder with no projects row would violate the foreign key. Skip and
     # report it rather than aborting the whole scan for one stray folder.
     in_scope, seen_projects = [], []
@@ -380,6 +422,12 @@ def _scan_with(conn, settings: Settings, project: str | None,
         if key not in found_keys
     )
     return report
+
+
+# Every stage exposes `run()`. Stage 0's own name for it is `scan()`, which
+# reads better at its call sites and is what the tests use; this alias keeps
+# the three stages uniform for anything that drives them generically.
+run = scan
 
 
 # ---------------------------------------------------------------------------
@@ -443,7 +491,16 @@ def main(argv: list[str] | None = None) -> int:
                         help="List every file under its action.")
     args = parser.parse_args(argv)
 
-    report = scan(project=args.project, dry_run=args.dry_run)
+    # The lock is taken here, at the entry point, not inside scan() —
+    # scan() is also called by the Celery task, which takes it too, and a
+    # non-reentrant lock in both places would deadlock the worker against
+    # itself. A dry run needs no lock: it writes nothing.
+    try:
+        with optional_stage_lock("scan", enabled=not args.dry_run):
+            report = scan(project=args.project, dry_run=args.dry_run)
+    except AlreadyRunning as exc:
+        print(f"Stage 0 scan — SKIPPED: {exc}", file=sys.stderr)
+        return 2
     print(format_report(report, list_files=args.list_files))
     return 0
 

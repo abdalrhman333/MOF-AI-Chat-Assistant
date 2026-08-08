@@ -1,0 +1,24 @@
+# The build context is the repository root, so without this the whole
+# .venv (hundreds of MB) is uploaded to the daemon on every build — slow,
+# and pointless since dependencies are installed from requirements.txt
+# inside the image.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets never belong in an image layer. The worker receives its
+# configuration from Compose (env_file + environment) at run time.
+infra/.env
+
+.git/
+.github/
+.claude/
+
+# Not needed to run the pipeline.
+Documentation/
+My_Prompts/
+tests/
+mock-data/
+Tools ACC/
+*.md

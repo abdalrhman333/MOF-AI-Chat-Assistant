@@ -507,6 +507,70 @@ and the correct chunk often ranks 2nd–3rd rather than 1st. That is a
 **ranking** problem for the chat backend — reranking, hybrid search, or
 more retrieved candidates — not an ingestion defect.
 
+### 4.11 The pipeline as a background worker (2026-08-08)
+
+Until this point the three stages were commands a human typed, which is
+fine for building them and useless for operating them: dropping a file into
+a project folder did nothing until somebody remembered to run the scanner.
+Redis had been running unused since the infrastructure was built, for
+exactly this (§4.3).
+
+**A containerised Celery worker**, not a host process. The obvious reason
+is that it matches every other service — `restart: unless-stopped`, data on
+D:, survives a reboot. The less obvious one decided it: **Celery's default
+prefork pool does not work on Windows**, so a host worker is stuck on
+`--pool=solo` with no concurrency at all. In a Linux container the problem
+does not exist (verified: the worker reports `concurrency: 2 (prefork)`).
+
+**One task per stage, not one per document.** The coarse granularity is
+safe *because* the stages are idempotent — a retried OCR task over a
+finished corpus calls Azure zero times, so Celery's retry costs nothing
+rather than re-billing. Per-document fan-out would buy parallelism a
+58-document corpus does not need, at the price of moving per-document
+commit logic into the task layer.
+
+**Locking is the genuinely new failure mode.** Idempotence protects against
+running a stage again *after* it finished; it says nothing about two runs
+*at the same time*, which is precisely what a schedule firing while the
+previous run is still going produces. Both would see the same document as
+un-OCR'd, both would call Document Intelligence, and both would be billed —
+Postgres serialises the row writes afterwards, but the money is already
+spent. So `pipeline/locking.py` takes a Redis lock per stage, and:
+
+- it is taken by the **entry points** (each `main()` and each task), never
+  inside `run()` — which both call, and where a non-reentrant lock would
+  deadlock the worker against itself;
+- a busy lock **skips** rather than queues, because by the time a waiting
+  run started, its work would already have been done;
+- it carries a TTL so a killed worker cannot deadlock the pipeline, and an
+  owner token so a run that overran its TTL cannot delete the lock that
+  legitimately replaced it;
+- **the CLI takes it too.** A lock only the worker respected would not stop
+  the collision most likely to happen: a developer running
+  `python -m pipeline.ocr` while the schedule fires. Verified — the CLI
+  exits 2 with the holder named. Dry runs are exempt: they write nothing.
+
+`ingest` runs the stages **inline and in order**, not as a Celery chain. A
+chain dispatches and returns immediately, so the caller receives a nested
+graph of task ids instead of an outcome — meaning a scheduled ingest could
+not report whether it worked. It now returns
+`{"ok": …, "stages": [{…}, {…}, {…}]}`, and a failing stage does not stop
+the ones after it.
+
+**`document_links.file_path` is stored relative to `DOCUMENT_ROOT`.** This
+was found by containerising: the host wrote `D:\MOF_DataSample\...` and the
+worker wrote `/data/...`, so each rewrote all 58 rows on every run and
+Stage 1 could not open a file the other environment had recorded. A
+relative path is valid in both. Two consequences worth recording:
+
+- `PATH_UPDATED` can now only fire for a row written **before** this fix,
+  because `file_path` equals `<project>/<filename>` — which is the row's
+  own unique key. It is a migration path, not a live case.
+- The fix depended on a decision made much earlier: `PATH_UPDATED`
+  deliberately does **not** reset `indexing_status`. Had a moved file been
+  treated as MODIFIED, containerising would have silently triggered a full
+  corpus re-OCR.
+
 ---
 
 ## 5. Relationship to the colleague's RiskIntel platform

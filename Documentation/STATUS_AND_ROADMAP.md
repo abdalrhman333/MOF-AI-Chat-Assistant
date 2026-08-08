@@ -106,8 +106,9 @@
   have zero assignments), `document_links` (58 rows — 45 fictional + 13
   real, `doc_type` deliberately free text not a fixed enum, 14 distinct
   types across the seeded data, `indexing_status` defaults to `pending`
-  with a check constraint, `file_path` points at the real file under
-  `D:\MOF_DataSample`). Migrations `003`–`009` in
+  with a check constraint, `file_path` holds the path **relative to
+  `DOCUMENT_ROOT`** — e.g. `PRJ-01/charter.docx`. It held an absolute path
+  until 2026-08-08; see §12 for why that was wrong). Migrations `003`–`009` in
   `infra/postgres-spm/migrations/`, all applied and verified (row counts,
   isolation query, per-user assignment counts). Informed by BRD user
   stories 4–5 (AC08–AC11) — `project_assignments` **is** the AC09 access
@@ -168,7 +169,15 @@
   with real questions in Arabic and English (§11).
 - [x] **The ingestion pipeline is complete end to end** — scan → OCR →
   chunk → embed → index. Every stage is free to re-run on an unchanged
-  corpus. Total spend across the whole project: **~$2.42**.
+  corpus. Total spend across the whole project: **~$2.51**.
+- [x] **The pipeline is operational, not just working** (2026-08-08).
+  It runs as a **containerised Celery worker** (`mof-pipeline-worker`) with
+  a scheduler (`mof-pipeline-beat`), both healthchecked and
+  `restart: unless-stopped`. Cross-process stage locks stop a scheduled run
+  and a hand-typed CLI run colliding — the failure idempotence cannot cover.
+  `document_links.file_path` became **relative to `DOCUMENT_ROOT`**, which
+  is what made the host and the container stop fighting over every row.
+  Verified end-to-end from a clean slate. See §12.
 - [x] **Chunker test suite** — 26 tests in `tests/test_chunker.py`
   (the suite is now 102 across four modules), synthetic cases plus
   three real Document Intelligence fixtures. **Validated by mutation
@@ -250,6 +259,11 @@
 | 2026-08-08 | Vectors are **deleted before upsert**, not upserted alone | An edited document yielding fewer chunks leaves surplus points behind. They stay retrievable and answer current questions with deleted content, with nothing reporting an error |
 | 2026-08-08 | Embedding results re-sorted by the API's own `index` | Trusting arrival order pairs every vector with the wrong payload — invisible, and makes retrieval confidently wrong |
 | 2026-08-08 | Indexing **retries failed documents by default** — opposite of Stage 1 | Cost asymmetry, not inconsistency: re-OCR re-bills per page, re-embedding the whole corpus costs under a cent. When retrying is nearly free, hiding failures serves nobody |
+| 2026-08-08 | `document_links.file_path` stored **relative to DOCUMENT_ROOT**, not absolute | §12. Found by containerising: the host wrote `D:\...` and the worker wrote `/data/...`, so each rewrote all 58 rows every run and Stage 1 could not open a file the other had recorded. A relative path is valid in both |
+| 2026-08-08 | Pipeline runs as a **containerised** Celery worker, not a host process | `SOLUTION_ARCHITECTURE.md` §4.11. Matches every other service (restart-safe, data on D:) and sidesteps Celery's prefork pool not working on Windows, which would have forced `--pool=solo` with no concurrency |
+| 2026-08-08 | **One Celery task per stage**, not per document | Coarse retries are safe *because* the stages are idempotent — a retried OCR task over a finished corpus calls Azure zero times. Per-document fan-out buys parallelism 58 documents don't need |
+| 2026-08-08 | Stage locks are taken by **entry points**, and by the **CLI** as well as the worker | A lock only the worker respected would miss the most likely collision: someone running `python -m pipeline.ocr` while the schedule fires. Taking it inside `run()` instead would deadlock the worker against itself |
+| 2026-08-08 | `ingest` runs stages **inline**, not as a Celery chain | A chain returns a graph of task ids immediately, so a scheduled ingest could not report success or failure |
 | 2026-08-08 | **Rejected**: stripping HTML markup from embedded text | Tested and refuted (§11c). The premise measured true (26% of table-chunk tokens are markup) but the mechanism did not: high-markup and low-markup chunks lose the same similarity when stripped. Changing it would have forced a full re-index on the strength of one query |
 
 ---
@@ -388,6 +402,17 @@ What the chat backend walks into, flagged in advance:
   payload contract and forced a full re-index for nothing.** A measurement
   that confirms your premise is not a measurement that confirms your
   explanation.
+- **Containerising is a correctness test, not just a packaging step.** The
+  absolute-`file_path` defect had existed since Stage 0 and was invisible
+  while only one machine ever ran the pipeline. The moment a second
+  environment mounted the same corpus at a different root, it showed up
+  immediately — all 58 rows rewritten on every run, and Stage 1 unable to
+  open a file the other environment had recorded. Anything storing an
+  absolute path in shared state has this bug and does not know yet.
+- **Idempotence and concurrency-safety are different properties.** Every
+  stage was idempotent and had been verified as such; none of that stops
+  two runs starting at the same time and both paying for the same OCR.
+  Adding a schedule is what turned a theoretical race into a likely one.
 - **Distinguish "the answer isn't in the results" from "the answer isn't
   first".** The Arabic retrieval looked broken until the results were read
   properly: the correct chunk was present every time, just ranked 2nd or
@@ -402,8 +427,14 @@ What the chat backend walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**125 tests, ~7.5s** — `test_chunker.py` 26 + `test_scanner.py` 35 +
-`test_ocr.py` 19 + `test_native_extract.py` 22 + `test_indexer.py` 23.
+**178 tests, ~10s** — `test_chunker.py` 26 + `test_scanner.py` 40 +
+`test_ocr.py` 23 + `test_native_extract.py` 22 + `test_indexer.py` 23 +
+`test_config.py` 13 + `test_locking.py` 12 + `test_tasks.py` 19.
+
+`test_locking.py` and `test_tasks.py` need **Redis** as well as Postgres —
+they exercise the real lock, because atomic set-if-absent, expiry and
+compare-and-delete are exactly the properties a fake dictionary would not
+have.
 
 **45 of the 125 tests need `mof-postgres-spm` running** — 9 in
 `test_scanner.py`, all 19 in `test_ocr.py`, 17 in `test_indexer.py`
@@ -647,3 +678,101 @@ What is real, and belongs to the chat backend: Arabic scores ~0.40 against
 English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
 That is **ranking**, not retrieval — the answer is in the results every
 time.
+
+---
+
+## 12. Hardening the pipeline into an operational stage (2026-08-08)
+
+The pipeline worked; it was not *operated*. Three stages a human typed, no
+schedule, no worker, and — as containerising immediately proved — a latent
+defect that only a second environment could expose.
+
+### 12a. The defect containerising found
+
+`document_links.file_path` held an **absolute** path. Nothing was wrong
+while one machine ran the pipeline. The moment the Linux worker mounted the
+same corpus at `/data`:
+
+| | Before the fix | After |
+|---|---|---|
+| Host scan after a container run | 58 rows rewritten | `rows written: 0` |
+| Container scan after a host run | 58 rows rewritten | `written: 0` |
+| Host Stage 1 opening a container-recorded file | `exists on host: False` | resolves correctly |
+
+Storing the path relative to `DOCUMENT_ROOT` fixes it in both directions.
+Migrated in place: 58 rows rewritten once, **0 OCR cache rows dropped**,
+all 58 still `indexed` — no re-OCR, no re-embed.
+
+**That migration was free only because of a decision made three stages
+earlier.** `PATH_UPDATED` deliberately does not reset `indexing_status`.
+Had a relocated file been treated as `MODIFIED` — which the original
+three-outcome brief would have implied — shipping this fix would have
+silently re-OCR'd the entire corpus.
+
+Two honest consequences:
+
+- `PATH_UPDATED` is now reachable **only** for rows written before the fix,
+  because `file_path` equals `<project>/<filename>`, which is the row's own
+  unique key. It is a migration path, not a live case, and is documented as
+  such rather than left looking load-bearing.
+- `resolve_document()` **refuses** an absolute stored path rather than
+  joining it, because `Path("D:/root") / "/data/x"` yields a real path
+  pointing at the wrong place — a silent wrong answer instead of an error.
+
+### 12b. What the worker added, and the new failure mode
+
+Running as a container was not only about restart-safety: **Celery's
+prefork pool does not work on Windows**, so a host worker is stuck on
+`--pool=solo`. The container reports `concurrency: 2 (prefork)`.
+
+The genuinely new risk is **concurrency, which idempotence does not
+cover**. Every stage was already idempotent and verified as such — none of
+that stops two runs starting together and both paying for the same OCR.
+`pipeline/locking.py` adds a Redis lock per stage, taken by the CLI as well
+as the worker, because the most likely collision is a developer running
+`python -m pipeline.ocr` while the schedule fires.
+
+Verified live, not just unit-tested:
+
+```
+$ (lock held by another process)
+$ python -m pipeline.ocr
+Stage 1 OCR — SKIPPED: stage 'ocr' is already running (held by worker-pretend:123)
+exit code: 2
+$ python -m pipeline.ocr --dry-run      # dry runs are exempt — they write nothing
+  candidates : 0
+exit: 0
+```
+
+### 12c. End-to-end from a clean slate
+
+PRJ-05 was wiped completely — OCR cache deleted, hashes cleared, status
+reset, Qdrant collection dropped — and rebuilt through the worker:
+
+| Stage | Result |
+|---|---|
+| scan | 4 files, 4 written |
+| ocr | 4 succeeded, **5 pages billed**, 0 failed |
+| index | 4 indexed, **29 chunks**, 12,893 tokens, collection recreated |
+
+**Identical to the pre-wipe state** (29 chunks, 29 points), and the
+immediate re-run reported `written: 0`, `pages_billed: 0`. Corpus back to
+9 collections / 678 points.
+
+### 12d. Also closed
+
+- `ingest` returned a nested graph of Celery task ids and did not wait, so
+  a scheduled run could not report success or failure. It now runs the
+  stages inline and returns `{ok, stages:[…]}`.
+- `ocr.run()` had no pre-flight check on `DOCUMENT_ROOT`. A wrong root
+  marked all 58 documents `failed` — and since failed documents are skipped
+  by default, one typo needed `--retry-failed` to recover. It now fails
+  once, loudly.
+- An empty `DOCUMENT_ROOT` is refused **when the database already holds
+  documents** (almost certainly a misconfigured root) but allowed when it
+  does not (a legitimate first run).
+- The Redis client is pooled once per process rather than rebuilt per lock
+  acquisition, which leaked a connection pool per task.
+- Healthchecks on both containers; beat's schedule persisted to D: instead
+  of `/tmp`; `raw_response` growth flagged (never truncated — measured 177 kB
+  average, 1.3 MB largest, ~65 kB/page).

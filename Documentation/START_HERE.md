@@ -62,7 +62,7 @@ Docs drift. Before making changes, verify reality:
 
 ```bash
 cd "D:\MOF Enjaz Chatbot\infra"
-docker compose ps                          # 11 containers, all Up/healthy
+docker compose ps                          # 13 containers, all Up/healthy
 docker ps --format "table {{.Names}}\t{{.Status}}"
 ```
 
@@ -70,8 +70,10 @@ Expected containers (project name `mof-enjaz-chatbot`, network `mof-net`):
 `mof-postgres-spm`, `mof-qdrant`, `mof-redis`, `mof-langfuse-postgres`,
 `mof-langfuse-clickhouse`, `mof-langfuse-redis`, `mof-langfuse-minio`,
 `mof-langfuse-worker`, `mof-langfuse-web`, `mof-grafana-lgtm`,
-`mof-portainer`. (`mof-langfuse-minio-init` runs once and exits — that's
-expected, not a failure.)
+`mof-portainer`, plus the ingestion pipeline itself:
+`mof-pipeline-worker` and `mof-pipeline-beat`.
+(`mof-langfuse-minio-init` runs once and exits — that's expected, not a
+failure.)
 
 If containers are down: `docker compose up -d` from `infra/` brings
 everything back (all services are `restart: unless-stopped`). See
@@ -117,6 +119,43 @@ first, and note `--limit N` exists. The whole corpus is ~154 pages ≈ $1.50.
 `pipeline.indexer` also spends, but embeddings are trivially cheap: the
 entire corpus is 295,232 tokens, under a cent.
 
+**Running the pipeline.** It runs itself — `mof-pipeline-beat` fires a full
+ingest every `INGEST_SCHEDULE_SECONDS` (default hourly), so dropping a file
+into a project folder is enough. To trigger one by hand:
+
+```bash
+# whole corpus, wait for the result
+docker compose exec pipeline-worker python -m pipeline.tasks ingest --wait
+
+# one project only
+docker compose exec pipeline-worker python -m pipeline.tasks ingest --project PRJ-05 --wait
+
+# just one stage: scan | ocr | index | ingest
+docker compose exec pipeline-worker python -m pipeline.tasks scan --wait
+
+docker logs -f mof-pipeline-worker      # per-document progress
+```
+
+A healthy no-op run looks like this — every stage reporting nothing to do:
+
+```json
+{"ok": true, "stages": [
+  {"stage": "scan",  "skipped": false, "files": 58, "written": 0},
+  {"stage": "ocr",   "skipped": false, "succeeded": 0, "pages_billed": 0},
+  {"stage": "index", "skipped": false, "indexed": 0, "chunks": 0}]}
+```
+
+**Failure modes worth recognising:**
+
+| Symptom | Meaning |
+|---|---|
+| `"skipped": true, "reason": "…already running"` | Another run holds that stage's lock. Not an error — it stood down deliberately |
+| CLI exits **2**, `Stage 1 OCR — SKIPPED` | Same, from a hand-run command while the worker is busy |
+| `RuntimeError: DOCUMENT_ROOT does not exist` | Wrong root. Fails once, loudly, instead of marking 58 documents failed |
+| `No files found anywhere under DOCUMENT_ROOT … database already holds N` | Root points somewhere wrong; refused so existing rows aren't all reported missing |
+| `file_path is absolute … run pipeline.scanner` | A row predating the relative-path fix. One scan repairs it |
+| `"ok": false` with a stage `error` | That stage raised; the later stages still ran. Check `error_message` in `document_links` |
+
 **Seeing the vectors.** Qdrant's dashboard
 (http://localhost:6333/dashboard) loads *without* a key while its API
 returns 401, so an unauthenticated dashboard looks broken rather than
@@ -144,10 +183,11 @@ third-party packages, so the database can be rebuilt without the venv.
 `db.py` (the `spm_admin` connection), `scanner.py` (Stage 0, discovery),
 `ocr.py` (Stage 1, extraction), `native_extract.py` (a fallback for Office
 files Azure rejects — never the primary path), and `indexer.py` (Stages 2+3
-in one module: chunk → embed → index). There is no FastAPI app, no Celery
-worker, no frontend. Do not look for `app.py`/`tasks.py` equivalents; they
-haven't been built. See `STATUS_AND_ROADMAP.md` for the exact
-done/not-done line.
+in one module: chunk → embed → index), `locking.py` (cross-process stage
+locks) and `tasks.py` (the Celery tasks and schedule). **The pipeline runs
+as a containerised Celery worker** — `mof-pipeline-worker` and
+`mof-pipeline-beat`. There is still no FastAPI app and no frontend. See
+`STATUS_AND_ROADMAP.md` for the exact done/not-done line.
 
 The test suite is **125 tests** (chunker 26, scanner 35, ocr 19,
 native_extract 22, indexer 23). **45 of them need `mof-postgres-spm`
@@ -195,7 +235,7 @@ vector store.
 > and `Documentation\INFRASTRUCTURE.md`. If the task is building the
 > ingestion pipeline, also read `Documentation\NEXT_BUILD_PIPELINE.md`.
 >
-> Then verify the live system rather than trusting the docs: 11 containers
+> Then verify the live system rather than trusting the docs: 13 containers
 > up, 13 migrations applied and 0 drifted, 125 tests passing, all three
 > pipeline stages reporting nothing to do (`--dry-run` on
 > `pipeline.scanner`, `pipeline.ocr` and `pipeline.indexer`), and Qdrant

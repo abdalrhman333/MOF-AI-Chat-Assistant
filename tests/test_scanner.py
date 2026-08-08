@@ -49,7 +49,9 @@ def disc(project="PRJ-05", filename="a.docx", path=r"D:\corpus\PRJ-05\a.docx", s
     )
 
 
-def row(file_hash="abc", path=r"D:\corpus\PRJ-05\a.docx", size=10, row_id=1):
+def row(file_hash="abc", path="PRJ-05/a.docx", size=10, row_id=1):
+    """A correctly-scanned row. `file_path` is RELATIVE to DOCUMENT_ROOT,
+    so it reads the same on the Windows host and in the Linux worker."""
     return ExistingRow(
         id=row_id,
         project_code="PRJ-05",
@@ -81,21 +83,31 @@ def test_differing_hash_is_modified():
     assert decide(disc(), "NEW", row(file_hash="abc")) is Action.MODIFIED
 
 
-def test_matching_hash_but_moved_file_updates_only_the_path():
-    """DOCUMENT_ROOT repointed: same bytes, new location.
+def test_a_stale_absolute_path_is_repaired_without_reindexing():
+    """The migration case — and now the ONLY way PATH_UPDATED can fire.
 
-    Must not be UNCHANGED — the stored path would stay stale and Stage 1
-    would fail to open the file.
+    `file_path` is stored relative and equals `<project>/<filename>`, which
+    is the row's own unique key, so for a matched row it cannot differ
+    except when the stored value predates the relative-path fix. Both
+    shapes exist in the wild: the Windows host wrote `D:\\...` and the
+    worker container wrote `/data/...`. Each must be repaired, and repaired
+    WITHOUT re-OCR — the bytes are identical, only the record was wrong.
     """
-    moved = disc(path=r"E:\sharepoint\PRJ-05\a.docx")
-    assert decide(moved, "abc", row(file_hash="abc")) is Action.PATH_UPDATED
+    host_legacy = row(file_hash="abc", path=r"D:\MOF_DataSample\PRJ-05\a.docx")
+    assert decide(disc(), "abc", host_legacy) is Action.PATH_UPDATED
+
+    container_legacy = row(file_hash="abc", path="/data/PRJ-05/a.docx")
+    assert decide(disc(), "abc", container_legacy) is Action.PATH_UPDATED
 
 
-def test_content_change_outranks_a_path_change():
-    """Both changed at once must still be MODIFIED, not PATH_UPDATED —
-    PATH_UPDATED deliberately skips the re-OCR reset."""
-    moved = disc(path=r"E:\sharepoint\PRJ-05\a.docx")
-    assert decide(moved, "NEW", row(file_hash="abc")) is Action.MODIFIED
+def test_content_change_outranks_a_stale_path():
+    """Both wrong at once must still be MODIFIED, not PATH_UPDATED.
+
+    PATH_UPDATED deliberately skips the re-OCR reset, so reaching it with
+    changed bytes would leave the cached OCR describing the old file.
+    """
+    legacy = row(file_hash="abc", path=r"D:\MOF_DataSample\PRJ-05\a.docx")
+    assert decide(disc(), "NEW", legacy) is Action.MODIFIED
 
 
 def test_size_alone_never_decides():
@@ -283,7 +295,7 @@ def test_new_file_is_inserted_as_pending(txn, tmp_path):
     assert len(rows) == 1
     filename, file_path, doc_type, status, file_hash, size = rows[0]
     assert filename == "charter_docx"
-    assert file_path == str(tmp_path / TEST_CODE / "charter_docx")
+    assert file_path == f"{TEST_CODE}/charter_docx"    # relative to DOCUMENT_ROOT
     assert doc_type == "Unclassified"
     assert status == "pending"
     assert file_hash == hashlib.sha256(b"hello").hexdigest()
@@ -324,7 +336,7 @@ def test_backfill_fills_the_hash_without_clobbering_curated_columns(txn, tmp_pat
         "SELECT doc_type, language, contains_table, file_path, file_hash "
         "FROM document_links WHERE project_code = %s", (TEST_CODE,))[0]
     assert (doc_type, language, contains_table) == ("Risk Register", "Arabic", True)
-    assert file_path == str(tmp_path / TEST_CODE / "seeded")     # placeholder replaced
+    assert file_path == f"{TEST_CODE}/seeded"          # placeholder replaced, relative
     assert file_hash == hashlib.sha256(b"content").hexdigest()
 
 
@@ -427,32 +439,92 @@ def test_dry_run_reports_but_writes_nothing(txn, tmp_path):
     assert count == 0
 
 
-def test_path_update_does_not_re_trigger_indexing(txn, tmp_path):
-    """Repointing DOCUMENT_ROOT must fix stale paths without re-OCRing the
-    entire corpus — identical bytes, so nothing downstream is stale."""
+def test_repointing_document_root_is_a_no_op(txn, tmp_path):
+    """The whole point of storing paths relative.
+
+    The Windows host mounts the corpus at `D:\\MOF_DataSample` and the
+    worker container mounts the same files at `/data`. Before this fix each
+    run rewrote all 58 rows to its own absolute paths, so the two
+    environments fought over every row and Stage 1 could not open a file the
+    other had recorded. Now a different root produces **zero writes**.
+    """
     first_root = tmp_path / "first"
     first_root.mkdir()
     corpus(first_root, doc=b"same bytes")
     scan(project=TEST_CODE, settings=settings_rooted_at(first_root), connection=txn)
 
-    link_id = fetch(txn, "SELECT id FROM document_links WHERE project_code = %s",
-                    (TEST_CODE,))[0][0]
-    txn.execute("UPDATE document_links SET indexing_status='indexed', chunk_count=5 "
-                "WHERE id=%s", (link_id,))
-    txn.execute("INSERT INTO document_content (document_link_id, markdown) VALUES (%s, %s)",
-                (link_id, "# cached"))
+    stored, = fetch(txn, "SELECT file_path FROM document_links WHERE project_code = %s",
+                    (TEST_CODE,))[0]
+    assert stored == f"{TEST_CODE}/doc"          # relative, not first_root
 
     second_root = tmp_path / "second"
     second_root.mkdir()
     corpus(second_root, doc=b"same bytes")
     report = scan(project=TEST_CODE, settings=settings_rooted_at(second_root), connection=txn)
 
+    assert report.of(Action.UNCHANGED) == [f"{TEST_CODE}/doc"]
+    assert report.writes == 0
+    assert report.of(Action.PATH_UPDATED) == []
+
+
+def test_a_legacy_absolute_path_is_repaired_without_re_ocr(txn, tmp_path):
+    """Migrating a row written before the relative-path fix.
+
+    It must be corrected — Stage 1 refuses an absolute `file_path` outright
+    — but corrected WITHOUT resetting indexing_status or dropping the OCR
+    cache, because the bytes never changed. Getting this wrong would
+    re-OCR the entire corpus the first time the fix shipped.
+    """
+    corpus(tmp_path, doc=b"same bytes")
+    link_id = txn.execute(
+        "INSERT INTO document_links (project_code, filename, file_path, doc_type, "
+        "file_hash, file_size_bytes, indexing_status, chunk_count) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (TEST_CODE, "doc", r"D:\MOF_DataSample\ZZ-SCANNER-TEST\doc", "Charter",
+         hashlib.sha256(b"same bytes").hexdigest(), len(b"same bytes"), "indexed", 5),
+    ).fetchone()[0]
+    txn.execute("INSERT INTO document_content (document_link_id, markdown) VALUES (%s,%s)",
+                (link_id, "# cached"))
+
+    report = scan(project=TEST_CODE, settings=settings_rooted_at(tmp_path), connection=txn)
+
     assert report.of(Action.PATH_UPDATED) == [f"{TEST_CODE}/doc"]
     file_path, status, chunk_count = fetch(txn,
         "SELECT file_path, indexing_status, chunk_count FROM document_links WHERE id = %s",
         (link_id,))[0]
-    assert file_path == str(second_root / TEST_CODE / "doc")
-    assert (status, chunk_count) == ("indexed", 5)      # not reset
+    assert file_path == f"{TEST_CODE}/doc"               # now relative
+    assert (status, chunk_count) == ("indexed", 5)       # not reset
     cached = fetch(txn, "SELECT count(*) FROM document_content WHERE document_link_id = %s",
                    (link_id,))[0][0]
     assert cached == 1                                   # OCR not re-paid
+
+
+def test_an_empty_root_with_known_documents_is_refused(txn, tmp_path):
+    """The wrong-DOCUMENT_ROOT trap.
+
+    An empty corpus is legitimate on a fresh install, so it cannot be a
+    hard error in general. But an empty corpus *when the database already
+    holds documents* almost always means DOCUMENT_ROOT points somewhere
+    wrong — and continuing would report every existing document as missing.
+    Refusing protects those rows and the paid-for OCR cache hanging off
+    them.
+    """
+    empty = tmp_path / "empty"
+    empty.mkdir()
+
+    with pytest.raises(RuntimeError, match="wrong directory"):
+        scan(settings=settings_rooted_at(empty), connection=txn)
+
+
+def test_an_empty_root_on_a_fresh_database_is_allowed(txn, tmp_path):
+    """The opposite case: nothing on disk AND nothing recorded is a valid
+    first run, and must not be blocked."""
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    txn.execute("DELETE FROM document_content")
+    txn.execute("DELETE FROM document_links")
+
+    report = scan(settings=settings_rooted_at(empty), connection=txn)
+
+    assert report.files_seen == 0
+    assert report.writes == 0

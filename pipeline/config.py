@@ -130,6 +130,16 @@ class OcrSettings:
     """
     thin_result_chars: int = 200
     retry_failed_by_default: bool = False
+    # `raw_response` holds the provider's full JSON, including word-level
+    # geometry, and nothing caps it. Measured on this corpus: 177 kB
+    # average, 1.3 MB largest (a 20-page document) — about 65 kB per page,
+    # so a document would need roughly 4,000 pages to threaten Postgres's
+    # JSONB limit. It is stored whole rather than trimmed because migration
+    # 010's entire purpose is to avoid ever re-paying for OCR, and the
+    # geometry is the part markdown throws away. This threshold does not
+    # truncate anything; it only makes unusual growth visible in the run
+    # summary instead of being discovered as a disk-space surprise.
+    raw_response_warn_bytes: int = 5_000_000
 
 
 @dataclass(frozen=True)
@@ -150,6 +160,26 @@ class IndexingSettings:
     batch_size: int = 32
     max_batch_tokens: int = 16_000
     retry_failed_by_default: bool = True
+
+
+@dataclass(frozen=True)
+class CelerySettings:
+    """Background-job settings for the ingestion worker.
+
+    `lock_timeout_seconds` is a safety net, not a schedule. Idempotence
+    protects against re-running a stage *sequentially* — it does nothing
+    about two workers running the same stage *concurrently*, which is
+    exactly what a scheduled trigger firing while the previous run is still
+    going would produce: two OCR calls for the same document, billed twice,
+    racing on the same row. The lock is what makes the schedule safe.
+
+    The timeout must exceed the longest plausible run (the full corpus OCR
+    took ~5 minutes) or a slow run releases its own lock mid-flight.
+    """
+    broker_url: str
+    result_backend: str
+    lock_timeout_seconds: int = 3600
+    schedule_seconds: int = 3600
 
 
 @dataclass(frozen=True)
@@ -177,10 +207,37 @@ class Settings:
     postgres_app: PostgresSettings      # RLS-constrained, chat backend only
     qdrant: QdrantSettings
     models: AzureModelSettings
+    celery: CelerySettings
     chunking: ChunkingSettings = field(default_factory=ChunkingSettings)
     scanner: ScannerSettings = field(default_factory=ScannerSettings)
     ocr: OcrSettings = field(default_factory=OcrSettings)
     indexing: IndexingSettings = field(default_factory=IndexingSettings)
+
+    def resolve_document(self, stored_path: str) -> pathlib.Path:
+        """Turn a stored `document_links.file_path` into a real path.
+
+        **`file_path` is stored RELATIVE to `document_root`** — e.g.
+        `PRJ-01/charter.docx`. It used to be absolute, and that was wrong in
+        a way only containerising exposed: the host writes
+        `D:\\MOF_DataSample\\...` and the worker writes `/data/...`, so each
+        run rewrote all 58 rows and Stage 1 could not open a single file
+        from the other environment. A relative path is valid everywhere and
+        makes `PATH_UPDATED` mean "moved within the corpus" rather than
+        "a different machine ran last".
+
+        An absolute value here is therefore stale data from before that fix.
+        Silently joining it would produce a nonsense path
+        (`Path("D:/x") / "/data/y"` -> `D:/data/y`), so it is refused with
+        an instruction instead.
+        """
+        candidate = pathlib.PurePosixPath(stored_path)
+        if candidate.is_absolute() or pathlib.PureWindowsPath(stored_path).is_absolute():
+            raise ValueError(
+                f"file_path is absolute ({stored_path!r}) but must be relative to "
+                f"DOCUMENT_ROOT. This row predates the relative-path fix — run "
+                f"`python -m pipeline.scanner` to rewrite it."
+            )
+        return self.document_root.joinpath(*candidate.parts)
 
 
 def _scanner_from_env() -> ScannerSettings:
@@ -203,6 +260,38 @@ def _ocr_from_env() -> OcrSettings:
         ),
         retry_failed_by_default=_optional("OCR_RETRY_FAILED", "false").lower()
         in ("1", "true", "yes"),
+        raw_response_warn_bytes=int(
+            _optional("OCR_RAW_RESPONSE_WARN_BYTES",
+                      str(OcrSettings.raw_response_warn_bytes))
+        ),
+    )
+
+
+def _celery_from_env() -> CelerySettings:
+    """Redis connection, assembled from the same variables Compose uses.
+
+    REDIS_HOST defaults to localhost for a developer running the stages by
+    hand, and Compose overrides it to the service name `redis` inside the
+    network. That is the whole reason no module reads os.environ directly:
+    moving the pipeline into a container is configuration, not code.
+    """
+    from urllib.parse import quote
+
+    host = _optional("REDIS_HOST", "localhost")
+    port = _optional("REDIS_PORT", "6379")
+    password = os.environ.get("REDIS_PASSWORD", "").strip()
+    auth = f":{quote(password)}@" if password else ""
+    broker = _optional("CELERY_BROKER_URL", f"redis://{auth}{host}:{port}/0")
+    backend = _optional("CELERY_RESULT_BACKEND", f"redis://{auth}{host}:{port}/1")
+    return CelerySettings(
+        broker_url=broker,
+        result_backend=backend,
+        lock_timeout_seconds=int(
+            _optional("CELERY_LOCK_TIMEOUT", str(CelerySettings.lock_timeout_seconds))
+        ),
+        schedule_seconds=int(
+            _optional("INGEST_SCHEDULE_SECONDS", str(CelerySettings.schedule_seconds))
+        ),
     )
 
 
@@ -274,6 +363,7 @@ def get_settings() -> Settings:
             llm_api_version=_require("AZURE_OPENAI_LLM_API_VERSION"),
             llm_deployment=_require("AZURE_OPENAI_LLM_DEPLOYMENT"),
         ),
+        celery=_celery_from_env(),
         chunking=_chunking_from_env(),
         scanner=_scanner_from_env(),
         ocr=_ocr_from_env(),

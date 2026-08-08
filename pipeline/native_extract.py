@@ -146,13 +146,23 @@ def _heading_or_text(paragraph, text: str) -> str:
 # .pptx
 # ---------------------------------------------------------------------------
 
-_GROUP_SHAPE = 6
+def _is_group(shape) -> bool:
+    """True for a grouped shape.
+
+    Uses python-pptx's own enum rather than the literal 6. The number is
+    correct today and is exactly the kind of thing that silently stops
+    being correct — and a wrong answer here does not raise, it just quietly
+    drops every piece of text nested inside a group.
+    """
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+    return shape.shape_type == MSO_SHAPE_TYPE.GROUP
 
 
 def _walk_shapes(shapes):
     """Recurse into groups — text inside a grouped shape is still text."""
     for shape in shapes:
-        if shape.shape_type == _GROUP_SHAPE and hasattr(shape, "shapes"):
+        if _is_group(shape) and hasattr(shape, "shapes"):
             yield from _walk_shapes(shape.shapes)
         else:
             yield shape

@@ -87,18 +87,30 @@ def db():
 
 def add_document(db, tmp_path, name="charter.docx", body=b"binary content",
                  status="pending", error=None) -> tuple[int, pathlib.Path]:
-    path = tmp_path / name
+    """Create a file and its row the way the scanner would.
+
+    `file_path` is stored RELATIVE to DOCUMENT_ROOT (`<project>/<name>`),
+    so the row is valid on the host and inside the worker container alike.
+    Storing an absolute path here was the defect containerising exposed.
+    """
+    path = tmp_path / TEST_CODE / name
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(body)
     row = db.execute(
         "INSERT INTO document_links (project_code, filename, file_path, doc_type, "
         "indexing_status, error_message) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
-        (TEST_CODE, name, str(path), "Project Charter", status, error),
+        (TEST_CODE, name, f"{TEST_CODE}/{name}", "Project Charter", status, error),
     ).fetchone()
     return row[0], path
 
 
-def go(db, client, **kwargs):
-    return run(project=TEST_CODE, settings=get_settings(),
+def rooted_at(tmp_path):
+    return dataclasses.replace(get_settings(), document_root=tmp_path)
+
+
+def go(db, client, tmp_path=None, **kwargs):
+    settings = rooted_at(tmp_path) if tmp_path is not None else get_settings()
+    return run(project=TEST_CODE, settings=settings,
                connection=db, client=client, **kwargs)
 
 
@@ -117,7 +129,7 @@ def test_a_document_with_ocr_is_never_sent_again(db, tmp_path):
                (link_id, "# already extracted"))
 
     client = StubClient()
-    report = go(db, client)
+    report = go(db, client, tmp_path)
 
     assert report.candidates == []
     assert client.calls == []            # nothing was sent, nothing was billed
@@ -128,7 +140,7 @@ def test_previously_failed_documents_are_skipped_by_default(db, tmp_path):
     add_document(db, tmp_path, name="broken.pdf", status="failed", error="boom")
     client = StubClient()
 
-    report = go(db, client)
+    report = go(db, client, tmp_path)
 
     assert report.candidates == []
     assert client.calls == []
@@ -138,7 +150,7 @@ def test_retry_failed_includes_them_again(db, tmp_path):
     add_document(db, tmp_path, name="broken.pdf", status="failed", error="boom")
     client = StubClient()
 
-    report = go(db, client, retry_failed=True)
+    report = go(db, client, tmp_path, retry_failed=True)
 
     assert report.succeeded == [f"{TEST_CODE}/broken.pdf"]
     assert len(client.calls) == 1
@@ -149,7 +161,7 @@ def test_limit_caps_the_run(db, tmp_path):
         add_document(db, tmp_path, name=f"doc{i}.pdf")
     client = StubClient()
 
-    report = go(db, client, limit=2)
+    report = go(db, client, tmp_path, limit=2)
 
     assert len(report.succeeded) == 2
     assert len(client.calls) == 2
@@ -172,7 +184,7 @@ def test_success_stores_markdown_and_provenance(db, tmp_path):
     link_id, _ = add_document(db, tmp_path)
     client = StubClient(content="# العنوان\n\nنص عربي.", pages=7)
 
-    report = go(db, client)
+    report = go(db, client, tmp_path)
 
     assert report.succeeded == [f"{TEST_CODE}/charter.docx"]
     assert report.pages_billed == 7
@@ -188,7 +200,7 @@ def test_success_after_a_previous_failure_clears_the_error(db, tmp_path):
     link_id, _ = add_document(db, tmp_path, status="failed", error="previous boom")
     client = StubClient()
 
-    go(db, client, retry_failed=True)
+    go(db, client, tmp_path, retry_failed=True)
 
     status, error = one(db,
         "SELECT indexing_status, error_message FROM document_links WHERE id=%s", (link_id,))
@@ -197,7 +209,7 @@ def test_success_after_a_previous_failure_clears_the_error(db, tmp_path):
 
 def test_status_stays_pending_because_stage_3_owns_indexed(db, tmp_path):
     link_id, _ = add_document(db, tmp_path)
-    go(db, StubClient())
+    go(db, StubClient(), tmp_path)
     status, = one(db, "SELECT indexing_status FROM document_links WHERE id=%s", (link_id,))
     assert status == "pending"
 
@@ -212,7 +224,7 @@ def test_failure_records_the_error_and_writes_no_document_content(db, tmp_path):
     link_id, _ = add_document(db, tmp_path, name="bad.pdf", body=b"POISON bytes")
     client = StubClient(fail_on="POISON")
 
-    report = go(db, client)
+    report = go(db, client, tmp_path)
 
     assert report.succeeded == []
     assert len(report.failed) == 1
@@ -238,7 +250,7 @@ def test_a_missing_file_fails_without_calling_the_api(db, tmp_path):
     path.unlink()
     client = StubClient()
 
-    report = go(db, client)
+    report = go(db, client, tmp_path)
 
     assert client.calls == []                     # never sent
     assert len(report.failed) == 1
@@ -254,7 +266,7 @@ def test_one_failure_does_not_stop_the_batch(db, tmp_path):
     add_document(db, tmp_path, name="bad.pdf", body=b"POISON")
     add_document(db, tmp_path, name="good2.pdf", body=b"fine too")
 
-    report = go(db, StubClient(fail_on="POISON"))
+    report = go(db, StubClient(fail_on="POISON"), tmp_path)
 
     assert sorted(report.succeeded) == [f"{TEST_CODE}/good1.pdf", f"{TEST_CODE}/good2.pdf"]
     assert len(report.failed) == 1
@@ -272,7 +284,8 @@ def test_a_thin_result_is_stored_and_flagged_not_failed(db, tmp_path):
     it failed would re-bill it on every future run, forever."""
     link_id, _ = add_document(db, tmp_path, name="scanned.pdf")
     settings = dataclasses.replace(
-        get_settings(), ocr=dataclasses.replace(get_settings().ocr, thin_result_chars=200))
+        rooted_at(tmp_path),
+        ocr=dataclasses.replace(get_settings().ocr, thin_result_chars=200))
 
     report = run(project=TEST_CODE, settings=settings, connection=db,
                  client=StubClient(content="<figure></figure>", pages=9))
@@ -287,13 +300,20 @@ def test_a_thin_result_is_stored_and_flagged_not_failed(db, tmp_path):
 
 def test_a_normal_result_is_not_flagged_thin(db, tmp_path):
     add_document(db, tmp_path)
-    report = go(db, StubClient(content="x" * 500))
+    report = go(db, StubClient(content="x" * 500), tmp_path)
     assert report.thin == []
 
 
 # ---------------------------------------------------------------------------
 # Native fallback — only when Document Intelligence refuses an Office file
 # ---------------------------------------------------------------------------
+
+def project_dir(tmp_path: pathlib.Path) -> pathlib.Path:
+    """DOCUMENT_ROOT/<project>/ — where a real corpus keeps its files."""
+    d = tmp_path / TEST_CODE
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
 
 def make_docx(path: pathlib.Path, paragraphs=("Hello",), heading: str | None = None):
     docx = pytest.importorskip("docx")
@@ -309,16 +329,16 @@ def make_docx(path: pathlib.Path, paragraphs=("Hello",), heading: str | None = N
 def test_a_rejected_docx_is_rescued_natively(db, tmp_path):
     """The case this exists for: DI calls a perfectly readable .docx
     'corrupted', and without a fallback the document contributes nothing."""
-    path = make_docx(tmp_path / "rescued.docx",
+    path = make_docx(project_dir(tmp_path) / "rescued.docx",
                      paragraphs=["نص عربي للاختبار", "Second paragraph"],
                      heading="Design Document")
     link_id = db.execute(
         "INSERT INTO document_links (project_code, filename, file_path, doc_type) "
         "VALUES (%s,%s,%s,%s) RETURNING id",
-        (TEST_CODE, "rescued.docx", str(path), "Software Design Document"),
+        (TEST_CODE, "rescued.docx", f"{TEST_CODE}/rescued.docx", "Software Design Document"),
     ).fetchone()[0]
 
-    report = go(db, StubClient(fail_on="PK"))     # every .docx starts with PK
+    report = go(db, StubClient(fail_on="PK"), tmp_path)     # every .docx starts with PK
 
     assert report.succeeded == [f"{TEST_CODE}/rescued.docx"]
     assert [label for label, _ in report.recovered] == [f"{TEST_CODE}/rescued.docx"]
@@ -332,11 +352,11 @@ def test_a_rejected_docx_is_rescued_natively(db, tmp_path):
 
 
 def test_a_rescued_document_bills_zero_pages(db, tmp_path):
-    path = make_docx(tmp_path / "free.docx")
+    path = make_docx(project_dir(tmp_path) / "free.docx")
     db.execute("INSERT INTO document_links (project_code, filename, file_path, doc_type) "
-               "VALUES (%s,%s,%s,%s)", (TEST_CODE, "free.docx", str(path), "Charter"))
+               "VALUES (%s,%s,%s,%s)", (TEST_CODE, "free.docx", f"{TEST_CODE}/free.docx", "Charter"))
 
-    report = go(db, StubClient(fail_on="PK"))
+    report = go(db, StubClient(fail_on="PK"), tmp_path)
 
     assert report.pages_billed == 0
 
@@ -347,7 +367,7 @@ def test_a_rejected_pdf_is_NOT_rescued(db, tmp_path):
     than an honest failure, so PDFs must fail."""
     link_id, _ = add_document(db, tmp_path, name="scan.pdf", body=b"POISON pdf bytes")
 
-    report = go(db, StubClient(fail_on="POISON"))
+    report = go(db, StubClient(fail_on="POISON"), tmp_path)
 
     assert report.recovered == []
     assert len(report.failed) == 1
@@ -372,7 +392,7 @@ def test_when_both_extractors_fail_the_error_names_both(db, tmp_path):
     fallback, nobody would know DI was tried first."""
     link_id, _ = add_document(db, tmp_path, name="broken.docx", body=b"POISON not-a-zip")
 
-    report = go(db, StubClient(fail_on="POISON"))
+    report = go(db, StubClient(fail_on="POISON"), tmp_path)
 
     assert report.succeeded == []
     error, = one(db, "SELECT error_message FROM document_links WHERE id=%s", (link_id,))
@@ -382,13 +402,13 @@ def test_when_both_extractors_fail_the_error_names_both(db, tmp_path):
 
 def test_the_fallback_never_runs_when_azure_succeeds(db, tmp_path):
     """It is a fallback, not a router. DI stays primary for every format."""
-    path = make_docx(tmp_path / "normal.docx")
+    path = make_docx(project_dir(tmp_path) / "normal.docx")
     link_id = db.execute(
         "INSERT INTO document_links (project_code, filename, file_path, doc_type) "
         "VALUES (%s,%s,%s,%s) RETURNING id",
-        (TEST_CODE, "normal.docx", str(path), "Charter")).fetchone()[0]
+        (TEST_CODE, "normal.docx", f"{TEST_CODE}/normal.docx", "Charter")).fetchone()[0]
 
-    report = go(db, StubClient(content="# From Azure", pages=3))
+    report = go(db, StubClient(content="# From Azure", pages=3), tmp_path)
 
     assert report.recovered == []
     assert report.pages_billed == 3
@@ -405,10 +425,76 @@ def test_dry_run_sends_nothing_and_writes_nothing(db, tmp_path):
     link_id, _ = add_document(db, tmp_path)
     client = StubClient()
 
-    report = go(db, client, dry_run=True)
+    report = go(db, client, tmp_path, dry_run=True)
 
     assert report.candidates == [f"{TEST_CODE}/charter.docx"]
     assert client.calls == []
     assert report.pages_billed == 0
     rows, = one(db, "SELECT count(*) FROM document_content WHERE document_link_id=%s", (link_id,))
     assert rows == 0
+
+
+# ---------------------------------------------------------------------------
+# Configuration failure — loud, not 58 quiet ones
+# ---------------------------------------------------------------------------
+
+def test_a_missing_document_root_fails_the_run_not_every_document(db, tmp_path):
+    """A wrong DOCUMENT_ROOT must stop the run, not mark the corpus failed.
+
+    Without the pre-flight check every document fails individually with
+    FileNotFoundError and is marked 'failed' — and because failed documents
+    are excluded by default, one typo would turn the whole corpus into rows
+    that need --retry-failed to recover. One clear error beats 58 quiet
+    ones that also cost a recovery step.
+    """
+    add_document(db, tmp_path)
+    settings = dataclasses.replace(get_settings(), document_root=tmp_path / "nope")
+
+    with pytest.raises(RuntimeError, match="DOCUMENT_ROOT"):
+        run(project=TEST_CODE, settings=settings, connection=db, client=StubClient())
+
+    status, = one(db, "SELECT indexing_status FROM document_links WHERE project_code=%s",
+                  (TEST_CODE,))
+    assert status == "pending"        # untouched — nothing was marked failed
+
+
+def test_a_stale_absolute_file_path_is_refused_with_instructions(db, tmp_path):
+    """Rows written before the relative-path fix must not be guessed at."""
+    link_id, _ = add_document(db, tmp_path)
+    db.execute("UPDATE document_links SET file_path=%s WHERE id=%s",
+               (r"D:\MOF_DataSample\ZZ-OCR-TEST\charter.docx", link_id))
+
+    report = go(db, StubClient(), tmp_path)
+
+    assert len(report.failed) == 1
+    error, = one(db, "SELECT error_message FROM document_links WHERE id=%s", (link_id,))
+    assert "must be relative" in error
+    assert "pipeline.scanner" in error
+
+
+def test_an_oversized_provider_response_is_flagged_not_truncated(db, tmp_path):
+    """`raw_response` has no cap, and that is deliberate — the word-level
+    geometry is exactly what markdown discards and what the OCR cache
+    exists to preserve. Measured on this corpus: 177 kB average, 1.3 MB
+    largest. Truncating would silently destroy the thing migration 010 was
+    built to keep, so growth is surfaced instead."""
+    link_id, _ = add_document(db, tmp_path)
+    settings = dataclasses.replace(
+        rooted_at(tmp_path),
+        ocr=dataclasses.replace(get_settings().ocr, raw_response_warn_bytes=100))
+
+    report = run(project=TEST_CODE, settings=settings, connection=db,
+                 client=StubClient(content="x" * 500))
+
+    assert len(report.oversized) == 1
+    assert report.oversized[0][0] == f"{TEST_CODE}/charter.docx"
+    stored, = one(db, "SELECT length(raw_response::text) FROM document_content "
+                      "WHERE document_link_id=%s", (link_id,))
+    assert stored > 100                      # kept whole, not trimmed
+    assert report.failed == []               # a warning, never a failure
+
+
+def test_a_normal_response_is_not_flagged_oversized(db, tmp_path):
+    add_document(db, tmp_path)
+    report = go(db, StubClient(), tmp_path)
+    assert report.oversized == []

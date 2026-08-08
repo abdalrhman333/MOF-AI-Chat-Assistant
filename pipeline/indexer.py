@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from pipeline.chunker import Chunk, chunk_markdown
 from pipeline.config import Settings, get_settings
 from pipeline.db import admin_connection
+from pipeline.locking import AlreadyRunning, optional_stage_lock
 
 # Fixed namespace: point IDs must stay stable across runs and machines, so
 # this must never be regenerated. Changing it orphans every existing vector.
@@ -430,8 +431,14 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"  [ ok ] {doc.label} — {chunk_count} chunks")
 
-    report = run(project=args.project, dry_run=args.dry_run, limit=args.limit,
-                 retry_failed=False if args.skip_failed else None, progress=progress)
+    try:
+        with optional_stage_lock("index", enabled=not args.dry_run):
+            report = run(project=args.project, dry_run=args.dry_run, limit=args.limit,
+                         retry_failed=False if args.skip_failed else None,
+                         progress=progress)
+    except AlreadyRunning as exc:
+        print(f"Stage 2+3 index — SKIPPED: {exc}", file=sys.stderr)
+        return 2
     print(format_report(report, list_files=args.list_files))
     return 1 if report.failed else 0
 

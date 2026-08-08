@@ -20,8 +20,9 @@ open it" reference.
 | `My_Prompts\` | `SOLUTION_SCOPE.md` (BRD-derived scope, assistant-authored) + `PRE_PIPELINE_ENHANCEMENTS.md` (user-authored) | Requirements/planning source material |
 | `infra\` | `docker-compose.yml`, `.env` / `.env.example`, `postgres-spm\init\` (one-time) + `migrations\` (13 SQL files, ongoing), `apply_migrations.py`, `README.md` | All infrastructure-as-code |
 | `mock-data\` | `spm_manifest.json` — the 8-project / 4-user / 45-document source data | Small structured data, worth versioning |
-| `pipeline\` | `__init__.py`, `config.py` (all settings), `chunker.py`, `db.py` (the `spm_admin` connection), `scanner.py` (Stage 0 — discovery), `ocr.py` (Stage 1 — extraction), `native_extract.py` (Office fallback), `indexer.py` (Stages 2+3 — chunk, embed, index) | The only application code that exists so far. The ingestion pipeline is complete; there is no chat backend or frontend |
-| `tests\` | `test_chunker.py` (26) + `test_scanner.py` (35) + `test_ocr.py` (19) + `test_native_extract.py` (22) + `test_indexer.py` (23) + `tests\fixtures\` (3 real OCR samples) | 125 tests. **45 need `mof-postgres-spm` up** (9 scanner + 19 OCR + 17 indexer); they roll back and leave nothing behind. `test_ocr.py` stubs Azure and `test_indexer.py` stubs both the embedding API and Qdrant, so both paid stages are fully tested with no paid call and no writes to the live vector store |
+| `pipeline\` | `__init__.py`, `config.py` (all settings), `chunker.py`, `db.py` (the `spm_admin` connection), `scanner.py` (Stage 0 — discovery), `ocr.py` (Stage 1 — extraction), `native_extract.py` (Office fallback), `indexer.py` (Stages 2+3 — chunk, embed, index), `locking.py` (cross-process stage locks), `tasks.py` (Celery tasks + schedule) | The only application code that exists so far. The ingestion pipeline is complete and runs as a containerised worker; there is no chat backend or frontend |
+| `tests\` | `test_chunker.py` (26) + `test_scanner.py` (40) + `test_ocr.py` (23) + `test_native_extract.py` (22) + `test_indexer.py` (23) + `test_config.py` (13) + `test_locking.py` (12) + `test_tasks.py` (19) + `tests\fixtures\` (3 real OCR samples) | **178 tests.** The Postgres-backed ones roll back and leave nothing behind; `test_locking.py` and `test_tasks.py` need Redis. `test_ocr.py` stubs Azure and `test_indexer.py` stubs both the embedding API and Qdrant, so both paid stages are fully tested with no paid call and no writes to the live vector store |
+| `Dockerfile` / `.dockerignore` | Image for the ingestion worker | Built by `docker compose build pipeline-worker`; excludes `.venv` and `infra/.env` from the build context |
 | `requirements.txt` / `requirements-dev.txt` | Pinned Python dependencies | Reproducible environment |
 | `.venv\` | Project virtualenv | **Gitignored** — machine-specific, never committed |
 | `Tools ACC\` | One screenshot | Not created by the assistant — the chat app's own attachment storage |
@@ -47,13 +48,13 @@ downloaded/created for this project stays under D:, nothing touches C:."
 
 ---
 
-## 2. Docker containers (11 total, all `restart: unless-stopped`)
+## 2. Docker containers (13 total, all `restart: unless-stopped`)
 
 | Container | Image | Purpose | Access |
 |---|---|---|---|
 | `mof-postgres-spm` | postgres:16-alpine | SPM data: projects, users, assignments, document links | `localhost:5432` · `docker exec -it mof-postgres-spm psql -U spm_admin -d spm_data` · or DBeaver |
 | `mof-qdrant` | qdrant/qdrant | Vector store — **9 collections, 678 points**, one collection per project | http://localhost:6333/dashboard · the page loads without a key but the API 401s, so paste `QDRANT_API_KEY` into its **API Key** box first |
-| `mof-redis` | redis:7-alpine | App job queue (not yet wired to code) | `localhost:6379` |
+| `mof-redis` | redis:7-alpine | Celery broker + result backend for the ingestion worker, and the store behind the cross-process stage locks | `localhost:6379` |
 | `mof-langfuse-web` | langfuse/langfuse:3 | LLM tracing UI | http://localhost:3001 |
 | `mof-langfuse-worker` | langfuse/langfuse-worker:3 | Langfuse background processing | internal |
 | `mof-langfuse-postgres` | postgres:16-alpine | Langfuse's own metadata store | internal |
@@ -62,6 +63,8 @@ downloaded/created for this project stays under D:, nothing touches C:."
 | `mof-langfuse-minio` | minio/minio | Langfuse's blob storage | internal |
 | `mof-grafana-lgtm` | grafana/otel-lgtm | App-wide metrics/logs/traces (distinct from Langfuse — infra/app observability, not LLM content) | http://localhost:3000 |
 | `mof-portainer` | portainer-ce | Docker management UI | https://localhost:9443 |
+| `mof-pipeline-worker` | `mof-enjaz-pipeline` (built from this repo) | **The ingestion pipeline as a background worker.** Runs scan / OCR / index as Celery tasks; the corpus is mounted **read-only** at `/data` | `docker compose exec pipeline-worker python -m pipeline.tasks ingest --wait` |
+| `mof-pipeline-beat` | same image | Fires the scheduled full ingest (`INGEST_SCHEDULE_SECONDS`, default hourly). Keeps its schedule under `D:\MOF_Installations\volumes\pipeline-beat` so a restart doesn't lose it | `docker logs mof-pipeline-beat` |
 
 All credentials live in `infra/.env` (gitignored); variable names/purposes documented in `infra/.env.example`. Full detail: `INFRASTRUCTURE.md` §6.
 
@@ -121,7 +124,7 @@ Never into system Python — one of the four gaps closed before the pipeline pha
 
 ## 6. What's deliberately *not* installed anywhere yet
 
-- No FastAPI app, no Celery worker process, no frontend — `pipeline/` is the only application code so far
+- No FastAPI app and no frontend — `pipeline/` is the only application code so far. The Celery worker **does** now exist (`mof-pipeline-worker` / `mof-pipeline-beat`), running that same pipeline code in a container
 - Real Active Directory, real SharePoint connection, real OTP — external dependencies, explicitly flagged as deferred rather than faked (per the BRD's own practical note for a demo build)
 
 ---
@@ -129,7 +132,7 @@ Never into system Python — one of the four gaps closed before the pipeline pha
 ## 7. Quick verification commands
 
 ```bash
-docker ps --format "{{.Names}}: {{.Status}}"                     # 11 containers
+docker ps --format "{{.Names}}: {{.Status}}"                     # 13 containers
 python infra/postgres-spm/apply_migrations.py --status           # 13 applied, 0 pending
 .venv/Scripts/python -m pytest tests/ -q                         # 125 passed
 find /d/MOF_DataSample -maxdepth 1 -type d                       # 9 project folders

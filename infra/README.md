@@ -1,8 +1,10 @@
 # MOF Enjaz Chatbot — Infrastructure
 
 Local, on-prem-style infra for the Enjaz AI assistant demo, running entirely
-through Docker Desktop. Everything here is data/tooling only — no application
-code lives in this folder.
+through Docker Desktop. No application code lives in *this folder* — but the
+compose file now also runs the ingestion pipeline itself
+(`pipeline-worker` / `pipeline-beat`), built from the repository root's
+`Dockerfile`.
 
 ## Before the first `docker compose up` — move Docker's disk off C:
 
@@ -55,6 +57,8 @@ D:\MOF_Installations\               <- NOT in git, all persistent data + tools
     langfuse-minio\
     grafana-lgtm\
     portainer\
+    pipeline-beat\               <- beat's schedule state, so a restart doesn't
+                                    lose track of what last ran
 ```
 
 ## Bringing the stack up
@@ -76,7 +80,9 @@ not supposed to stay running.
 |---|---|---|---|
 | Postgres (SPM) | `localhost:5432` | SPM project entity data (demo: filled directly) | `POSTGRES_SPM_USER` / `POSTGRES_SPM_PASSWORD` in `.env` |
 | Qdrant | http://localhost:6333/dashboard | Vector DB, one collection per project — **9 collections, 678 points** | API key: `QDRANT_API_KEY` in `.env`. ⚠️ The dashboard page loads *without* a key while its API returns 401, so it looks broken rather than locked (`Qdrant v???`, empty collections). Click **API Key**, paste, **Apply** |
-| Redis | `localhost:6379` | App job queue — SharePoint ingest, OCR, embedding, scheduled scans (not yet wired to app code) | `REDIS_PASSWORD` in `.env` |
+| Redis | `localhost:6379` | **Celery broker + result backend** for the ingestion worker, and the store behind the cross-process stage locks | `REDIS_PASSWORD` in `.env` |
+| Pipeline worker | — (no HTTP) | **The ingestion pipeline as a background job.** Corpus mounted read-only at `/data` | `docker compose exec pipeline-worker python -m pipeline.tasks ingest --wait` |
+| Pipeline beat | — (no HTTP) | Fires the scheduled full ingest — `INGEST_SCHEDULE_SECONDS`, default hourly | `docker logs mof-pipeline-beat` |
 | Langfuse | http://localhost:3001 | LLM execution tracing (prompts/completions/tokens/cost) | Sign up on first visit (no AD/SSO wired up yet — this is Langfuse's own login, unrelated to Enjaz auth) |
 | Grafana (LGTM) | http://localhost:3000 | App workflow observability: metrics (Prometheus/Mimir), logs (Loki), traces (Tempo) — fed via OTLP on ports 4317/4318 | `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` in `.env` |
 | Portainer | https://localhost:9443 | Docker/container management UI | Set admin password on first visit |
@@ -114,17 +120,17 @@ the isolation mechanism becoming the leak.
 
 ## Notes / things still open
 
-- No application container yet — this is infra-only. The chatbot backend/
-  frontend get their own service(s) added to this compose file later. The
-  ingestion pipeline runs from the host (`python -m pipeline.scanner`,
-  `pipeline.ocr`, `pipeline.indexer`) rather than in a container. It is
-  complete and has processed the full corpus.
+- **The ingestion pipeline now runs in this stack** — `pipeline-worker`
+  and `pipeline-beat`, built from the repo's `Dockerfile`. They are the
+  first application containers here; everything else is infrastructure.
+  The stages can still be run by hand from the host
+  (`python -m pipeline.scanner` etc.) and take the same Redis locks, so a
+  manual run and the schedule cannot collide.
+- No chatbot backend or frontend container yet — those get their own
+  service(s) later.
 - Langfuse needs its API keys generated through its own UI after first
   login (Settings → API Keys inside a Langfuse project) — the app will need
   those once it starts sending traces. **Nothing sends traces yet.**
-- Redis is running and **still not wired to any application code.** It is
-  here for the Celery task queue that will eventually run the ingestion
-  stages as background jobs.
 - `postgres-spm/init/001_extensions.sql` only ever runs on a fresh volume,
   and only creates extensions. Everything else lives in `migrations/`.
 

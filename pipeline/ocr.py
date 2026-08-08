@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 
 from pipeline.config import Settings, get_settings
 from pipeline.db import admin_connection
+from pipeline.locking import AlreadyRunning, optional_stage_lock
 
 
 @dataclass(frozen=True)
@@ -80,6 +81,7 @@ class OcrReport:
     failed: list[tuple[str, str]] = field(default_factory=list)
     thin: list[tuple[str, int]] = field(default_factory=list)
     recovered: list[tuple[str, str]] = field(default_factory=list)
+    oversized: list[tuple[str, int]] = field(default_factory=list)
     pages_billed: int = 0
     raw_bytes: int = 0
     seconds: float = 0.0
@@ -278,6 +280,17 @@ def run(
     if retry_failed is None:
         retry_failed = settings.ocr.retry_failed_by_default
 
+    # Fail fast on a misconfigured root. Without this, every document fails
+    # individually with FileNotFoundError and gets marked 'failed' — and
+    # because failed documents are excluded by default, a single wrong
+    # DOCUMENT_ROOT would turn the whole corpus into rows that need
+    # --retry-failed to recover. One clear error beats 58 quiet ones.
+    if not settings.document_root.is_dir():
+        raise RuntimeError(
+            f"DOCUMENT_ROOT does not exist or is not a directory: "
+            f"{settings.document_root}. Set DOCUMENT_ROOT in infra/.env."
+        )
+
     if connection is not None:
         # Caller owns the transaction — usually a test that will roll back.
         return _run_with(connection, settings, project, dry_run, limit,
@@ -304,8 +317,12 @@ def _run_with(conn, settings: Settings, project: str | None, dry_run: bool,
     client = client or build_client(settings)
 
     for doc in pending:
-        path = pathlib.Path(doc.file_path)
         try:
+            # `file_path` is relative to DOCUMENT_ROOT, so the absolute path
+            # is derived per environment rather than stored. resolve_document
+            # refuses a stale absolute value with an actionable message
+            # instead of silently building a nonsense path.
+            path = settings.resolve_document(doc.file_path)
             if not path.is_file():
                 # Caught before the API call — a missing file is free to
                 # fail, and paying to discover it would be silly.
@@ -323,7 +340,13 @@ def _run_with(conn, settings: Settings, project: str | None, dry_run: bool,
             _store(cursor, doc, extraction)
             report.succeeded.append(doc.label)
             report.pages_billed += 0 if extraction.via_fallback else extraction.page_count
-            report.raw_bytes += len(str(extraction.raw_response))
+            raw_size = len(str(extraction.raw_response))
+            report.raw_bytes += raw_size
+            if raw_size > settings.ocr.raw_response_warn_bytes:
+                # Not truncated — the geometry is exactly what markdown
+                # discards and what migration 010 exists to keep. Flagged so
+                # unusual growth is seen here rather than as a disk surprise.
+                report.oversized.append((doc.label, raw_size))
             if len(extraction.markdown) < settings.ocr.thin_result_chars:
                 report.thin.append((doc.label, len(extraction.markdown)))
             if progress:
@@ -366,6 +389,16 @@ def format_report(report: OcrReport, list_files: bool = False) -> str:
             f"  raw_response : {report.raw_bytes / 1_048_576:.1f} MB",
             f"  elapsed    : {report.seconds}s",
         ]
+        if report.oversized:
+            lines.append("")
+            lines.append(
+                f"  NOTE — {len(report.oversized)} document(s) stored an unusually large "
+                f"provider response (over OCR_RAW_RESPONSE_WARN_BYTES). Nothing was "
+                f"truncated — the geometry is what markdown discards and what the OCR "
+                f"cache exists to keep:"
+            )
+            lines.extend(f"      {label} — {n / 1_048_576:.1f} MB"
+                         for label, n in report.oversized)
         if report.recovered:
             lines.append("")
             lines.append(
@@ -417,10 +450,15 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  [ ok ] {doc.label} — {extraction.page_count}p, "
                   f"{len(extraction.markdown):,} chars, {extraction.seconds}s")
 
-    report = run(
-        project=args.project, dry_run=args.dry_run, limit=args.limit,
-        retry_failed=args.retry_failed or None, progress=progress,
-    )
+    try:
+        with optional_stage_lock("ocr", enabled=not args.dry_run):
+            report = run(
+                project=args.project, dry_run=args.dry_run, limit=args.limit,
+                retry_failed=args.retry_failed or None, progress=progress,
+            )
+    except AlreadyRunning as exc:
+        print(f"Stage 1 OCR — SKIPPED: {exc}", file=sys.stderr)
+        return 2
     print(format_report(report, list_files=args.list_files))
     return 1 if report.failed else 0
 

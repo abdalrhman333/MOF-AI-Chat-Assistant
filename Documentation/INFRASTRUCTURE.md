@@ -33,11 +33,19 @@ Windows (Docker Desktop, WSL2 backend, engine disk relocated to D:)
     │
     ├── grafana-lgtm ......... grafana/otel-lgtm:latest  :3000 UI, :4317/:4318 OTLP
     │                          (Prometheus/Mimir + Loki + Tempo + Grafana, one container)
-    └── portainer ............ portainer/portainer-ce  :9000, :9443   Docker web UI
+    ├── portainer ............ portainer/portainer-ce  :9000, :9443   Docker web UI
+    │
+    ├── pipeline-worker ...... built from ./Dockerfile   THE INGESTION PIPELINE
+    │                          Celery worker; corpus bind-mounted READ-ONLY at
+    │                          /data. Healthchecked via `celery inspect ping`.
+    └── pipeline-beat ........ same image; fires the scheduled full ingest.
+                               Schedule persisted to D:, not /tmp.
 ```
 
-**11 containers total** (`langfuse-minio-init` runs once and exits — that's
-correct, not a failure).
+**13 containers total** (`langfuse-minio-init` runs once and exits — that's
+correct, not a failure). The last two are the ingestion pipeline itself —
+the first application code in this stack; everything above it is
+infrastructure.
 
 ---
 
@@ -94,6 +102,13 @@ D:\MOF Enjaz Chatbot\
     db.py                           <- the spm_admin connection, and only
                                        that one. A pipeline module wanting
                                        spm_app is doing something wrong.
+    locking.py                      <- cross-process stage locks (Redis).
+                                       Taken by the CLI *and* the worker —
+                                       idempotence does not stop two runs
+                                       overlapping and both paying for OCR.
+    tasks.py                        <- Celery app, one task per stage, the
+                                       schedule, and a manual trigger:
+                                       `python -m pipeline.tasks ingest --wait`
     scanner.py                      <- Stage 0: walk DOCUMENT_ROOT, hash,
                                        upsert document_links. Run with
                                        `python -m pipeline.scanner
@@ -251,7 +266,7 @@ a blank value.
 |---|---|---|---|
 | Postgres (SPM) | `localhost:5432` | SPM data — `projects`, `users`, `project_assignments`, `document_links` (see §8) | `POSTGRES_SPM_USER` / `POSTGRES_SPM_PASSWORD`, db `POSTGRES_SPM_DB` |
 | Qdrant | http://localhost:6333/dashboard | Vector DB, one collection per project | `QDRANT_API_KEY` |
-| Redis | `localhost:6379` | App job queue (not yet wired to app code) | `REDIS_PASSWORD` |
+| Redis | `localhost:6379` | Celery broker + result backend for the ingestion worker, and the store behind the cross-process stage locks | `REDIS_PASSWORD` |
 | Langfuse | http://localhost:3001 | LLM execution tracing | Own account, created in-browser (unrelated to Enjaz/AD auth). API keys: `LANGFUSE_SECRET_KEY`/`LANGFUSE_PUBLIC_KEY`, not yet consumed by any app code |
 | Grafana (LGTM) | http://localhost:3000 | App workflow observability: metrics/logs/traces via OTLP on :4317/:4318 | `GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD` |
 | Portainer | https://localhost:9443 | Docker/container management UI | Own admin account, created in-browser (see §4.3 if the 5-min setup window expires) |
