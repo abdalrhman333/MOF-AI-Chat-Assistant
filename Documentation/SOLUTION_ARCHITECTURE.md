@@ -223,7 +223,16 @@ that's one reviewable gate instead of every query ever written.
 
 Operational detail in `INFRASTRUCTURE.md` §7c.
 
-### 4.3 Redis added for a future async job queue
+### 4.3 Redis added for a future async job queue — ✅ now in use
+
+**Status (2026-08-09): this bet paid off.** Redis is the Celery broker and
+result backend for the ingestion worker, and the store behind the
+cross-process stage locks (§4.11). It sat unused from 2026-08-04 until
+2026-08-08, which was the right call — retrofitting a broker into a
+finished pipeline would have been considerably more disruptive than having
+it waiting.
+
+The original reasoning, kept because it is why the decision was made:
 
 Not yet wired to any application code (none exists yet), but added to the
 infra stack proactively: the ingestion pipeline (SharePoint scan → OCR →

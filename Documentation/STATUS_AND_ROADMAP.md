@@ -17,9 +17,11 @@
   use case, same BRD) — validated our stack choices, corrected a factual
   assumption about his OCR (not actually built), reconfirmed our decisions.
   See `SOLUTION_ARCHITECTURE.md` §5.
-- [x] **Infrastructure fully built and verified.** 11 containers, all
-  healthy: Postgres (SPM), Qdrant, Redis, full Langfuse v3 stack, Grafana
-  LGTM, Portainer. See `INFRASTRUCTURE.md`.
+- [x] **Infrastructure fully built and verified.** 11 containers at the
+  time: Postgres (SPM), Qdrant, Redis, full Langfuse v3 stack, Grafana
+  LGTM, Portainer. **Now 13** — the ingestion worker and its scheduler were
+  added on 2026-08-08 and are the first application containers in the
+  stack. See `INFRASTRUCTURE.md`.
 - [x] **"Nothing on C:" constraint satisfied** — Docker Desktop's engine
   disk relocated to D:, all service data bind-mounted to D: (except
   ClickHouse, which needs a named volume — still on D:, see

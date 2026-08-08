@@ -1,4 +1,4 @@
-# The ingestion pipeline — ✅ BUILT (2026-08-08)
+# The ingestion pipeline — ✅ BUILT AND RUNNING (2026-08-09)
 
 **This was the brief for building the ingestion pipeline. All four stages
 now exist and have run over the full corpus**, so it is kept as the record
@@ -17,11 +17,12 @@ If you are here to build the **next** thing, that is the chat backend:
 | 0 — scan | `pipeline/scanner.py` | ✅ 58/58 discovered and hashed |
 | 1 — OCR | `pipeline/ocr.py` + `pipeline/native_extract.py` | ✅ 58/58 extracted |
 | 2+3 — chunk, embed, index | `pipeline/indexer.py` | ✅ 678 chunks indexed |
+| — operate it | `pipeline/tasks.py`, `locking.py`, `status.py` | ✅ runs unattended, daily 13:00 |
 
 Every stage is idempotent and free to re-run on an unchanged corpus. Total
-spend: **~$2.42**.
+spend: **~$2.51**.
 
-**Four places the build deviated from this brief**, each for a reason
+**Five places the build deviated from this brief**, each for a reason
 recorded at the point of deviation below:
 
 1. Stage 0 has **five** outcomes per file, not three.
@@ -30,6 +31,9 @@ recorded at the point of deviation below:
 4. A **native fallback** exists for Office files Document Intelligence
    rejects — which the brief did not anticipate, because it assumed the
    API always succeeds or honestly fails.
+5. The brief stopped at "the stages work". Making them *run* — a worker, a
+   schedule, cross-process locks and a health check — was a whole further
+   layer, and it exposed a defect the stages alone never could (§2b).
 
 ---
 
@@ -189,6 +193,72 @@ corpus. Treat it as a contract.
 
 Then set `indexing_status='indexed'`, `indexed_at`, `chunk_count`, and
 clear `error_message`.
+
+---
+
+## 2b. Operating it — the layer the brief did not describe
+
+`pipeline/tasks.py`, `pipeline/locking.py`, `pipeline/status.py`. The brief
+ended at "the stages work", which is not the same as a pipeline anyone can
+run.
+
+```bash
+docker compose exec pipeline-worker python -m pipeline.tasks ingest --wait
+docker compose exec pipeline-worker python -m pipeline.tasks ingest --project PRJ-05 --wait
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status        # exit 0 healthy / 1 not
+```
+
+**It runs itself.** `mof-pipeline-beat` fires a full ingest daily at
+**13:00 `Asia/Amman`**; dropping a file into a project folder is the entire
+procedure. Verified by doing exactly that — a new Arabic `.docx` was picked
+up unaided ~60s later, OCR'd and indexed, then removed again.
+
+**Containerised, not a host process.** Beyond restart-safety: Celery's
+prefork pool does not work on Windows, so a host worker is stuck on
+`--pool=solo` with no concurrency.
+
+**A wall-clock schedule, and the timezone is part of it.** Containers run
+on UTC, so `hour=13` alone fires at 16:00 in a UTC+3 deployment. An
+interval would also drift against the clock on every beat restart.
+
+**Concurrency is not idempotence.** Every stage was already idempotent —
+that stops a *repeat*, not an *overlap*. Two runs starting together both
+see the same document as un-OCR'd and both get billed. `locking.py` takes a
+Redis lock per stage, **from the CLI as well as the worker**, since the
+likeliest collision is someone typing `python -m pipeline.ocr` while the
+schedule fires. A busy lock skips rather than queues; the lock has a TTL so
+a killed worker cannot wedge the pipeline, and an owner token so a run that
+overran its TTL cannot delete its successor's lock.
+
+### 2b-i. The defect containerising exposed
+
+`document_links.file_path` was **absolute**. Invisible while one machine
+ran everything; the moment the Linux worker mounted the same corpus at
+`/data`, host and container each rewrote all 58 rows every run and Stage 1
+could not open a file the other had recorded. It is now stored **relative
+to `DOCUMENT_ROOT`**.
+
+That migration was free only because of a decision made three stages
+earlier: `PATH_UPDATED` deliberately does not reset `indexing_status`. Had
+a relocated file been treated as `MODIFIED` — which this brief's original
+three-outcome table implied — the fix would have silently re-OCR'd the
+entire corpus.
+
+⚠️ `PATH_UPDATED` is now reachable **only** for rows written before that
+fix, since `file_path` equals `<project>/<filename>` — the row's own unique
+key. It is a migration path, not a live case.
+
+### 2b-ii. What `status` checks that nothing else can
+
+Postgres and Qdrant are written in one per-document transaction but are
+**separate systems**. A worker killed between the Qdrant upsert and the
+Postgres commit leaves them disagreeing — the row says `indexed`, every
+stage agrees there is no work left, and nothing notices. `pipeline.status`
+compares them per project. Validated by deleting 5 vectors: it reported
+`NEEDS ATTENTION`, named the mismatch, exited 1.
+
+Full observability (OTLP → Grafana) is deliberately deferred to the chat
+backend, which needs Langfuse alongside it.
 
 ---
 
