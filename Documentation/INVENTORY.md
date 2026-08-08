@@ -20,8 +20,8 @@ open it" reference.
 | `My_Prompts\` | `SOLUTION_SCOPE.md` (BRD-derived scope, assistant-authored) + `PRE_PIPELINE_ENHANCEMENTS.md` (user-authored) | Requirements/planning source material |
 | `infra\` | `docker-compose.yml`, `.env` / `.env.example`, `postgres-spm\init\` (one-time) + `migrations\` (13 SQL files, ongoing), `apply_migrations.py`, `README.md` | All infrastructure-as-code |
 | `mock-data\` | `spm_manifest.json` — the 8-project / 4-user / 45-document source data | Small structured data, worth versioning |
-| `pipeline\` | `__init__.py`, `config.py` (all settings), `chunker.py`, `db.py` (the `spm_admin` connection), `scanner.py` (Stage 0 — discovery) | The only application code that exists so far |
-| `tests\` | `test_chunker.py` (26) + `test_scanner.py` (35) + `tests\fixtures\` (3 real OCR samples) | Test suite plus the real-world data it guards against. The scanner's 9 integration tests need `mof-postgres-spm` up; they roll back and leave nothing behind. Stack down = `52 passed, 9 skipped`, not a failure |
+| `pipeline\` | `__init__.py`, `config.py` (all settings), `chunker.py`, `db.py` (the `spm_admin` connection), `scanner.py` (Stage 0 — discovery), `ocr.py` (Stage 1 — extraction), `native_extract.py` (Office fallback) | The only application code that exists so far |
+| `tests\` | `test_chunker.py` (26) + `test_scanner.py` (35) + `test_ocr.py` (19) + `test_native_extract.py` (22) + `tests\fixtures\` (3 real OCR samples) | 102 tests. **28 need `mof-postgres-spm` up** (9 scanner + 19 OCR); they roll back and leave nothing behind. `test_ocr.py` stubs Azure, so the OCR write path is tested with no paid API call. Stack down = skips with a clear reason, not failures |
 | `requirements.txt` / `requirements-dev.txt` | Pinned Python dependencies | Reproducible environment |
 | `.venv\` | Project virtualenv | **Gitignored** — machine-specific, never committed |
 | `Tools ACC\` | One screenshot | Not created by the assistant — the chat app's own attachment storage |
@@ -90,7 +90,16 @@ Credentials in `infra/.env` under `AZURE_OPENAI_LLM_*`, `AZURE_OPENAI_EMBEDDING_
 | `openai` | 2.53.0 | Azure OpenAI client (LLM + embeddings) |
 | `tiktoken` | 0.13.0 | Token counting for chunk sizing |
 | `python-dotenv` | 1.2.2 | Loads `infra/.env` |
+| `python-docx` | 1.2.0 | **Fallback only** — extracts `.docx` that Document Intelligence rejects. Never the primary path |
+| `python-pptx` | 1.0.2 | **Fallback only** — same, for `.pptx` |
 | `pytest` | 9.1.1 *(dev only)* | Test suite |
+
+⚠️ **`pdfplumber` is deliberately NOT a dependency**, though it may linger
+in a developer venv from the extraction experiment. It is why there is no
+PDF fallback: native PDF text was measured as unusable — 36 Arabic
+characters against Document Intelligence's 2,623, because text arrives as
+Arabic presentation forms in visual order. PDF text must not be extracted
+that way (`SOLUTION_ARCHITECTURE.md` §4.9).
 
 Versions were **resolved then pinned from what actually installed**, not hand-guessed — an earlier attempt at guessing a version failed outright. Install with:
 
@@ -122,10 +131,12 @@ Never into system Python — one of the four gaps closed before the pipeline pha
 ```bash
 docker ps --format "{{.Names}}: {{.Status}}"                     # 11 containers
 python infra/postgres-spm/apply_migrations.py --status           # 13 applied, 0 pending
-.venv/Scripts/python -m pytest tests/ -q                         # 61 passed
+.venv/Scripts/python -m pytest tests/ -q                         # 102 passed
 find /d/MOF_DataSample -maxdepth 1 -type d                       # 9 project folders
 
-# Stage 0 has run — every document_links row carries a real hash:
+# Stages 0 and 1 have run. Both are free to re-run on an unchanged corpus:
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.scanner --dry-run
 #   -> unchanged 58, rows written 0
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.ocr --dry-run
+#   -> candidates : 0        (nothing left to OCR, nothing to re-bill)
 ```

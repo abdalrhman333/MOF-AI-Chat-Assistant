@@ -59,23 +59,55 @@ Two corrections to what this brief said:
   repointing `DOCUMENT_ROOT` produces), nor for a row that has never been
   scanned but already has cached OCR.
 
-### Stage 1 — OCR (**start here**)
+### Stage 1 — OCR ✅ **BUILT** (`pipeline/ocr.py`, 2026-08-06)
 
-Only for documents with no `document_content` row (its presence **is** the
-"OCR done" marker — so a failed embed never re-pays for OCR). Stage 0
-already maintains that marker correctly: it drops the row when a file's
-content changes and keeps it otherwise, so the skip condition can be
-trusted.
+Done and run over all 58 documents — 57 via `prebuilt-layout`, 1 via the
+native fallback after Azure rejected it. 154 pages billed, ~$1.50.
 
-⚠️ **This is where real money starts being spent** — OCR is billed per
-page. Run one document and read the markdown before batching.
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.ocr --dry-run     # free; candidates: 0
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.ocr --limit 1
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.ocr --retry-failed
+```
 
-- Model: `settings.models.ocr_model` (`prebuilt-layout`)
-- Must request `outputContentFormat=markdown`
-- Store `markdown`, `raw_response`, `page_count`, `ocr_model`,
-  `ocr_api_version`
+**Every format goes to Document Intelligence**, including `.docx`/`.pptx`.
+That was measured across 11 files and the measurement *reversed* the
+initial plan to extract Office formats natively — see
+`SOLUTION_ARCHITECTURE.md` §4.9 and `STATUS_AND_ROADMAP.md` §10. The short
+version: DI bills a `.docx` as one page, so the saving was imaginary,
+while native extraction costs merged-cell duplication and a second
+markdown dialect.
 
-### Stage 2 — chunk + embed
+`pipeline/native_extract.py` runs **only after DI fails**, and **never for
+PDFs** — native PDF text was measured as garbage (Arabic presentation
+forms in visual order), and silent garbage in the vector store is worse
+than an honest failure.
+
+Decisions worth not re-litigating:
+
+- A **failure writes no `document_content` row** — its presence is the
+  "OCR done" marker, so writing one would skip a paid step forever.
+- **Thin results are stored and flagged, never failed** — a scan whose
+  content lives inside images can never improve, and `failed` would
+  re-bill it every run. Documents that genuinely failed are excluded from
+  the next run by default (`--retry-failed` opts back in).
+- **Commit per document, not per run** — a batch dying at document 40 must
+  not roll back 39 already paid for.
+
+### Stage 2 — chunk + embed (**start here**)
+
+All 58 documents now have markdown in `document_content`, so the chunker
+finally meets the 54 shapes it has never been tested against. Its design
+was already corrected three times by real markdown contradicting
+assumptions (`SOLUTION_ARCHITECTURE.md` §4.6) — expect more findings, and
+treat them as findings rather than failures.
+
+One row's markdown came from a different extractor
+(`ocr_model = 'native:python-docx'`). It deliberately emits DI's
+conventions, but it is the single row where "the chunker sees consistent
+structure" is an assertion rather than an observation — worth looking at
+first.
+
 
 ```python
 from pipeline.chunker import chunk_markdown
@@ -186,10 +218,28 @@ whether the right chunk comes back. Chunking quality is empirical, and
 
 ## 6. Known-unknowns, flagged honestly
 
-- Only 4 of 58 documents have been through OCR. `.pptx` and the real
-  English charters are untested shapes.
-- Arabic paragraph order looked reversed in some *synthetically generated*
-  `.docx` files; the genuinely scanned PDF was correct. Likely a
-  test-file artifact — **confirm during the full run.**
-- Text inside images/diagrams is **not** extracted (11 empty `<figure>`
-  blocks in one sample). Graphics-heavy documents will have gaps.
+**Closed by the Stage 1 run (2026-08-06):**
+
+- ~~Only 4 of 58 documents have been through OCR~~ — **all 58 now have
+  markdown.** `.pptx` and the real English charters are no longer untested
+  shapes for OCR (they remain untested for *chunking*).
+- ~~Arabic paragraph order looked reversed~~ — **does not reproduce.**
+  Verified structurally (risk IDs ascend in document order) and as prose.
+  `SOLUTION_ARCHITECTURE.md` §4.1.
+
+**Still open:**
+
+- **Text inside images/diagrams is mostly not extracted.** Counted
+  precisely on the scanned sample: of 11 `<figure>` blocks, 7 were empty,
+  3 held a single stray character, and 1 produced a real caption. So it is
+  ~1-in-11 recovery, not zero — the earlier "11 empty" claim was an
+  overstatement. Graphics-heavy documents will still have gaps. Two PDFs
+  in the corpus returned 26 and 36 figure blocks respectively.
+- **Chunking quality across the corpus is unmeasured.** The chunker has
+  seen 4 documents; 54 are new to it.
+- **Vertical (row-spanning) merges repeat** in native fallback output.
+  Affects only documents DI already rejected — 1 so far.
+- **Speaker-note capture is untested against a real deck** — neither deck
+  in this corpus has notes.
+- **1 of 58 needed the fallback.** That rate says little about a real
+  SharePoint holding documents from many more tools.

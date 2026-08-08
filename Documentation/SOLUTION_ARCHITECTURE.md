@@ -129,18 +129,31 @@ shaped the chunker (§4.6):
   extractable text returned in ~9 seconds with correct RTL text and intact
   heading structure. Roughly 1 second per page, so the full 58-document
   corpus is only minutes of API time.
-- ⚠️ **Text inside images/diagrams is NOT extracted.** That document had
-  **11 `<figure>` blocks that came back empty**. For graphics-heavy decks,
-  meaningful content will be missed — worth knowing now rather than
-  discovering it as "why can't the assistant answer this?"
+- ⚠️ **Text inside images/diagrams is mostly not extracted.** That document
+  had 11 `<figure>` blocks. Counted precisely on 2026-08-06: **7 were
+  completely empty, 3 held a single stray character** (`\+`, `0`, `?`,
+  `C`), **and 1 produced a genuine caption** ("Tickets by Category, 156
+  Open Tickets in Period"). So Document Intelligence *can* recover figure
+  text — just unreliably, at roughly 1 in 11 here. An earlier version of
+  this document said all 11 were empty; that was an overstatement.
+  For graphics-heavy decks meaningful content will still be missed —
+  worth knowing now rather than discovering it as "why can't the assistant
+  answer this?"
 - ⚠️ **Tables are emitted as HTML `<table>`, not markdown pipe tables.**
 - ⚠️ **Headings are often absent** when the source document used visual
   formatting instead of real heading styles.
-- ❓ **Arabic paragraph line-order appeared reversed** in some of our
-  *synthetically generated* `.docx` files. The genuinely-scanned PDF was
-  correctly ordered, so this is likely an artifact of how those test files
-  were produced rather than a Document Intelligence flaw — **unconfirmed
-  until the full corpus runs.**
+- ✅ **Arabic paragraph line-order — RESOLVED 2026-08-06, it does not
+  reproduce.** This was flagged as suspected reversal in some of our
+  *synthetically generated* `.docx` files. The full corpus run says
+  otherwise. Checked two ways rather than by eye alone: structurally, the
+  risk registers' `R-01…R-13` identifiers ascend in document order (the
+  only descents are a closing **ملاحظات** section that cross-references
+  earlier risks in prose, which is correct); and as prose, a
+  lessons-learned document reads country → ministry → title →
+  `# مقدمة` → intro → `# أولًا: ما سار بشكل جيد` → item 1 → detail →
+  recommendation → owner → item 2. That is correct document order.
+  Whatever prompted the original observation, Document Intelligence is not
+  reversing Arabic paragraphs.
 
 Embeddings and OCR deliberately live on a **different Azure account** than
 the LLM — not a deployment-on-the-same-resource setup. Credentials live in
@@ -383,6 +396,63 @@ trap this stage exists to avoid.
 
 Verification record — including the mutation testing and the live
 change-detection run — is in `STATUS_AND_ROADMAP.md` §9.
+
+### 4.9 Stage 1 (OCR) — why every format goes to Document Intelligence
+
+Implemented in `pipeline/ocr.py`, with `pipeline/native_extract.py` as a
+fallback. The obvious objection to paying for OCR on `.docx` and `.pptx` —
+their text is sitting in XML, readable for free — was taken seriously and
+**measured across 11 files covering every shape in the corpus**. The
+measurement reversed the initial recommendation. Numbers in
+`STATUS_AND_ROADMAP.md` §10.
+
+| Format | Finding | Decision |
+|---|---|---|
+| **PDF** | Native extraction is not merely worse, it is **unusable**. Our generated Arabic PDF: **36** Arabic characters natively vs **2,623** from DI, because text comes back as Arabic *presentation forms* in visual order — glyph codes, not words. A real 19-page Arabic BRD shared only **80 tokens** between methods. An English PDF came back with every letter doubled (`CChhaarrtteerr`) | **DI only.** No fallback |
+| **DOCX** | Native works, but expands merged cells once per grid position — **48 duplicate cells** on one real Arabic document where DI produced **0**. DI also recovers table-of-contents entries. Decisively: **DI bills a `.docx` as ONE page** regardless of length (a 44,610-character charter = 1 page) | **DI primary** |
+| **PPTX** | A genuine tie — **928 of 928 tokens shared**, zero unique to either side. Native is free, instant, and would also capture speaker notes, which DI has no concept of. But only 2 decks exist (~$0.24) | **DI primary**, native revisitable if a real corpus is deck-heavy |
+
+**The cost hypothesis was simply wrong.** Native extraction looked like it
+would avoid paying for 64% of the corpus. It wouldn't — because the 60%
+that is `.docx` costs about a cent each. Whole corpus: ~307 pages, ~$3.
+
+So: **one extractor, one markdown dialect** — the dialect the chunker was
+tuned against (§4.6) — plus the best tables and by far the best Arabic.
+A second primary path would have saved roughly $0.60 across the entire
+corpus while introducing a merged-cell bug, a crash, and a second markdown
+shape for the chunker to handle.
+
+**The fallback, and why it is strictly a fallback.** Document Intelligence
+rejected one real file — `SDD_AI_Project_Charter_Generator_OnPrem.docx`,
+749 KB — as *"Content is not supported: The input content is corrupted or
+format is invalid."* It is not corrupted: `testzip()` is clean,
+`word/document.xml` is present, `python-docx` reads 136 paragraphs. Its
+archive carries zero-byte directory entries and lacks
+`word/theme/theme1.xml`; **Word never writes archives that way**, so it was
+repackaged by another tool and Azure's OOXML parser refuses it.
+
+The consequence was not degraded extraction but **none at all** — a
+substantive design document contributing nothing to the knowledge base.
+So `native_extract` runs **only after DI has already failed**, and only for
+Office formats. `document_content.ocr_model` records which extractor
+produced every row (`prebuilt-layout` vs `native:python-docx`), so
+provenance is a query rather than a guess, and a rescued document bills
+zero pages.
+
+**There is deliberately no PDF fallback.** Given the numbers above, a PDF
+fallback would emit confident garbage into the vector store with no error
+anywhere. An honest failure is better than silent nonsense.
+
+Known limits, recorded rather than smoothed over:
+
+- **Vertical (row-spanning) merges still repeat** in native `.docx`
+  output. Horizontal merges are collapsed correctly via `<w:tc>` element
+  identity; unpicking vertical ones needs the whole grid. Only affects
+  documents DI already rejected.
+- **Speaker-note capture is untested against a real deck** — neither deck
+  in this corpus has any notes.
+- **1 of 58 documents needed the fallback.** That rate says little about a
+  real SharePoint, which holds documents from many more tools.
 
 ---
 

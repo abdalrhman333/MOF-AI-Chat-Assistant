@@ -98,6 +98,15 @@ D:\MOF Enjaz Chatbot\
                                        upsert document_links. Run with
                                        `python -m pipeline.scanner
                                         [--project CODE] [--dry-run] [--list]`
+    ocr.py                          <- Stage 1: Document Intelligence ->
+                                       document_content. Run with
+                                       `python -m pipeline.ocr
+                                        [--project CODE] [--dry-run]
+                                        [--limit N] [--retry-failed]`
+    native_extract.py               <- fallback ONLY, for Office files DI
+                                       rejects. Never the primary path,
+                                       and never used for PDFs — see
+                                       SOLUTION_ARCHITECTURE.md 4.9
 
 D:\MOF_DataSample\                  <- NOT in the repo, the mock document corpus
   PRJ-01\ ... PRJ-08\                  (fictional, generated from
@@ -386,12 +395,23 @@ written* to *one gate that can be reviewed and tested once*.
 | `document_content` | OCR output cache, 1:1 with `document_links`. Exists so a chunking-strategy change never forces a re-OCR (which costs money per page). **The presence of a row here is the "OCR done" marker** — deliberately avoids a separate `ocr_status` column, so a failed embed/index step never re-pays for OCR | `document_link_id` (PK + FK, cascade), `markdown` (feeds chunking), `raw_response` (JSONB — full DI response, keeps structured tables/geometry that markdown drops), `page_count`, `ocr_model`, `ocr_api_version`, `extracted_at` |
 
 Current data (2026-08-06): 9 projects, 4 users, 6 assignments, **58
-document links, all 58 carrying a real SHA-256 and a real `file_path`** —
-Stage 0 has run, so the seeded placeholders are gone. All 58 are
-`indexing_status='pending'`; **0 `document_content` rows**, because Stage 1
-(OCR) is not built yet. Query it via `docker exec -it mof-postgres-spm psql
--U spm_admin -d spm_data`, or visually via DBeaver (§3) — see
-`STATUS_AND_ROADMAP.md` §7 for exactly what's in `TEST-PROJECT`.
+document links, all 58 carrying a real SHA-256 and a real `file_path`**
+(Stage 0 has run, so the seeded placeholders are gone), and **58
+`document_content` rows — the full corpus is OCR'd** (Stage 1). All 58 are
+`indexing_status='pending'`, waiting for Stage 2/3 to index them. Query it
+via `docker exec -it mof-postgres-spm psql -U spm_admin -d spm_data`, or
+visually via DBeaver (§3) — see `STATUS_AND_ROADMAP.md` §7 for exactly
+what's in `TEST-PROJECT`.
+
+`document_content` holds 154 pages of extraction in **3.3 MB** — the raw
+Document Intelligence JSON is ~9.3 MB, and Postgres TOAST-compresses it.
+Which extractor produced each row is recorded:
+
+```sql
+SELECT ocr_model, count(*) FROM document_content GROUP BY 1;
+--  prebuilt-layout    | 57
+--  native:python-docx |  1   <- DI rejected this file; see SOLUTION_ARCHITECTURE.md 4.9
+```
 
 ⚠️ **Verifying `file_path` with `LIKE` will lie to you.** `\` is `LIKE`'s
 escape character, so `file_path LIKE 'D:\MOF_DataSample\%'` matches

@@ -149,10 +149,20 @@
   agreeing with one stored hash, and by a second run reporting
   `unchanged 58, rows written 0`. **35 tests, all 8 mutations caught** —
   see §9. The manifest is never read: discovery is the filesystem.
-- [ ] **Ingestion pipeline — Stages 1–3** (OCR → chunk + embed → index into
+- [x] **Ingestion pipeline — Stage 1 (OCR)** (`pipeline/ocr.py`,
+  `pipeline/native_extract.py`). **All 58 documents extracted** — 57 via
+  Azure Document Intelligence `prebuilt-layout`, 1 via the native fallback
+  after Azure rejected it. 154 pages billed, 3.3 MB stored in
+  `document_content`. Re-running finds **0 candidates**, so an unchanged
+  corpus is never re-billed. Every format goes to Document Intelligence —
+  a decision **measured across 11 files, which reversed the initial
+  recommendation** (§10 below, reasoning in `SOLUTION_ARCHITECTURE.md`
+  §4.9). 55 tests; all 21 mutations across the two modules caught.
+- [ ] **Ingestion pipeline — Stages 2–3** (chunk + embed → index into
   per-project Qdrant collections). Redis is running, the chunker exists,
-  the schema is ready, and all 58 rows are `pending` with real hashes
-  waiting for Stage 1.
+  the schema is ready, and **all 58 documents now have markdown** waiting
+  for the chunker — including the 54 shapes it has never been tested
+  against.
 - [x] **Chunker test suite** — 26 tests in `tests/`, synthetic cases plus
   three real Document Intelligence fixtures. **Validated by mutation
   testing**, not by the suite passing: removing table-header repetition,
@@ -224,26 +234,41 @@
 | 2026-08-06 | `MODIFIED` deletes the `document_content` row; `BACKFILL` keeps it | That row's presence **is** the "OCR done" marker, so a stale one left behind makes Stage 1 skip re-OCR and change detection silently does nothing. A NULL hash means "never scanned", not "content changed" — no evidence the cache is stale, and OCR is billed per page |
 | 2026-08-06 | New files get `doc_type = 'Unclassified'`; existing `doc_type`/`language`/`contains_table` are **never overwritten** | The filesystem cannot know a document's type — classification belongs after OCR, where the text can be read. Guessing from the filename would work only because we generated the fictional filenames ourselves, which is exactly the demo-corpus coupling Stage 0 exists to avoid |
 | 2026-08-06 | Discovery is **recursive**; `filename` stores the project-relative POSIX path | Identical to the bare name for today's flat corpus (verified: 0 spurious inserts across all 58 rows), but a real SharePoint export has folders, and a non-recursive walk would make those documents silently invisible — no error, just missing answers |
+| 2026-08-06 | **Every format goes to Document Intelligence**, including `.docx`/`.pptx` whose text is free to read from XML | `SOLUTION_ARCHITECTURE.md` §4.9. Measured across 11 files; **the measurement reversed the recommendation**. The saving native extraction promised evaporates because DI bills a `.docx` as one page — the whole corpus is ~$3 — while native costs merged-cell duplication, a crash, and a second markdown dialect for the chunker |
+| 2026-08-06 | **No native PDF fallback**, ever | Native PDF text is unusable, not merely worse: 36 Arabic characters against DI's 2,623, because text arrives as Arabic presentation forms in visual order. A fallback here would push confident garbage into the vector store with no error anywhere |
+| 2026-08-06 | **Native Office extraction as a fallback only**, after DI fails | DI rejected a valid 749 KB `.docx` as "corrupted" — it was repackaged by a non-Word tool. Without a fallback that document contributes nothing at all. `ocr_model` records which extractor ran, and a rescued document bills 0 pages |
+| 2026-08-06 | A failed OCR writes **no** `document_content` row; a thin result **does** | The row's presence is the "OCR done" marker, so writing one on failure skips a paid step forever. Conversely a scan whose content lives in images can never improve, so marking it `failed` would re-bill it on every future run — it is stored, flagged, and left for a human |
+| 2026-08-06 | Stage 1 commits **per document**, not per run | Unlike Stage 0, whose work is cheap and repeatable, every row here cost money. A batch dying on document 40 must not roll back the 39 already paid for |
 
 ---
 
 ## 5. Immediate next step
 
-**Stage 1 of the ingestion pipeline — OCR.** Stage 0 is done, so all 58
-rows are `pending` with real hashes and real paths, waiting for it.
+**Stage 2 — chunk + embed.** All 58 documents now have markdown, so the
+chunker finally meets the 54 shapes it has never been tested against.
 
 | Stage | Does | Writes | State |
 |---|---|---|---|
 | **0 — Scan** | Walk `DOCUMENT_ROOT`, hash each file, upsert rows | `document_links` (seeded `file_path` placeholders **replaced with real discovery**) | ✅ done, 58/58 |
-| **1 — OCR** | Document Intelligence `prebuilt-layout` → markdown | `document_content` | ⬅ next |
-| **2 — Chunk + embed** | `pipeline/chunker.py`, then Azure embeddings | — | not started |
+| **1 — OCR** | Document Intelligence `prebuilt-layout` → markdown, native fallback for rejected Office files | `document_content` | ✅ done, 58/58 |
+| **2 — Chunk + embed** | `pipeline/chunker.py`, then Azure embeddings | — | ⬅ next |
 | **3 — Index** | Upsert vectors into `project_<code>` collections | Qdrant; `indexing_status`, `chunk_count`, `indexed_at` | not started |
 
-**Stage 1 is where real money starts being spent** (OCR is billed per
-page), so run a single document and read the markdown before batching.
-Its skip condition is the presence of a `document_content` row, which
-Stage 0 already maintains correctly: it drops that row on a content
-change and keeps it otherwise.
+What Stage 2 walks into, flagged in advance:
+
+- **The chunker has only ever seen 4 documents.** Its design was corrected
+  three times by real markdown contradicting assumptions (§4.6); there are
+  now 54 more chances for that to happen. Expect findings.
+- **One document's markdown came from a different extractor**
+  (`ocr_model = 'native:python-docx'`). It deliberately emits DI's
+  conventions, but it is the one row where "the chunker sees consistent
+  structure" is an assertion rather than an observation.
+- **Embeddings are the second paid API.** 1536 dimensions, fixed —
+  changing the model later means re-embedding everything (never
+  re-chunking; chunk boundaries are model-independent, §4.6).
+- **Batch the embedding calls**, and embed `chunk.text` (breadcrumb
+  included) rather than `chunk.body` — the breadcrumb is what makes the
+  vector mean anything.
 
 ## 6. Gotchas hit during this phase
 
@@ -306,7 +331,34 @@ change and keeps it otherwise.
   is what keeps them clean — and it means the real
   `admin_connection()` commit was never exercised by any test. Closed by
   running the stage live against the corpus; worth remembering for every
-  stage that follows.
+  stage that follows. **It bit immediately**: Stage 1 shipped with
+  `admin_connection().__enter__()`, which closed the connection the moment
+  the un-held context manager was garbage-collected. All 14 tests passed,
+  because not one of them used the owned-connection branch. Every real
+  invocation died on the first document.
+- **A guard whose value is diagnostic is invisible to a behavioural test.**
+  Twice now, mutation testing deleted a guard and every test still passed:
+  the missing-file check (`read_bytes()` raises anyway) and the
+  Office-format check in the OCR fallback (`native_extract` refuses PDFs
+  anyway). Both guards are worth keeping — they produce the error message
+  a 58-document batch is actually debugged through — but that means the
+  *message* is the thing to assert, not just the behaviour. Assume this
+  pattern repeats.
+- **`AmbiguousParameter`: a parameter used only in `IS NULL` has no
+  inferable type.** `WHERE (%(project)s IS NULL OR code = %(project)s)`
+  fails outright in psycopg. Cast it: `%(project)s::text`.
+- **A test that saves and reloads a file may not reproduce the condition
+  it is testing.** Setting `paragraph.style = None`, saving, and re-opening
+  does not give a `None` style back — python-docx resolves it to a default
+  on load. The guard against `None` was therefore never executed, and a
+  mutation removing it survived. A stub object was the only way to
+  reproduce what real non-Word documents do.
+- **Azure's error text can be wrong about the cause.** Document
+  Intelligence rejected a valid `.docx` with "the input content is
+  corrupted or format is invalid". `testzip()` was clean and `python-docx`
+  read 136 paragraphs. The real cause was an archive repackaged by a
+  non-Word tool (zero-byte directory entries, no `theme1.xml`). Don't
+  accept a provider's diagnosis of a local file without checking it.
 
 ---
 
@@ -316,23 +368,32 @@ change and keeps it otherwise.
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**61 tests, ~2.5s** — `test_chunker.py` 26 + `test_scanner.py` 35.
+**102 tests, ~3.6s** — `test_chunker.py` 26 + `test_scanner.py` 35 +
+`test_ocr.py` 19 + `test_native_extract.py` 22.
 
-The scanner's **9** integration tests need `mof-postgres-spm` running. They
-create a throwaway project, exercise the **real** schema and constraints,
-and always roll back — nothing survives the run (verified: no stray rows,
-`document_content` still empty afterwards). If the container is down they
-skip with a clear message rather than failing obscurely: the suite reports
-`52 passed, 9 skipped` and takes ~55s instead of ~2s (nine connection
-timeouts). **This was observed for real**, not designed and assumed —
-Docker Desktop restarted mid-session on 2026-08-06 and the suite behaved
-exactly as intended. The same restart also confirmed §4.4 of
-`INFRASTRUCTURE.md`: all 11 containers came back unprompted.
+**28 tests need `mof-postgres-spm` running** — 9 in `test_scanner.py`, all
+19 in `test_ocr.py`. They create a throwaway project, exercise the **real**
+schema and constraints, and always roll back; nothing survives the run
+(verified: no stray rows, `document_content` untouched). If the container
+is down they skip with a clear message rather than failing obscurely, and
+each skip costs its connection timeout, so the suite slows to ~55s
+instead of ~3.6s.
 
-⚠️ Counting note: an earlier draft of this document said "11 integration
-tests". That number came from a `pytest -k` run whose filter also matched
-pure unit tests with similar names. The Docker outage gave the honest
-count. Don't infer a subset's size from a filtered run.
+`test_ocr.py` additionally stubs Azure, so the full OCR write path —
+including the failure path and the native fallback — is tested against the
+real schema **without a single paid API call**.
+
+**The degradation was observed for real**, not designed and assumed:
+Docker Desktop restarted mid-session on 2026-08-06 and the suite reported
+`52 passed, 9 skipped` exactly as intended. The same restart also
+confirmed `INFRASTRUCTURE.md` §4.4 — all 11 containers came back
+unprompted.
+
+⚠️ Counting note: an earlier draft said "11 integration tests". That came
+from a `pytest -k` run whose filter also matched pure unit tests with
+similar names. The Docker outage gave the honest count. **Don't infer a
+subset's size from a filtered run** — count the fixture, or read the skip
+line.
 
 Fixtures in `tests/fixtures/` are real Document
 Intelligence output, kept deliberately: the chunker's design was corrected
@@ -417,3 +478,54 @@ treating a moved file as UNCHANGED; clobbering the curated `doc_type`;
 making discovery non-recursive; storing the bare filename instead of the
 relative path; trusting size as a change signal; and letting `--dry-run`
 write. Per §6, the code was committed *before* mutating.
+
+---
+
+## 10. Stage 1 — the extraction measurement, and how it was verified (2026-08-06)
+
+### 10a. Native extraction vs Document Intelligence, 11 files
+
+Run because paying for OCR on `.docx`/`.pptx` — formats whose text is
+already in XML — deserved a challenge rather than an assumption. **The
+decisive metric is the token-set diff**: character counts differ for
+formatting reasons that don't matter, but a word one extractor found and
+the other didn't is content genuinely lost.
+
+| File (type) | Native | Azure DI | Verdict |
+|---|---|---|---|
+| Real deck, Arabic/mixed (`.pptx`) | 11,216 ch · 7,282 ar | 11,535 ch · 7,282 ar | **928/928 tokens shared, 0 unique either way** |
+| Generic template (`.pptx`) | 8,642 ch | 9,042 ch | 7 tokens only DI found — slide-master copyright |
+| Real Arabic BRD, 28 tables (`.docx`) | 501 cells, **48 duplicated** | 421 cells, **0 duplicated** | DI — merged cells |
+| Real charter, English (`.docx`) | 23,098 ch | 24,553 ch | DI — recovers ToC |
+| Generic risk plan (`.docx`) | 10,719 ch | 11,160 ch | DI, marginally |
+| **Our generated Arabic (`.docx`)** | **crashed** (`style` is None) | 3,938 ch | DI |
+| Real Arabic BRD, 19pp (`.pdf`) | 35,559 ch | 38,422 ch | **only 80 tokens shared** — native mangles RTL |
+| Generic charter (`.pdf`) | 27,947 ch | 20,792 ch | native emits `CChhaarrtteerr` — every letter doubled |
+| Arabic dashboard (`.pdf`) | 13,936 ch | 14,258 ch | **6 tokens shared.** Doubled digits `1155` |
+| **Our generated Arabic (`.pdf`)** | **36** Arabic ch | **2,623** Arabic ch | native returns presentation forms in visual order |
+| **Scanned, image-only (`.pdf`)** | **0 ch** | 3,625 ch | OCR mandatory |
+
+**Billing, the finding that decided it:** DI bills a `.docx` as **1 page**
+regardless of length (a 44,610-character charter = 1 page); `.pptx` bills
+per slide; PDFs per page. The hypothesis that native extraction would
+avoid paying for 64% of the corpus was therefore **wrong** — that 64% costs
+about a cent per document.
+
+### 10b. Stage 1 verification
+
+| Property | How it was proven |
+|---|---|
+| The API is called correctly | Our DI call reproduced `tests/fixtures/scanned_arabic_figures.md` **byte-identically** — and again after the full pipeline stored it in Postgres |
+| Never re-bills | Re-run reports **0 candidates** |
+| Failure is honest | The one rejected file got `indexing_status='failed'`, an `error_message`, and **no `document_content` row** |
+| Recovery works | `--retry-failed` rescued it natively in 0.13 s, **0 pages billed**, `ocr_model = 'native:python-docx'` |
+| Corpus complete | **58/58** have markdown; 154 pages billed; 3.3 MB stored (from ~9.3 MB raw JSON, TOAST-compressed) |
+| Arabic order | Resolved — see `SOLUTION_ARCHITECTURE.md` §4.1 |
+
+**Mutation testing — 21 across the two modules, all caught**, but only
+after three survivors exposed real test gaps (§6): a merged-cell fix that
+could equally have been keyed off text instead of element identity; a
+`style is None` guard that a save-and-reload test could never reach; and a
+format guard whose only observable effect was the error message.
+
+**Total spend: ~241 pages ≈ $2.41**, including the 87-page measurement.
