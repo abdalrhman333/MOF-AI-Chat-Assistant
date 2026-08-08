@@ -226,55 +226,60 @@ def run(
     if retry_failed is None:
         retry_failed = settings.ocr.retry_failed_by_default
 
+    if connection is not None:
+        # Caller owns the transaction — usually a test that will roll back.
+        return _run_with(connection, settings, project, dry_run, limit,
+                         retry_failed, client, progress, owns=False)
+    with admin_connection() as conn:
+        return _run_with(conn, settings, project, dry_run, limit,
+                         retry_failed, client, progress, owns=True)
+
+
+def _run_with(conn, settings: Settings, project: str | None, dry_run: bool,
+              limit: int | None, retry_failed: bool, client, progress,
+              owns: bool) -> OcrReport:
     report = OcrReport(dry_run=dry_run)
-    owns_connection = connection is None
     started = time.time()
 
-    conn = connection or admin_connection().__enter__()
-    try:
-        cursor = conn.cursor()
-        pending = select_pending(cursor, project, retry_failed, limit)
-        report.candidates = [d.label for d in pending]
+    cursor = conn.cursor()
+    pending = select_pending(cursor, project, retry_failed, limit)
+    report.candidates = [d.label for d in pending]
 
-        if dry_run or not pending:
-            report.seconds = round(time.time() - started, 2)
-            return report
+    if dry_run or not pending:
+        report.seconds = round(time.time() - started, 2)
+        return report
 
-        client = client or build_client(settings)
+    client = client or build_client(settings)
 
-        for doc in pending:
-            path = pathlib.Path(doc.file_path)
-            try:
-                if not path.is_file():
-                    # Caught before the API call — a missing file is free to
-                    # fail, and paying to discover it would be silly.
-                    raise FileNotFoundError(f"file not on disk: {path}")
-                extraction = extract(path, settings, client)
-                _store(cursor, doc, extraction)
-                report.succeeded.append(doc.label)
-                report.pages_billed += extraction.page_count
-                report.raw_bytes += len(str(extraction.raw_response))
-                if len(extraction.markdown) < settings.ocr.thin_result_chars:
-                    report.thin.append((doc.label, len(extraction.markdown)))
-                if progress:
-                    progress(doc, extraction, None)
-            except Exception as exc:                     # noqa: BLE001
-                message = f"{type(exc).__name__}: {exc}"
-                _record_failure(cursor, doc, message)
-                report.failed.append((doc.label, message))
-                if progress:
-                    progress(doc, None, message)
-            finally:
-                # Per document, not per run: every success above cost money
-                # and must survive whatever the next document does. Only
-                # when we own the connection — an injected one belongs to
-                # the caller, who is usually a test that will roll back.
-                if owns_connection:
-                    conn.commit()
-    finally:
-        if owns_connection:
-            conn.commit()
-            conn.close()
+    for doc in pending:
+        path = pathlib.Path(doc.file_path)
+        try:
+            if not path.is_file():
+                # Caught before the API call — a missing file is free to
+                # fail, and paying to discover it would be silly.
+                raise FileNotFoundError(f"file not on disk: {path}")
+            extraction = extract(path, settings, client)
+            _store(cursor, doc, extraction)
+            report.succeeded.append(doc.label)
+            report.pages_billed += extraction.page_count
+            report.raw_bytes += len(str(extraction.raw_response))
+            if len(extraction.markdown) < settings.ocr.thin_result_chars:
+                report.thin.append((doc.label, len(extraction.markdown)))
+            if progress:
+                progress(doc, extraction, None)
+        except Exception as exc:                     # noqa: BLE001
+            message = f"{type(exc).__name__}: {exc}"
+            _record_failure(cursor, doc, message)
+            report.failed.append((doc.label, message))
+            if progress:
+                progress(doc, None, message)
+        finally:
+            # Per document, not per run: every success above cost money and
+            # must survive whatever the next document does. Only when we own
+            # the connection — an injected one belongs to the caller, who is
+            # usually a test that will roll back.
+            if owns:
+                conn.commit()
 
     report.seconds = round(time.time() - started, 2)
     return report

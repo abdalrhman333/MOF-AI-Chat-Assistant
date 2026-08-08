@@ -225,7 +225,15 @@ def test_failure_records_the_error_and_writes_no_document_content(db, tmp_path):
 
 
 def test_a_missing_file_fails_without_calling_the_api(db, tmp_path):
-    """Paying Document Intelligence to discover a file isn't there is silly."""
+    """Paying Document Intelligence to discover a file isn't there is silly.
+
+    The message assertion is load-bearing, not decoration. Removing the
+    explicit `is_file()` guard does NOT change whether the API is called —
+    `path.read_bytes()` raises first either way — so `client.calls == []`
+    alone cannot tell a working guard from a deleted one (proven: that
+    mutation survived until this assertion was added). The guard's real
+    value is the diagnostic, so the diagnostic is what gets pinned.
+    """
     link_id, path = add_document(db, tmp_path, name="gone.pdf")
     path.unlink()
     client = StubClient()
@@ -237,7 +245,8 @@ def test_a_missing_file_fails_without_calling_the_api(db, tmp_path):
     status, error = one(db,
         "SELECT indexing_status, error_message FROM document_links WHERE id=%s", (link_id,))
     assert status == "failed"
-    assert "FileNotFoundError" in error
+    assert error.startswith("FileNotFoundError: file not on disk:")
+    assert str(path) in error
 
 
 def test_one_failure_does_not_stop_the_batch(db, tmp_path):
