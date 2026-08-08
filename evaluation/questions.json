@@ -1,0 +1,223 @@
+{
+  "version": 1,
+  "description": "Retrieval evaluation set for the Enjaz corpus. Each question is one a project manager could plausibly ask, tagged with the document(s) that genuinely contain the answer. Written by reading the indexed markdown, not by guessing from filenames. Questions are NOT tuned to make the score look good — a question is only corrected when the answer is genuinely absent from the tagged document, never because it turned out to be hard.",
+  "corpus": "9 projects, 58 documents, 678 passages, as at 2026-08-09",
+  "questions": [
+    {
+      "id": "ar-01-risks",
+      "project": "PRJ-01",
+      "lang": "ar",
+      "question": "ما هي أعلى المخاطر المسجلة في المشروع وما درجة خطورتها؟",
+      "expect_documents": ["PRJ-01_RiskRegister_20260701.docx"],
+      "note": "The register scores each risk probability x impact on a 1-5 scale."
+    },
+    {
+      "id": "ar-01-charter-owner",
+      "project": "PRJ-01",
+      "lang": "ar",
+      "question": "من هو مدير المشروع ومن الجهة الراعية له؟",
+      "expect_documents": ["PRJ-01_ProjectCharter_20250312.docx"]
+    },
+    {
+      "id": "ar-02-lessons",
+      "project": "PRJ-02",
+      "lang": "ar",
+      "question": "ما هي الدروس المستفادة التي تم توثيقها في هذا المشروع؟",
+      "expect_documents": ["PRJ-02_LessonsLearned_20260620.docx"]
+    },
+    {
+      "id": "ar-02-decisions",
+      "project": "PRJ-02",
+      "lang": "ar",
+      "question": "ما القرارات التي اتُخذت في آخر اجتماع للمشروع؟",
+      "expect_documents": ["PRJ-02_MeetingMinutes_20260722.pdf"]
+    },
+    {
+      "id": "ar-03-delay-cause",
+      "project": "PRJ-03",
+      "lang": "ar",
+      "question": "ما الأسباب الجذرية لتأخر المشروع عن جدوله الزمني الأساسي؟",
+      "expect_documents": ["PRJ-03_LessonsLearned_20260625.docx"],
+      "note": "Mid-project review; records roughly 35 weeks of slippage and its causes."
+    },
+    {
+      "id": "ar-03-mitigation",
+      "project": "PRJ-03",
+      "lang": "ar",
+      "question": "ما إجراءات التخفيف المقترحة للمخاطر ذات الدرجة المرتفعة؟",
+      "expect_documents": ["PRJ-03_RiskRegister_20260715.docx"]
+    },
+    {
+      "id": "ar-06-budget-dates",
+      "project": "PRJ-06",
+      "lang": "ar",
+      "question": "ما الميزانية المعتمدة للمشروع وما تاريخ الانتهاء المخطط؟",
+      "expect_documents": ["PRJ-06_ProjectCharter_20250122.docx"],
+      "note": "Charter table: 22,900,000 SAR, planned end 30/09/2026."
+    },
+    {
+      "id": "ar-06-risk-owner",
+      "project": "PRJ-06",
+      "lang": "ar",
+      "question": "من هو مالك كل مخاطرة ومتى موعد مراجعتها القادمة؟",
+      "expect_documents": ["PRJ-06_RiskRegister_20260720.docx"]
+    },
+    {
+      "id": "ar-05-scope",
+      "project": "PRJ-05",
+      "lang": "ar",
+      "question": "ما هو نطاق المشروع وأهدافه الرئيسية؟",
+      "expect_documents": ["PRJ-05_ProjectCharter_20250910.docx"]
+    },
+    {
+      "id": "ar-05-actions",
+      "project": "PRJ-05",
+      "lang": "ar",
+      "question": "ما بنود العمل المتفق عليها ومن المسؤول عن تنفيذها؟",
+      "expect_documents": ["PRJ-05_MeetingMinutes_20260716.pdf"]
+    },
+    {
+      "id": "ar-08-handover",
+      "project": "PRJ-08",
+      "lang": "ar",
+      "question": "ما الذي تم تسليمه عند إغلاق المشروع وما ترتيبات الدعم بعد التسليم؟",
+      "expect_documents": ["PRJ-08_HandoverDocument_20251218.pdf"]
+    },
+    {
+      "id": "ar-08-recommendations",
+      "project": "PRJ-08",
+      "lang": "ar",
+      "question": "ما التوصيات المستخلصة بعد اكتمال المشروع؟",
+      "expect_documents": ["PRJ-08_LessonsLearned_20251222.docx"]
+    },
+    {
+      "id": "ar-04-attendees",
+      "project": "PRJ-04",
+      "lang": "ar",
+      "question": "من حضر اجتماع المشروع وما الجهات الممثلة فيه؟",
+      "expect_documents": ["PRJ-04_MeetingMinutes_20251028.pdf"]
+    },
+    {
+      "id": "ar-04-closure-budget",
+      "project": "PRJ-04",
+      "lang": "ar",
+      "question": "ما الوضع المالي النهائي للمشروع عند الإغلاق؟",
+      "expect_documents": ["PRJ-04_BudgetReport_20251130.pdf"]
+    },
+    {
+      "id": "ar-test-powerbi",
+      "project": "TEST-PROJECT",
+      "lang": "ar",
+      "question": "ما المتطلبات التفصيلية لإعادة تصميم تقارير Power BI؟",
+      "expect_documents": ["وثيقة المتطلبات التفصيلية PowerBI وإعادة التصميم 01-07-2026.pdf"],
+      "note": "A real 66-passage Arabic BRD — the largest document in the corpus."
+    },
+    {
+      "id": "ar-test-methodology",
+      "project": "TEST-PROJECT",
+      "lang": "ar",
+      "question": "ما المنهجية التقنية المتبعة في تنفيذ المشروع؟",
+      "expect_documents": ["_المنهجية التقنية للمشروع.pdf"],
+      "note": "Deliberately hard: a scanned, image-only PDF. Kept because a real SharePoint holds documents like this and the score should reflect that."
+    },
+    {
+      "id": "en-07-scope",
+      "project": "PRJ-07",
+      "lang": "en",
+      "question": "What is the scope of this project and what is being delivered?",
+      "expect_documents": ["PRJ-07_ProjectCharter_20241106.docx"]
+    },
+    {
+      "id": "en-07-security-decision",
+      "project": "PRJ-07",
+      "lang": "en",
+      "question": "What did the Architecture Review Board decide about the revised security layer design?",
+      "expect_documents": ["PRJ-07_MeetingMinutes_20260709.pdf"],
+      "note": "Special session held 9 July 2026 following a regulatory review."
+    },
+    {
+      "id": "en-07-risks",
+      "project": "PRJ-07",
+      "lang": "en",
+      "question": "What are the open risks on this project and who owns them?",
+      "expect_documents": ["PRJ-07_RiskRegister_20260714.docx"]
+    },
+    {
+      "id": "en-02-amber",
+      "project": "PRJ-02",
+      "lang": "en",
+      "question": "Why is the project reporting an amber status this week?",
+      "expect_documents": ["PRJ-02_WeeklyStatusReport_20260728.docx"],
+      "note": "Driven by integration readiness at two of eight participating entities."
+    },
+    {
+      "id": "en-01-spend",
+      "project": "PRJ-01",
+      "lang": "en",
+      "question": "How much of the approved budget has been spent to date?",
+      "expect_documents": ["PRJ-01_BudgetReport_20260630.pdf"]
+    },
+    {
+      "id": "en-01-licensing",
+      "project": "PRJ-01",
+      "lang": "en",
+      "question": "What is the licensing budget and what percentage of it has been consumed?",
+      "expect_documents": ["PRJ-01_BudgetReport_20260630.pdf"],
+      "note": "Cost-category table: licensing 15,300,000 SAR, 78.1% consumed."
+    },
+    {
+      "id": "en-test-emdad",
+      "project": "TEST-PROJECT",
+      "lang": "en",
+      "question": "What are the deliverables and scope of the Emdad project?",
+      "expect_documents": ["Emdad - Project Charter - V1 1.docx"]
+    },
+    {
+      "id": "en-test-sdd",
+      "project": "TEST-PROJECT",
+      "lang": "en",
+      "question": "How is the AI project charter generator designed to work on premises?",
+      "expect_documents": ["SDD_AI_Project_Charter_Generator_OnPrem.docx"],
+      "note": "The one document Azure rejected; extracted by the native fallback."
+    },
+    {
+      "id": "en-test-portal",
+      "project": "TEST-PROJECT",
+      "lang": "en",
+      "question": "What are the objectives of the employee internal portal?",
+      "expect_documents": ["JEDCO002001 - Project Charter - Employee internal Portal V 1.0 .docx"]
+    },
+    {
+      "id": "en-test-warehouse",
+      "project": "TEST-PROJECT",
+      "lang": "en",
+      "question": "What is the data warehouse and business intelligence project intended to achieve?",
+      "expect_documents": ["TMO001001_DATA WAREHOUSE, BI & REPORTING BUSINESS INTELLIGENCE_Project Charter_16 July 2025_v0.1 1.docx"]
+    },
+    {
+      "id": "mixed-03-status",
+      "project": "PRJ-03",
+      "lang": "mixed",
+      "question": "ما حالة المشروع هذا الأسبوع؟ What is the current overall RAG status?",
+      "expect_documents": [
+        "PRJ-03_WeeklyStatusReport_20260727.docx",
+        "PRJ-03_WeeklyStatusReport_20260622.docx"
+      ],
+      "note": "Two weekly reports exist; either is a correct source for status."
+    },
+    {
+      "id": "mixed-06-spend",
+      "project": "PRJ-06",
+      "lang": "mixed",
+      "question": "كم بلغ الصرف الفعلي حتى الآن؟ What is the remaining balance?",
+      "expect_documents": ["PRJ-06_BudgetReport_20260630.pdf"]
+    },
+    {
+      "id": "mixed-04-handover",
+      "project": "PRJ-04",
+      "lang": "mixed",
+      "question": "ما محتويات وثيقة التسليم؟ What is on the handover checklist?",
+      "expect_documents": ["PRJ-04_HandoverDocument_20251105.pdf"]
+    }
+  ]
+}

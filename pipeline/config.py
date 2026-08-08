@@ -192,6 +192,28 @@ class CelerySettings:
 
 
 @dataclass(frozen=True)
+class EvaluationSettings:
+    """Retrieval evaluation parameters.
+
+    **The question set is data, not code.** It is a path, so a different
+    corpus brings its own file and nothing here changes — the same reason
+    `DOCUMENT_ROOT` is a setting. A harness with 30 questions hardcoded in
+    a module would be measuring this demo corpus forever.
+
+    `recall_at` is the set of cut-offs reported. The search depth follows
+    from it rather than being configured separately, because a depth
+    shallower than the deepest cut-off would silently report a recall the
+    query never had the chance to achieve.
+    """
+    questions_path: pathlib.Path
+    recall_at: tuple[int, ...] = (1, 3, 5)
+
+    @property
+    def search_limit(self) -> int:
+        return max(self.recall_at)
+
+
+@dataclass(frozen=True)
 class ChunkingSettings:
     """Chunking parameters, overridable per deployment via .env.
 
@@ -221,6 +243,11 @@ class Settings:
     scanner: ScannerSettings = field(default_factory=ScannerSettings)
     ocr: OcrSettings = field(default_factory=OcrSettings)
     indexing: IndexingSettings = field(default_factory=IndexingSettings)
+    evaluation: EvaluationSettings = field(
+        default_factory=lambda: EvaluationSettings(
+            questions_path=REPO_ROOT / "evaluation" / "questions.json"
+        )
+    )
 
     def resolve_document(self, stored_path: str) -> pathlib.Path:
         """Turn a stored `document_links.file_path` into a real path.
@@ -322,6 +349,19 @@ def _indexing_from_env() -> IndexingSettings:
     )
 
 
+def _evaluation_from_env() -> EvaluationSettings:
+    """Allow per-deployment tuning without touching code."""
+    raw = _optional("EVAL_RECALL_AT", "1,3,5")
+    cutoffs = tuple(sorted({int(p) for p in raw.split(",") if p.strip()}))
+    return EvaluationSettings(
+        questions_path=pathlib.Path(
+            _optional("EVAL_QUESTIONS_PATH",
+                      str(REPO_ROOT / "evaluation" / "questions.json"))
+        ),
+        recall_at=cutoffs or EvaluationSettings.recall_at,
+    )
+
+
 def _chunking_from_env() -> ChunkingSettings:
     """Allow per-deployment tuning without touching code."""
     return ChunkingSettings(
@@ -383,4 +423,5 @@ def get_settings() -> Settings:
         scanner=_scanner_from_env(),
         ocr=_ocr_from_env(),
         indexing=_indexing_from_env(),
+        evaluation=_evaluation_from_env(),
     )
