@@ -355,6 +355,17 @@ def test_a_rejected_pdf_is_NOT_rescued(db, tmp_path):
                 (link_id,))
     assert rows == 0
 
+    # The recorded error must be Document Intelligence's own, NOT a
+    # "both extractors failed" message. Without the format guard the PDF
+    # still fails — native_extract refuses it too — but the diagnostic
+    # would wrongly imply a fallback was appropriate and attempted. That
+    # difference is the only observable effect of the guard, so it is what
+    # gets pinned (a mutation removing the guard survived until this).
+    error, = one(db, "SELECT error_message FROM document_links WHERE id=%s", (link_id,))
+    assert "InvalidRequest" in error
+    assert "native fallback" not in error
+    assert "no native extractor" not in error
+
 
 def test_when_both_extractors_fail_the_error_names_both(db, tmp_path):
     """A batch is debugged through error_message. If it only mentioned the

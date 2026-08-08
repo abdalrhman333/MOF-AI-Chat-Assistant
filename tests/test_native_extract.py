@@ -99,18 +99,46 @@ def test_page_count_matches_what_di_reports_for_docx(tmp_path):
     assert pages == 1
 
 
-def test_a_paragraph_with_no_style_does_not_crash(tmp_path):
+class StubParagraph:
+    """A paragraph whose style python-docx could not resolve.
+
+    Written as a stub rather than a saved-and-reloaded file on purpose:
+    setting `.style = None` and re-opening does NOT reproduce the
+    condition, because python-docx resolves the style back to the default
+    on load. A mutation removing the guard survived until this test
+    existed — the file-based version could never have caught it.
+    """
+
+    def __init__(self, style):
+        self.style = style
+
+
+class StubStyle:
+    def __init__(self, name):
+        self.name = name
+
+
+def test_a_paragraph_whose_style_is_none_does_not_crash():
     """REGRESSION: `paragraph.style` is None on documents not produced by
     Word — true of both our generated corpus and the repackaged SDD, i.e.
     precisely the documents this fallback exists to rescue. An unguarded
     `.style.name` raises AttributeError and loses the document twice."""
-    path = build_docx(tmp_path / "a.docx")
-    document = docx.Document(str(path))
-    document.paragraphs[0].style = None
-    document.save(str(path))
+    assert native_extract._heading_or_text(StubParagraph(None), "Body") == "Body"
 
-    markdown, _, _ = native_extract.extract_docx(path)
-    assert "Top Level" in markdown
+
+def test_a_style_whose_name_is_none_does_not_crash():
+    assert native_extract._heading_or_text(StubParagraph(StubStyle(None)), "Body") == "Body"
+
+
+def test_a_resolvable_heading_style_still_becomes_a_heading():
+    """The guard must not swallow the normal case along with the odd one."""
+    para = StubParagraph(StubStyle("Heading 2"))
+    assert native_extract._heading_or_text(para, "Title") == "## Title"
+
+
+def test_heading_depth_is_clamped_to_six():
+    para = StubParagraph(StubStyle("Heading 9"))
+    assert native_extract._heading_or_text(para, "Deep") == "###### Deep"
 
 
 def test_horizontally_merged_cells_are_not_repeated(tmp_path):
@@ -131,6 +159,28 @@ def test_horizontally_merged_cells_are_not_repeated(tmp_path):
     assert markdown.count("Merged Header") == 1
     assert 'colSpan="3"' in markdown
     assert markdown.count("<td") == 4          # 1 merged + 3 in the second row
+
+
+def test_distinct_cells_with_identical_text_are_not_merged(tmp_path):
+    """Merging must key off the underlying <w:tc> element, not the text.
+
+    A risk register with three separate columns all reading 'مرتفع' has
+    three real cells, not one spanning three. Collapsing by text would
+    silently destroy the row's shape — and a mutation that did exactly
+    that survived until this test existed, because the other table test
+    happens to use distinct text everywhere.
+    """
+    document = docx.Document()
+    table = document.add_table(rows=1, cols=3)
+    for column in range(3):
+        table.cell(0, column).text = "مرتفع"
+    path = tmp_path / "same_text.docx"
+    document.save(str(path))
+
+    markdown, _, _ = native_extract.extract_docx(path)
+
+    assert markdown.count("<td") == 3          # three cells, not one
+    assert "colSpan" not in markdown           # nothing was merged
 
 
 # ---------------------------------------------------------------------------
