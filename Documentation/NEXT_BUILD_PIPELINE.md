@@ -1,10 +1,35 @@
-# Next build — the ingestion pipeline
+# The ingestion pipeline — ✅ BUILT (2026-08-08)
 
-**A brief for whoever builds this next, assuming no memory of earlier
-sessions.** Read `START_HERE.md` first, then this.
+**This was the brief for building the ingestion pipeline. All four stages
+now exist and have run over the full corpus**, so it is kept as the record
+of what was specified, what was actually built, and where the two differ —
+not as a to-do list.
 
-Everything the pipeline needs already exists and is verified: schema,
-config, chunker, credentials, corpus, tests. Nothing here is speculative.
+If you are here to build the **next** thing, that is the chat backend:
+`STATUS_AND_ROADMAP.md` §5.
+
+```
+58 documents on disk  →  678 vectors across 9 project collections
+```
+
+| Stage | Module | State |
+|---|---|---|
+| 0 — scan | `pipeline/scanner.py` | ✅ 58/58 discovered and hashed |
+| 1 — OCR | `pipeline/ocr.py` + `pipeline/native_extract.py` | ✅ 58/58 extracted |
+| 2+3 — chunk, embed, index | `pipeline/indexer.py` | ✅ 678 chunks indexed |
+
+Every stage is idempotent and free to re-run on an unchanged corpus. Total
+spend: **~$2.42**.
+
+**Four places the build deviated from this brief**, each for a reason
+recorded at the point of deviation below:
+
+1. Stage 0 has **five** outcomes per file, not three.
+2. `file_size_bytes` is **not** a cheap pre-check that avoids hashing.
+3. Stages 2 and 3 were built as **one** module, not two.
+4. A **native fallback** exists for Office files Document Intelligence
+   rejects — which the brief did not anticipate, because it assumed the
+   API always succeeds or honestly fails.
 
 ---
 
@@ -94,19 +119,41 @@ Decisions worth not re-litigating:
 - **Commit per document, not per run** — a batch dying at document 40 must
   not roll back 39 already paid for.
 
-### Stage 2 — chunk + embed (**start here**)
+### Stages 2+3 — chunk, embed, index ✅ **BUILT** (`pipeline/indexer.py`)
 
-All 58 documents now have markdown in `document_content`, so the chunker
-finally meets the 54 shapes it has never been tested against. Its design
-was already corrected three times by real markdown contradicting
-assumptions (`SOLUTION_ARCHITECTURE.md` §4.6) — expect more findings, and
-treat them as findings rather than failures.
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.indexer --dry-run   # free; candidates: 0
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.indexer --project PRJ-05
+```
 
-One row's markdown came from a different extractor
-(`ocr_model = 'native:python-docx'`). It deliberately emits DI's
-conventions, but it is the single row where "the chunker sees consistent
-structure" is an assertion rather than an observation — worth looking at
-first.
+**Built as ONE module, not the two below.** Chunking is free and
+deterministic; embedding is billed per token. A boundary between them ends
+holding 678 vectors nothing has stored — needing an in-memory hand-off or a
+temp table that exists only to bridge two modules. Full reasoning in
+`SOLUTION_ARCHITECTURE.md` §4.10.
+
+Four rules, each a *silent wrong answer* if broken:
+
+- **Deterministic point IDs** (`uuid5` over `link_id:chunk_index`) — this is
+  what makes rule 5 below true for vectors, not just rows. The namespace
+  UUID must never be regenerated.
+- **Delete this document's vectors before writing new ones.** Upserting
+  alone leaves orphans when an edited document yields fewer chunks, and
+  they stay retrievable.
+- **Embed `chunk.text`, not `chunk.body`** (as the brief already said).
+- **Re-sort embedding results by the API's own `index`** — arrival order
+  pairs every vector with the wrong payload.
+
+Verified: 678 chunks, 9 collections, Qdrant matching Postgres per project,
+**0 cross-project contamination across all 678 payloads**, re-run reports 0
+candidates. Record in `STATUS_AND_ROADMAP.md` §11.
+
+⚠️ **Do not "fix" retrieval by changing chunking.** Arabic queries rank the
+correct chunk 2nd–3rd rather than 1st, and the obvious theory — that HTML
+table markup dilutes the vectors — was tested and **refuted** (§11c). That
+is a ranking problem for the chat backend.
+
+The original stage contracts, kept for reference:
 
 
 ```python
@@ -125,8 +172,6 @@ chunks = chunk_markdown(
 Embed `chunk.text` (breadcrumb included — that's what makes the vector
 meaningful), **not** `chunk.body`. Batch the embedding calls.
 
-### Stage 3 — index
-
 ```python
 collection = s.qdrant.collection_for(project_code)   # -> "project_PRJ-03"
 # create if absent: size=s.qdrant.vector_size (1536), distance=Cosine
@@ -139,8 +184,8 @@ payload = chunk.to_payload(
 ```
 
 Payload schema is fixed and documented in `SOLUTION_ARCHITECTURE.md` §4.7.
-**Changing it later means re-indexing everything** — treat it as a
-contract.
+It is now **live on 678 points** — changing it means re-indexing the whole
+corpus. Treat it as a contract.
 
 Then set `indexing_status='indexed'`, `indexed_at`, `chunk_count`, and
 clear `error_message`.
@@ -160,9 +205,11 @@ clear `error_message`.
 4. **Record failures.** On error set `indexing_status='failed'` and write
    `error_message`. Debugging a 58-document batch without it means
    re-running blind.
-5. **Idempotent.** Running twice must not duplicate rows or vectors.
-   Stage 0 demonstrates the bar: a second run over an unchanged corpus
-   reports `unchanged 58, rows written 0`.
+5. **Idempotent.** Running twice must not duplicate rows or vectors. All
+   three stages meet this: a second run reports `rows written 0`,
+   `candidates : 0`, and `candidates : 0` respectively. For vectors it took
+   deterministic point IDs — upserting random IDs would duplicate the whole
+   index on every run.
 6. **Never overwrite curated data with a derived default.** `doc_type`,
    `language` and `contains_table` were curated; a stage that can't know
    them must leave them alone. Stage 0's `'Unclassified'` applies to new
@@ -180,10 +227,14 @@ clear `error_message`.
 - `PYTHONIOENCODING=utf-8` on every command that prints — most of the
   corpus is Arabic (`INFRASTRUCTURE.md` §4.5a).
 - Use the venv: `.venv/Scripts/python`, never system Python.
-- Full corpus run ≈ **a few minutes** of API time (~1 s/page) and single-
-  digit dollars.
+- Full corpus run, measured: OCR ~5 minutes and ~$1.50; indexing ~100
+  seconds and under a cent. Whole project to date: **~$2.42**.
 - Test on **one project first** before all 58 — `PRJ-05` is the cheapest
   (4 documents), `TEST-PROJECT` the most revealing.
+- **Chunk before you embed.** Chunking is free, so running it over the
+  whole corpus with no embedding is a complete safety check that costs
+  nothing — it caught nothing this time, which is exactly what made it
+  worth the two minutes (`STATUS_AND_ROADMAP.md` §11a).
 - `TEST-PROJECT` holds 13 real-world files including `.pptx` and a
   scanned PDF — the untested shapes. Expect surprises there and treat
   them as findings, not failures.
@@ -197,22 +248,37 @@ clear `error_message`.
 ## 5. Verify with
 
 ```bash
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q     # 61 pass
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q     # 125 pass
 
 docker exec -i mof-postgres-spm psql -U spm_admin -d spm_data -c \
   "SELECT indexing_status, count(*) FROM document_links GROUP BY 1;"
-# today: pending | 58
+# indexed | 58
 
 docker exec -i mof-postgres-spm psql -U spm_admin -d spm_data -c \
-  "SELECT count(*) FROM document_content;"     # 0 until Stage 1 runs
+  "SELECT count(*) FROM document_content;"     # 58
 
-curl -s -H "api-key: $QDRANT_API_KEY" http://localhost:6333/collections
+# All three stages should report nothing to do:
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.scanner --dry-run  # rows written : 0
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.ocr     --dry-run  # candidates : 0
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.indexer --dry-run  # candidates : 0
 ```
 
-**Then the real test** — the one that actually matters and cannot be
-answered before now: ask a question a project manager would ask, and see
-whether the right chunk comes back. Chunking quality is empirical, and
-`document_content` stores the markdown precisely so re-chunking is free.
+**Seeing the vectors** — the Qdrant dashboard at
+http://localhost:6333/dashboard loads without auth, but every API call
+needs the key, so paste `QDRANT_API_KEY` into its **API Key** box first.
+Without pasting anything:
+
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -c "from qdrant_client import QdrantClient; from pipeline.config import get_settings; s=get_settings(); q=QdrantClient(url=s.qdrant.url, api_key=s.qdrant.api_key); [print(f'{c.name:<26} {q.count(c.name).count:>4}') for c in q.get_collections().collections]"
+# 9 collections, 678 points total
+```
+
+**The real test has now been run.** A project manager's question does
+return the right passage — *"ما هي أعلى المخاطر المسجلة في المشروع؟"*
+against `project_PRJ-03` returns that project's risk register as both top
+hits. The remaining quality gap is **ranking** on Arabic, not retrieval:
+see §11c of `STATUS_AND_ROADMAP.md` before attempting to fix it, because
+the obvious fix was already tested and rejected.
 
 ---
 
@@ -235,8 +301,13 @@ whether the right chunk comes back. Chunking quality is empirical, and
   ~1-in-11 recovery, not zero — the earlier "11 empty" claim was an
   overstatement. Graphics-heavy documents will still have gaps. Two PDFs
   in the corpus returned 26 and 36 figure blocks respectively.
-- **Chunking quality across the corpus is unmeasured.** The chunker has
-  seen 4 documents; 54 are new to it.
+- ~~Chunking quality across the corpus is unmeasured~~ — **the chunker
+  coped.** All 58 chunked with 0 mega-chunks, 0 zero-chunk documents, 0
+  broken offsets, and 5 benign anomalies out of 678 (§11a). 16 documents
+  have no headings at all and none collapsed.
+- **Ranking on Arabic is the open quality problem.** ~0.40 against
+  English's ~0.60, correct chunk often 2nd–3rd. Belongs to the chat
+  backend — and the obvious chunking "fix" was tested and refuted (§11c).
 - **Vertical (row-spanning) merges repeat** in native fallback output.
   Affects only documents DI already rejected — 1 so far.
 - **Speaker-note capture is untested against a real deck** — neither deck

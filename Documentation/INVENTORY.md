@@ -20,8 +20,8 @@ open it" reference.
 | `My_Prompts\` | `SOLUTION_SCOPE.md` (BRD-derived scope, assistant-authored) + `PRE_PIPELINE_ENHANCEMENTS.md` (user-authored) | Requirements/planning source material |
 | `infra\` | `docker-compose.yml`, `.env` / `.env.example`, `postgres-spm\init\` (one-time) + `migrations\` (13 SQL files, ongoing), `apply_migrations.py`, `README.md` | All infrastructure-as-code |
 | `mock-data\` | `spm_manifest.json` — the 8-project / 4-user / 45-document source data | Small structured data, worth versioning |
-| `pipeline\` | `__init__.py`, `config.py` (all settings), `chunker.py`, `db.py` (the `spm_admin` connection), `scanner.py` (Stage 0 — discovery), `ocr.py` (Stage 1 — extraction), `native_extract.py` (Office fallback) | The only application code that exists so far |
-| `tests\` | `test_chunker.py` (26) + `test_scanner.py` (35) + `test_ocr.py` (19) + `test_native_extract.py` (22) + `tests\fixtures\` (3 real OCR samples) | 102 tests. **28 need `mof-postgres-spm` up** (9 scanner + 19 OCR); they roll back and leave nothing behind. `test_ocr.py` stubs Azure, so the OCR write path is tested with no paid API call. Stack down = skips with a clear reason, not failures |
+| `pipeline\` | `__init__.py`, `config.py` (all settings), `chunker.py`, `db.py` (the `spm_admin` connection), `scanner.py` (Stage 0 — discovery), `ocr.py` (Stage 1 — extraction), `native_extract.py` (Office fallback), `indexer.py` (Stages 2+3 — chunk, embed, index) | The only application code that exists so far. The ingestion pipeline is complete; there is no chat backend or frontend |
+| `tests\` | `test_chunker.py` (26) + `test_scanner.py` (35) + `test_ocr.py` (19) + `test_native_extract.py` (22) + `test_indexer.py` (23) + `tests\fixtures\` (3 real OCR samples) | 125 tests. **45 need `mof-postgres-spm` up** (9 scanner + 19 OCR + 17 indexer); they roll back and leave nothing behind. `test_ocr.py` stubs Azure and `test_indexer.py` stubs both the embedding API and Qdrant, so both paid stages are fully tested with no paid call and no writes to the live vector store |
 | `requirements.txt` / `requirements-dev.txt` | Pinned Python dependencies | Reproducible environment |
 | `.venv\` | Project virtualenv | **Gitignored** — machine-specific, never committed |
 | `Tools ACC\` | One screenshot | Not created by the assistant — the chat app's own attachment storage |
@@ -52,7 +52,7 @@ downloaded/created for this project stays under D:, nothing touches C:."
 | Container | Image | Purpose | Access |
 |---|---|---|---|
 | `mof-postgres-spm` | postgres:16-alpine | SPM data: projects, users, assignments, document links | `localhost:5432` · `docker exec -it mof-postgres-spm psql -U spm_admin -d spm_data` · or DBeaver |
-| `mof-qdrant` | qdrant/qdrant | Vector store, one collection per project | http://localhost:6333/dashboard |
+| `mof-qdrant` | qdrant/qdrant | Vector store — **9 collections, 678 points**, one collection per project | http://localhost:6333/dashboard · the page loads without a key but the API 401s, so paste `QDRANT_API_KEY` into its **API Key** box first |
 | `mof-redis` | redis:7-alpine | App job queue (not yet wired to code) | `localhost:6379` |
 | `mof-langfuse-web` | langfuse/langfuse:3 | LLM tracing UI | http://localhost:3001 |
 | `mof-langfuse-worker` | langfuse/langfuse-worker:3 | Langfuse background processing | internal |
@@ -131,12 +131,24 @@ Never into system Python — one of the four gaps closed before the pipeline pha
 ```bash
 docker ps --format "{{.Names}}: {{.Status}}"                     # 11 containers
 python infra/postgres-spm/apply_migrations.py --status           # 13 applied, 0 pending
-.venv/Scripts/python -m pytest tests/ -q                         # 102 passed
+.venv/Scripts/python -m pytest tests/ -q                         # 125 passed
 find /d/MOF_DataSample -maxdepth 1 -type d                       # 9 project folders
 
-# Stages 0 and 1 have run. Both are free to re-run on an unchanged corpus:
+# The whole pipeline has run. Every stage is free to re-run unchanged:
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.scanner --dry-run
 #   -> unchanged 58, rows written 0
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.ocr --dry-run
 #   -> candidates : 0        (nothing left to OCR, nothing to re-bill)
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.indexer --dry-run
+#   -> candidates : 0        (678 vectors already indexed)
+```
+
+Qdrant's dashboard (http://localhost:6333/dashboard) loads without a key
+but its API returns 401, so it looks broken until you paste
+`QDRANT_API_KEY` into its **API Key** box. To check it from the terminal
+instead — settings supply the key, nothing is typed:
+
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -c "from qdrant_client import QdrantClient; from pipeline.config import get_settings; s=get_settings(); q=QdrantClient(url=s.qdrant.url, api_key=s.qdrant.api_key); [print(f'{c.name:<26} {q.count(c.name).count:>4}') for c in q.get_collections().collections]"
+#   -> 9 collections, 678 points
 ```

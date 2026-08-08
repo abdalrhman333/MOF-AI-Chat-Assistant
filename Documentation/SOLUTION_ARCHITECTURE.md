@@ -334,12 +334,12 @@ That option exists for free because §`document_content` stores the
 markdown. (These offsets were wrong on 8 of 10 chunks in first testing —
 see `STATUS_AND_ROADMAP.md` §6.)
 
-**Known-open, deliberately:** only 4 of 58 documents have been exercised
-(`.pptx` and the real English charters are untested), there are no unit
-tests yet, and the true measure — whether the right chunk comes back for a
-real question — cannot be assessed until retrieval runs. Chunking quality
-is empirical; storing the markdown (§ `document_content`) is what makes
-iterating on it free.
+**Status (2026-08-08): implemented and verified across the whole corpus.**
+678 points across 9 collections, matching `document_links.chunk_count`
+exactly per project. All 678 payloads were checked for `project_code`
+against their collection: **0 cross-project contamination**. The payload
+schema above is now a live contract — changing it means re-indexing
+everything.
 
 ### 4.8 Stage 0 (discovery) — what the scanner decides, and why
 
@@ -453,6 +453,59 @@ Known limits, recorded rather than smoothed over:
   in this corpus has any notes.
 - **1 of 58 documents needed the fallback.** That rate says little about a
   real SharePoint, which holds documents from many more tools.
+
+### 4.10 Stages 2+3 — chunk, embed, index. Built as one module
+
+Implemented in `pipeline/indexer.py`. `NEXT_BUILD_PIPELINE.md` describes
+chunk+embed and index as two stages; they were built as **one**, and the
+reason is what the work costs. Chunking is free and deterministic;
+embedding is billed per token. A stage boundary between them ends with 678
+vectors that nothing has stored — carried across a process boundary in
+memory, or written to a temporary table whose only purpose is to bridge two
+modules. **An embedding that isn't persisted is money spent and thrown
+away**, so the paid step and the durable write belong in one per-document
+transaction.
+
+Four rules, each a *silent wrong answer* if broken — no error, no failed
+row, just confidently incorrect retrieval:
+
+| Rule | What breaks without it |
+|---|---|
+| Point IDs are `uuid5(namespace, "link_id:chunk_index")` | Re-running duplicates every vector instead of upserting. The namespace UUID is fixed and must never be regenerated — changing it orphans the entire index |
+| **Delete this document's vectors before writing new ones** | Upserting alone overwrites matching indices but leaves surplus points behind when an edited document yields *fewer* chunks. Those orphans stay retrievable, answering current questions with deleted content |
+| Embed `chunk.text`, not `chunk.body` | The breadcrumb is what makes a vector mean anything (§4.6). The payload still carries `body`, so citations render cleanly |
+| Re-sort embedding results by the API's own `index` | Trusting arrival order pairs every vector with the wrong payload. Nothing anywhere reports it |
+
+**Failed documents are retried by default — the opposite of Stage 1.** That
+is cost asymmetry, not inconsistency: re-OCRing a broken file re-bills per
+page, while re-embedding the entire corpus costs under a cent. When
+retrying is nearly free, hiding failures serves nobody.
+
+**Verified end to end (2026-08-08):** 58/58 documents, 678 chunks, 295,232
+tokens, 9 collections, Qdrant point counts matching Postgres on every
+project, 0 cross-project contamination, and a re-run reporting 0
+candidates. Retrieval works: *"ما هي أعلى المخاطر المسجلة في المشروع؟"*
+against `project_PRJ-03` returns that project's risk register as both top
+hits.
+
+**A hypothesis that was tested and rejected — recorded so it isn't
+retried.** Arabic queries were returning raw `<table>` markup at the top,
+so the obvious theory was that HTML markup dilutes the vectors. The premise
+measured true: 51% of chunks contain tables, and a median **26%** of their
+tokens are pure markup (max 67%). A single-query A/B even moved the correct
+chunk from rank 3 to rank 2.
+
+Testing the *mechanism* across 5 queries and 75 samples killed it. Chunks
+with <5% markup lose **0.027** similarity when stripped; chunks with ≥25%
+markup lose **0.029**. A 0.002 difference — markup is not selectively
+inflating table chunks, stripping simply lowers everything slightly. **No
+change was made.** Acting on the single-query result would have altered the
+payload contract, forcing a full re-index, on the strength of an anecdote.
+
+What *is* real: Arabic queries score lower than English (~0.40 vs ~0.60)
+and the correct chunk often ranks 2nd–3rd rather than 1st. That is a
+**ranking** problem for the chat backend — reranking, hybrid search, or
+more retrieved candidates — not an ingestion defect.
 
 ---
 

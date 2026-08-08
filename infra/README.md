@@ -75,7 +75,7 @@ not supposed to stay running.
 | Service | URL | Purpose | Credentials |
 |---|---|---|---|
 | Postgres (SPM) | `localhost:5432` | SPM project entity data (demo: filled directly) | `POSTGRES_SPM_USER` / `POSTGRES_SPM_PASSWORD` in `.env` |
-| Qdrant | http://localhost:6333/dashboard | Vector DB, one index per project | API key: `QDRANT_API_KEY` in `.env` |
+| Qdrant | http://localhost:6333/dashboard | Vector DB, one collection per project — **9 collections, 678 points** | API key: `QDRANT_API_KEY` in `.env`. ⚠️ The dashboard page loads *without* a key while its API returns 401, so it looks broken rather than locked (`Qdrant v???`, empty collections). Click **API Key**, paste, **Apply** |
 | Redis | `localhost:6379` | App job queue — SharePoint ingest, OCR, embedding, scheduled scans (not yet wired to app code) | `REDIS_PASSWORD` in `.env` |
 | Langfuse | http://localhost:3001 | LLM execution tracing (prompts/completions/tokens/cost) | Sign up on first visit (no AD/SSO wired up yet — this is Langfuse's own login, unrelated to Enjaz auth) |
 | Grafana (LGTM) | http://localhost:3000 | App workflow observability: metrics (Prometheus/Mimir), logs (Loki), traces (Tempo) — fed via OTLP on ports 4317/4318 | `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` in `.env` |
@@ -116,8 +116,9 @@ the isolation mechanism becoming the leak.
 
 - No application container yet — this is infra-only. The chatbot backend/
   frontend get their own service(s) added to this compose file later. The
-  ingestion pipeline currently runs from the host (`python -m
-  pipeline.scanner`, `python -m pipeline.ocr`) rather than in a container.
+  ingestion pipeline runs from the host (`python -m pipeline.scanner`,
+  `pipeline.ocr`, `pipeline.indexer`) rather than in a container. It is
+  complete and has processed the full corpus.
 - Langfuse needs its API keys generated through its own UI after first
   login (Settings → API Keys inside a Langfuse project) — the app will need
   those once it starts sending traces. **Nothing sends traces yet.**

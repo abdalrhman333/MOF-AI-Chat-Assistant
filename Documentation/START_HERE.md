@@ -6,11 +6,11 @@ what order, and how to verify the real state of the system before changing
 anything.
 
 **Last verified:** 2026-08-08 — infra, full SPM schema (13 migrations,
-row-level security enabled), complete mock corpus, a tested chunker, and
-**Stages 0 and 1 of the ingestion pipeline built and run over all 58
-documents** (discovery + OCR — the whole corpus is extracted). Stages 2–3
-(chunk+embed → index) are the next build; there is no chat backend or
-frontend yet.
+row-level security enabled), complete mock corpus, and **the entire
+ingestion pipeline built and run over all 58 documents**: discovery → OCR →
+chunk → embed → index, ending in **678 vectors across 9 per-project Qdrant
+collections**. Retrieval has been tested with real questions and works. The
+**chat backend is the next build**; there is no backend or frontend yet.
 
 ---
 
@@ -104,15 +104,29 @@ MSYS_NO_PATHCONV=1 docker exec -i mof-postgres-spm psql -U spm_admin -d spm_data
   "SELECT ocr_model, count(*) FROM document_content GROUP BY 1;"
 # expect prebuilt-layout | 57  and  native:python-docx | 1
 
-# Both stages are free to re-run on an unchanged corpus — that is the point:
+# Every stage is free to re-run on an unchanged corpus — that is the point:
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.scanner --dry-run   # unchanged 58, rows written 0
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.ocr --dry-run       # candidates : 0
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.indexer --dry-run   # candidates : 0
 ```
 
 ⚠️ **`pipeline.ocr` spends money** (Document Intelligence is billed per
 page). It cannot re-bill an unchanged corpus — the presence of a
 `document_content` row is the "OCR done" marker — but always `--dry-run`
 first, and note `--limit N` exists. The whole corpus is ~154 pages ≈ $1.50.
+`pipeline.indexer` also spends, but embeddings are trivially cheap: the
+entire corpus is 295,232 tokens, under a cent.
+
+**Seeing the vectors.** Qdrant's dashboard
+(http://localhost:6333/dashboard) loads *without* a key while its API
+returns 401, so an unauthenticated dashboard looks broken rather than
+locked. Paste `QDRANT_API_KEY` into its **API Key** box. Or from the
+terminal, with nothing typed:
+
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -c "from qdrant_client import QdrantClient; from pipeline.config import get_settings; s=get_settings(); q=QdrantClient(url=s.qdrant.url, api_key=s.qdrant.api_key); [print(f'{c.name:<26} {q.count(c.name).count:>4}') for c in q.get_collections().collections]"
+# expect 9 collections, 678 points
+```
 
 **Python environment** — use the project venv, never system Python:
 
@@ -125,20 +139,23 @@ If `.venv/` doesn't exist yet: `python -m venv .venv`, then install.
 `infra/postgres-spm/apply_migrations.py` intentionally needs no
 third-party packages, so the database can be rebuilt without the venv.
 
-**The application code so far is six modules in `pipeline/`** —
+**The application code so far is seven modules in `pipeline/`** —
 `config.py` (all settings), `chunker.py` (markdown in, chunks out),
 `db.py` (the `spm_admin` connection), `scanner.py` (Stage 0, discovery),
-`ocr.py` (Stage 1, extraction), and `native_extract.py` (a fallback for
-Office files Azure rejects — never the primary path). There is no FastAPI
-app, no Celery worker, no frontend. Do not look for `app.py`/`tasks.py`
-equivalents; they haven't been built. See `STATUS_AND_ROADMAP.md` for the
-exact done/not-done line.
+`ocr.py` (Stage 1, extraction), `native_extract.py` (a fallback for Office
+files Azure rejects — never the primary path), and `indexer.py` (Stages 2+3
+in one module: chunk → embed → index). There is no FastAPI app, no Celery
+worker, no frontend. Do not look for `app.py`/`tasks.py` equivalents; they
+haven't been built. See `STATUS_AND_ROADMAP.md` for the exact
+done/not-done line.
 
-The test suite is **102 tests** (chunker 26, scanner 35, ocr 19,
-native_extract 22). **28 of them need `mof-postgres-spm` running** — they
-use the real schema inside a transaction they always roll back, and skip
-with a clear message if the container is down. The OCR tests stub Azure,
-so the whole extraction write path is covered without a paid API call.
+The test suite is **125 tests** (chunker 26, scanner 35, ocr 19,
+native_extract 22, indexer 23). **45 of them need `mof-postgres-spm`
+running** — they use the real schema inside a transaction they always roll
+back, and skip with a clear message if the container is down. The OCR tests
+stub Azure and the indexer tests stub both the embedding API and Qdrant, so
+both paid stages are covered without a paid call or a write to the live
+vector store.
 
 ---
 
@@ -179,9 +196,10 @@ so the whole extraction write path is covered without a paid API call.
 > ingestion pipeline, also read `Documentation\NEXT_BUILD_PIPELINE.md`.
 >
 > Then verify the live system rather than trusting the docs: 11 containers
-> up, 13 migrations applied and 0 drifted, 102 tests passing, and both
-> built stages reporting nothing to do (`pipeline.scanner --dry-run` →
-> `rows written : 0`; `pipeline.ocr --dry-run` → `candidates : 0`).
+> up, 13 migrations applied and 0 drifted, 125 tests passing, all three
+> pipeline stages reporting nothing to do (`--dry-run` on
+> `pipeline.scanner`, `pipeline.ocr` and `pipeline.indexer`), and Qdrant
+> holding 9 collections / 678 points.
 >
 > Three working rules: use `.venv/Scripts/python`, never system Python;
 > prefix commands that print with `PYTHONIOENCODING=utf-8`, since most of

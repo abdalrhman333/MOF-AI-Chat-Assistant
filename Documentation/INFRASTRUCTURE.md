@@ -107,6 +107,12 @@ D:\MOF Enjaz Chatbot\
                                        rejects. Never the primary path,
                                        and never used for PDFs — see
                                        SOLUTION_ARCHITECTURE.md 4.9
+    indexer.py                      <- Stages 2+3 in one module: chunk ->
+                                       embed -> per-project Qdrant
+                                       collection. Run with
+                                       `python -m pipeline.indexer
+                                        [--project CODE] [--dry-run]
+                                        [--limit N] [--skip-failed]`
 
 D:\MOF_DataSample\                  <- NOT in the repo, the mock document corpus
   PRJ-01\ ... PRJ-08\                  (fictional, generated from
@@ -267,8 +273,22 @@ a blank value.
    driver on first connect (its own small internal driver cache, not a
    separate install). Gives a full visual table browser + SQL editor.
 
-**Qdrant, Grafana, Langfuse, MinIO console** — all plain web UIs, just open
-the URL in a browser.
+**Grafana, Langfuse, MinIO console** — plain web UIs, just open the URL.
+
+**Qdrant** — the dashboard at http://localhost:6333/dashboard is a special
+case worth knowing: **the page loads without any key (HTTP 200), but every
+API call behind it returns 401**, so an unauthenticated dashboard looks
+broken rather than locked (it renders `Qdrant v???` and empty collection
+lists). Click **API Key** at the top right, paste `QDRANT_API_KEY` from
+`infra/.env`, and **Apply**. The **Collections** tab then lists all 9
+`project_*` collections and lets you page through points and payloads; the
+**Console** tab runs raw REST queries.
+
+To inspect it without pasting the key anywhere — settings supply it:
+
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -c "from qdrant_client import QdrantClient; from pipeline.config import get_settings; s=get_settings(); q=QdrantClient(url=s.qdrant.url, api_key=s.qdrant.api_key); [print(f'{c.name:<26} {q.count(c.name).count:>4}') for c in q.get_collections().collections]"
+```
 
 **Portainer** — first visit needs an admin account created within a
 5-minute window (§4.3); if you miss it, `docker restart mof-portainer`
@@ -398,7 +418,9 @@ Current data (2026-08-08): 9 projects, 4 users, 6 assignments, **58
 document links, all 58 carrying a real SHA-256 and a real `file_path`**
 (Stage 0 has run, so the seeded placeholders are gone), and **58
 `document_content` rows — the full corpus is OCR'd** (Stage 1). All 58 are
-`indexing_status='pending'`, waiting for Stage 2/3 to index them. Query it
+now `indexing_status='indexed'` with a `chunk_count` and `indexed_at`:
+Stages 2+3 have run, and **678 vectors live in 9 per-project Qdrant
+collections**. Query it
 via `docker exec -it mof-postgres-spm psql -U spm_admin -d spm_data`, or
 visually via DBeaver (§3) — see `STATUS_AND_ROADMAP.md` §7 for exactly
 what's in `TEST-PROJECT`.

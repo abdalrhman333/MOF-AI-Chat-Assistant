@@ -158,11 +158,17 @@
   a decision **measured across 11 files, which reversed the initial
   recommendation** (§10 below, reasoning in `SOLUTION_ARCHITECTURE.md`
   §4.9). 55 tests; all 21 mutations across the two modules caught.
-- [ ] **Ingestion pipeline — Stages 2–3** (chunk + embed → index into
-  per-project Qdrant collections). Redis is running, the chunker exists,
-  the schema is ready, and **all 58 documents now have markdown** waiting
-  for the chunker — including the 54 shapes it has never been tested
-  against.
+- [x] **Ingestion pipeline — Stages 2+3 (chunk → embed → index)**
+  (`pipeline/indexer.py`, built as **one** module — reasoning in
+  `SOLUTION_ARCHITECTURE.md` §4.10). **All 58 documents indexed**: 678
+  chunks, 295,232 tokens, 9 per-project Qdrant collections, Qdrant point
+  counts matching `chunk_count` on every project, **0 cross-project
+  contamination across all 678 payloads**, re-run reports 0 candidates.
+  23 tests; **all 15 mutations caught first pass**. Retrieval verified
+  with real questions in Arabic and English (§11).
+- [x] **The ingestion pipeline is complete end to end** — scan → OCR →
+  chunk → embed → index. Every stage is free to re-run on an unchanged
+  corpus. Total spend across the whole project: **~$2.42**.
 - [x] **Chunker test suite** — 26 tests in `tests/test_chunker.py`
   (the suite is now 102 across four modules), synthetic cases plus
   three real Document Intelligence fixtures. **Validated by mutation
@@ -240,36 +246,46 @@
 | 2026-08-08 | **Native Office extraction as a fallback only**, after DI fails | DI rejected a valid 749 KB `.docx` as "corrupted" — it was repackaged by a non-Word tool. Without a fallback that document contributes nothing at all. `ocr_model` records which extractor ran, and a rescued document bills 0 pages |
 | 2026-08-08 | A failed OCR writes **no** `document_content` row; a thin result **does** | The row's presence is the "OCR done" marker, so writing one on failure skips a paid step forever. Conversely a scan whose content lives in images can never improve, so marking it `failed` would re-bill it on every future run — it is stored, flagged, and left for a human |
 | 2026-08-08 | Stage 1 commits **per document**, not per run | Unlike Stage 0, whose work is cheap and repeatable, every row here cost money. A batch dying on document 40 must not roll back the 39 already paid for |
+| 2026-08-08 | Stages 2 and 3 built as **one module**, not two as the brief describes | `SOLUTION_ARCHITECTURE.md` §4.10. Chunking is free, embedding is paid; a boundary between them ends holding 678 vectors nothing has stored, needing either an in-memory hand-off or a temp table that exists only to bridge two modules. An embedding that isn't persisted is money thrown away |
+| 2026-08-08 | Vectors are **deleted before upsert**, not upserted alone | An edited document yielding fewer chunks leaves surplus points behind. They stay retrievable and answer current questions with deleted content, with nothing reporting an error |
+| 2026-08-08 | Embedding results re-sorted by the API's own `index` | Trusting arrival order pairs every vector with the wrong payload — invisible, and makes retrieval confidently wrong |
+| 2026-08-08 | Indexing **retries failed documents by default** — opposite of Stage 1 | Cost asymmetry, not inconsistency: re-OCR re-bills per page, re-embedding the whole corpus costs under a cent. When retrying is nearly free, hiding failures serves nobody |
+| 2026-08-08 | **Rejected**: stripping HTML markup from embedded text | Tested and refuted (§11c). The premise measured true (26% of table-chunk tokens are markup) but the mechanism did not: high-markup and low-markup chunks lose the same similarity when stripped. Changing it would have forced a full re-index on the strength of one query |
 
 ---
 
 ## 5. Immediate next step
 
-**Stage 2 — chunk + embed.** All 58 documents now have markdown, so the
-chunker finally meets the 54 shapes it has never been tested against.
+**The ingestion pipeline is finished.** Next is the chat backend — the
+first component that a user actually touches.
 
 | Stage | Does | Writes | State |
 |---|---|---|---|
 | **0 — Scan** | Walk `DOCUMENT_ROOT`, hash each file, upsert rows | `document_links` (seeded `file_path` placeholders **replaced with real discovery**) | ✅ done, 58/58 |
 | **1 — OCR** | Document Intelligence `prebuilt-layout` → markdown, native fallback for rejected Office files | `document_content` | ✅ done, 58/58 |
-| **2 — Chunk + embed** | `pipeline/chunker.py`, then Azure embeddings | — | ⬅ next |
-| **3 — Index** | Upsert vectors into `project_<code>` collections | Qdrant; `indexing_status`, `chunk_count`, `indexed_at` | not started |
+| **2+3 — Chunk, embed, index** | `pipeline/chunker.py` → Azure embeddings → `project_<code>` collections | Qdrant; `indexing_status`, `chunk_count`, `indexed_at` | ✅ done, 678 vectors |
 
-What Stage 2 walks into, flagged in advance:
+What the chat backend walks into, flagged in advance:
 
-- **The chunker has only ever seen 4 documents.** Its design was corrected
-  three times by real markdown contradicting assumptions (§4.6); there are
-  now 54 more chances for that to happen. Expect findings.
-- **One document's markdown came from a different extractor**
-  (`ocr_model = 'native:python-docx'`). It deliberately emits DI's
-  conventions, but it is the one row where "the chunker sees consistent
-  structure" is an assertion rather than an observation.
-- **Embeddings are the second paid API.** 1536 dimensions, fixed —
-  changing the model later means re-embedding everything (never
-  re-chunking; chunk boundaries are model-independent, §4.6).
-- **Batch the embedding calls**, and embed `chunk.text` (breadcrumb
-  included) rather than `chunk.body` — the breadcrumb is what makes the
-  vector mean anything.
+- **Ranking, not retrieval, is the open quality problem.** The right chunk
+  comes back for Arabic questions, but often 2nd or 3rd rather than 1st,
+  and Arabic scores ~0.40 against English's ~0.60. Reranking, hybrid
+  search, or simply retrieving more candidates and letting the LLM choose
+  are all untried. Do **not** reach for a chunking change first — that
+  hypothesis was already tested and rejected (§11c).
+- **The session gate is application code and cannot be delegated.**
+  Validating that the requested project is genuinely one of the user's,
+  against `project_assignments`, before the session opens. RLS and
+  per-project collections both assume the session is scoped *correctly*;
+  neither can tell a wrong-but-valid project from a right one
+  (`INFRASTRUCTURE.md` §7c).
+- **`SET LOCAL`, never `SET`** — a plain `SET` persists on a pooled
+  connection and leaks the previous request's project scope into the next.
+- **Source arbitration is still unresolved** (§3.3 of
+  `SOLUTION_ARCHITECTURE.md`): what wins when a weekly report and SPM's
+  status field disagree.
+- **Nothing emits traces yet.** Langfuse and Grafana are both running and
+  both unwired.
 
 ## 6. Gotchas hit during this phase
 
@@ -360,6 +376,23 @@ What Stage 2 walks into, flagged in advance:
   read 136 paragraphs. The real cause was an archive repackaged by a
   non-Word tool (zero-byte directory entries, no `theme1.xml`). Don't
   accept a provider's diagnosis of a local file without checking it.
+- **Test the mechanism, not just the outcome — a plausible theory with a
+  true premise can still be wrong.** Arabic queries returned raw `<table>`
+  markup at the top, so the theory was that markup dilutes the vectors.
+  The premise checked out (26% of table-chunk tokens are markup) and a
+  single-query A/B showed the correct chunk moving from rank 3 to rank 2.
+  Every signal pointed one way. Testing the *mechanism* across 5 queries
+  and 75 samples refuted it outright: high-markup and low-markup chunks
+  lose the same similarity when stripped (0.029 vs 0.027). The one-query
+  result was noise. **Had it been acted on, it would have changed the
+  payload contract and forced a full re-index for nothing.** A measurement
+  that confirms your premise is not a measurement that confirms your
+  explanation.
+- **Distinguish "the answer isn't in the results" from "the answer isn't
+  first".** The Arabic retrieval looked broken until the results were read
+  properly: the correct chunk was present every time, just ranked 2nd or
+  3rd. Those are different problems with different owners — the first
+  belongs to ingestion, the second to the chat backend.
 
 ---
 
@@ -369,20 +402,24 @@ What Stage 2 walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**102 tests, ~3.6s** — `test_chunker.py` 26 + `test_scanner.py` 35 +
-`test_ocr.py` 19 + `test_native_extract.py` 22.
+**125 tests, ~7.5s** — `test_chunker.py` 26 + `test_scanner.py` 35 +
+`test_ocr.py` 19 + `test_native_extract.py` 22 + `test_indexer.py` 23.
 
-**28 tests need `mof-postgres-spm` running** — 9 in `test_scanner.py`, all
-19 in `test_ocr.py`. They create a throwaway project, exercise the **real**
-schema and constraints, and always roll back; nothing survives the run
-(verified: no stray rows, `document_content` untouched). If the container
-is down they skip with a clear message rather than failing obscurely, and
-each skip costs its connection timeout, so the suite slows to ~55s
-instead of ~3.6s.
+**45 of the 125 tests need `mof-postgres-spm` running** — 9 in
+`test_scanner.py`, all 19 in `test_ocr.py`, 17 in `test_indexer.py`
+(counted from the fixtures, not guessed; see the note below). They create a
+throwaway
+project, exercise the **real** schema and constraints, and always roll
+back; nothing survives the run (verified: no stray rows, `document_content`
+untouched). If the container is down they skip with a clear message rather
+than failing obscurely, and each skip costs its connection timeout, so the
+suite slows noticeably.
 
-`test_ocr.py` additionally stubs Azure, so the full OCR write path —
-including the failure path and the native fallback — is tested against the
-real schema **without a single paid API call**.
+`test_ocr.py` stubs Azure; `test_indexer.py` stubs both the embedding API
+and Qdrant. So the full write path of both paid stages — including their
+failure paths, the native fallback, and the delete-before-upsert
+ordering — is tested against the real schema **without a single paid call
+and without touching the live vector store**.
 
 **The degradation was observed for real**, not designed and assumed:
 Docker Desktop restarted mid-session on 2026-08-08 and the suite reported
@@ -530,3 +567,83 @@ could equally have been keyed off text instead of element identity; a
 format guard whose only observable effect was the error message.
 
 **Total spend: ~241 pages ≈ $2.41**, including the 87-page measurement.
+
+---
+
+## 11. Stages 2+3 — verification record (2026-08-08)
+
+### 11a. The free dry run that came first
+
+The chunker had only ever seen 4 documents, and embedding is billed per
+token — so all 58 were chunked **without embedding** before any money was
+spent. Chunking costs nothing, which makes this pure profit as a safety
+check.
+
+| Check | Result |
+|---|---|
+| Documents producing **zero** chunks | **0** |
+| **Mega-chunks** (long document → 1 chunk) | **0** |
+| **Broken `char_start`/`char_end`** | **0** of 678 |
+| Missing breadcrumbs | **0** |
+| Out-of-order chunk indices | **0** |
+| Oversize (>960 tokens) | 3 (0.4%) |
+| Undersize (<120 tokens) | 2 (0.3%) |
+
+678 chunks · median 418 tokens · 295,232 total. All five anomalies were
+inspected individually and are benign: the 1,057-token outlier is a
+two-row table (a header plus one enormous row — row-splitting genuinely
+cannot help), and both undersize chunks are `chunk_index 0` document cover
+blocks, which are short but useful for "what is this document" questions.
+**No chunker change was needed.**
+
+Two things the run proved that only real data could:
+
+- **The fallback ladder holds.** 16 of 58 documents have no headings at
+  all, and not one collapsed into a single unusable chunk — the failure
+  §4.6 was written to prevent.
+- **Table row-splitting is load-bearing, not theoretical.** 16 documents
+  had a table split, creating 116 extra parts. 347 of 678 chunks (51%)
+  contain a table, which also retroactively justifies choosing
+  `prebuilt-layout` over `prebuilt-read`.
+
+### 11b. The indexed result
+
+| Property | How it was proven |
+|---|---|
+| Vectors match the database | Qdrant point count equals `sum(chunk_count)` **per project**, 678 = 678 across 9 collections |
+| **AC09 isolation** | Every one of the **678 payloads** scrolled and checked: `project_code` matches its collection. **0 contamination.** There is no shared index to misfilter |
+| Idempotent | Re-run reports `candidates : 0` |
+| Retrieval works | *"ما هي أعلى المخاطر المسجلة في المشروع؟"* → `project_PRJ-03` returns that project's risk register as **both** top hits (0.548, 0.509). *"What are the project deliverables and scope?"* → "Project Scope > Deliverables" (0.600) |
+
+**Mutation testing — 15 mutations, all caught first pass**, including the
+two that produce silent wrong answers rather than errors: deleting stale
+vectors *after* the upsert (wiping what was just written), and trusting
+embedding results in arrival order instead of by the API's own index
+(pairing every vector with the wrong payload).
+
+### 11c. A hypothesis tested and rejected
+
+Recorded in full because the temptation to retry it will be strong: Arabic
+queries return raw `<table>` markup at the top of the results.
+
+**The theory:** HTML markup dilutes the vectors. **The premise measured
+true** — 51% of chunks contain tables, median **26%** of their tokens are
+pure markup (max 67%) — and a single-query A/B moved the correct chunk from
+rank 3 to rank 2.
+
+**The mechanism test refuted it.** Across 5 queries and 75 samples:
+
+| Chunks | Similarity lost when markup stripped |
+|---|---|
+| <5% markup | **0.027** |
+| ≥25% markup | **0.029** |
+
+If markup were inflating table-heavy chunks, the second number would be far
+larger. It isn't — stripping lowers everything slightly, and the rank
+improvement was noise. **No change was made**; acting on it would have
+altered the payload contract and forced a full re-index for nothing.
+
+What is real, and belongs to the chat backend: Arabic scores ~0.40 against
+English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
+That is **ranking**, not retrieval — the answer is in the results every
+time.
