@@ -16,7 +16,7 @@ open it" reference.
 
 | Folder/file | Contents | Why here, not elsewhere |
 |---|---|---|
-| `Documentation\` | This file + `SOLUTION_ARCHITECTURE.md`, `INFRASTRUCTURE.md`, `STATUS_AND_ROADMAP.md`, `NEXT_BUILD_PIPELINE.md`, `START_HERE.md` | Small text, versioned with the code it describes |
+| `Documentation\` | This file + `SOLUTION_ARCHITECTURE.md`, `INFRASTRUCTURE.md`, `STATUS_AND_ROADMAP.md`, `NEXT_BUILD_PIPELINE.md`, `NEXT_BUILD_CHAT_BACKEND.md`, `START_HERE.md` | Small text, versioned with the code it describes |
 | `My_Prompts\` | `SOLUTION_SCOPE.md` (BRD-derived scope, assistant-authored) + `PRE_PIPELINE_ENHANCEMENTS.md` (user-authored) | Requirements/planning source material |
 | `infra\` | `docker-compose.yml`, `.env` / `.env.example`, `postgres-spm\init\` (one-time) + `migrations\` (13 SQL files, ongoing), `apply_migrations.py`, `README.md` | All infrastructure-as-code |
 | `mock-data\` | `spm_manifest.json` — the 8-project / 4-user / 45-document source data | Small structured data, worth versioning |

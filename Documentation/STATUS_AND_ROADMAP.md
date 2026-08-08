@@ -286,8 +286,13 @@
 
 ## 5. Immediate next step
 
-**The ingestion pipeline is finished.** Next is the chat backend — the
-first component that a user actually touches.
+**The ingestion pipeline is finished and running unattended.** Next is the
+chat backend — the first component a user actually touches.
+
+📄 **Its brief is `NEXT_BUILD_CHAT_BACKEND.md`** — acceptance criteria,
+the AC09 session gate, suggested build order, non-negotiable rules and
+known-unknowns. Written in the same shape as the pipeline brief, which
+caught five places that build had to deviate from what was specified.
 
 | Stage | Does | Writes | State |
 |---|---|---|---|

@@ -41,8 +41,9 @@ This is a **different use case** than a colleague's separate build
 | 2 | `SOLUTION_ARCHITECTURE.md` | What the solution must do (BRD-derived scope), the retrieval architecture, and every non-obvious design decision + why |
 | 3 | `INFRASTRUCTURE.md` | The Docker Compose stack: services, ports, how to bring it up, verified gotchas |
 | 4 | `STATUS_AND_ROADMAP.md` | What's actually done vs not, decisions log, lessons learned |
-| 5 | **`NEXT_BUILD_PIPELINE.md`** | **If you are here to build the ingestion pipeline, read this** — stage contracts, non-negotiable rules, and known-unknowns |
-| 6 | `INVENTORY.md` | Every folder, container, cloud model, and library used on this machine — what it is, why, and how to access it |
+| 5 | **`NEXT_BUILD_CHAT_BACKEND.md`** | **If you are here to build the chat backend — the next thing — read this.** Acceptance criteria, the AC09 session gate, build order, non-negotiable rules, known-unknowns |
+| 6 | `NEXT_BUILD_PIPELINE.md` | The ingestion pipeline's brief. **Now a record, not a to-do** — what was specified, what was built, and the five places they differ |
+| 7 | `INVENTORY.md` | Every folder, container, cloud model, and library used on this machine — what it is, why, and how to access it |
 | — | `Enjaz_Solution_Guide.docx` | **For non-technical readers / stakeholders.** Plain-language guide to the whole solution: what it does, how it works, why each choice was made, and how to rebuild it. Not needed for development work |
 
 The original BRD-derived scope document also lives at
@@ -248,9 +249,11 @@ vector store.
 
 > I'm continuing work on the MOF Enjaz Chatbot (AI assistant for منصة إنجاز),
 > at `D:\MOF Enjaz Chatbot`. Before doing anything, read
-> `Documentation\START_HERE.md`, then `Documentation\SOLUTION_ARCHITECTURE.md`
-> and `Documentation\INFRASTRUCTURE.md`. If the task is building the
-> ingestion pipeline, also read `Documentation\NEXT_BUILD_PIPELINE.md`.
+> `Documentation\START_HERE.md`, then `Documentation\SOLUTION_ARCHITECTURE.md`,
+> `Documentation\INFRASTRUCTURE.md` and `Documentation\STATUS_AND_ROADMAP.md`
+> (the decisions log and lessons learned — don't skip it). The ingestion
+> pipeline is finished and running unattended; **the chat backend is the
+> next build**, so also read `Documentation\NEXT_BUILD_CHAT_BACKEND.md`.
 >
 > Then verify the live system rather than trusting the docs: 13 containers
 > up, 13 migrations applied and 0 drifted, 199 tests passing, all three
@@ -259,10 +262,11 @@ vector store.
 > holding 9 collections / 678 points, and `python -m pipeline.status`
 > exiting 0.
 >
-> Three working rules: use `.venv/Scripts/python`, never system Python;
+> Four working rules: use `.venv/Scripts/python`, never system Python;
 > prefix commands that print with `PYTHONIOENCODING=utf-8`, since most of
-> the corpus is Arabic; and remember `pipeline.ocr` spends money — always
-> `--dry-run` first.
+> the corpus is Arabic; remember `pipeline.ocr` spends money — always
+> `--dry-run` first; and the chat backend must connect as `spm_app`, never
+> `spm_admin`, with `SET LOCAL app.current_project` on every transaction.
 >
 > Design principle to hold to: **everything must be dynamic, not hardcoded
 > to this specific demo case** — settings belong in `pipeline/config.py`,
