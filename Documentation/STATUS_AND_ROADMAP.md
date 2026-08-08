@@ -450,18 +450,25 @@ What the chat backend walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**199 tests, ~10s** — `test_chunker.py` 26 + `test_scanner.py` 38 +
-`test_ocr.py` 23 + `test_native_extract.py` 22 + `test_indexer.py` 23 +
-`test_config.py` 13 + `test_locking.py` 12 + `test_tasks.py` 27 +
-`test_status.py` 15. *(Counted from `--collect-only`, not estimated — this
-number has needed correcting three times when it was inferred instead.)*
+**261 tests, ~12s** — `test_retrieval_eval.py` 39 + `test_scanner.py` 38 +
+`test_tasks.py` 27 + `test_chunker.py` 26 + `test_ocr.py` 23 +
+`test_indexer.py` 23 + `test_rls.py` 23 + `test_native_extract.py` 22 +
+`test_status.py` 15 + `test_config.py` 13 + `test_locking.py` 12.
+*(Counted from `--collect-only`, not estimated — this number has needed
+correcting three times when it was inferred instead.)*
+
+`test_rls.py` is the only file that connects as **`spm_app`**. Every other
+file uses `spm_admin`, which bypasses row-level security, which is exactly
+why RLS went untested for so long (§13a). `test_retrieval_eval.py` stubs
+the embedding API and Qdrant, so the evaluation harness is fully covered
+without a paid call.
 
 `test_locking.py` and `test_tasks.py` need **Redis** as well as Postgres —
 they exercise the real lock, because atomic set-if-absent, expiry and
 compare-and-delete are exactly the properties a fake dictionary would not
 have.
 
-**Most of the 199 tests need `mof-postgres-spm` running**, and
+**Most of the 261 tests need `mof-postgres-spm` running**, and
 `test_locking.py` / `test_tasks.py` / `test_status.py` need **Redis** as
 well. They create a throwaway
 project, exercise the **real** schema and constraints, and always roll
@@ -702,6 +709,92 @@ What is real, and belongs to the chat backend: Arabic scores ~0.40 against
 English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
 That is **ranking**, not retrieval — the answer is in the results every
 time.
+
+---
+
+## 13. Closing two gaps before the chat backend (2026-08-09)
+
+### 13a. RLS had no regression test — now 23
+
+Migration `013` made SQL isolation structural, and then nothing tested it.
+**Every other test connects as `spm_admin`, which bypasses row-level
+security entirely**, so no existing test could have noticed it break. The
+seven checks recorded when `013` landed were run by hand, once.
+
+`tests/test_rls.py` is read-only by necessity: RLS can only be observed
+across two connections, and the writer bypasses the thing under test, so
+the usual write-inside-a-rolled-back-transaction trick does not work — the
+`spm_app` connection cannot see uncommitted rows. The tests assert
+*relationships* over whatever corpus is present instead, and nothing is
+written, so nothing can be left behind. Project codes, usernames, counts
+and the role name are all discovered at run time.
+
+**Mutation testing — 6 mutations, all caught:**
+
+| Mutation | Tests that failed |
+|---|---|
+| Policy widened to `USING (true)` | 7 |
+| RLS switched off on `document_links` | 8 |
+| App role granted `UPDATE` | 1 |
+| App role given `BYPASSRLS` | 12 |
+| A new table granted SELECT with no policy | 1 |
+| `document_content` policy dropped | 2 |
+
+The fifth is the one worth naming: adding a table and granting the app role
+SELECT is a one-line change that is easy to make and impossible to notice.
+`test_every_table_the_app_can_read_is_scoped_or_exempt` asks the catalog
+rather than a list, so it covers tables nobody has written yet.
+
+Two findings recorded rather than fixed:
+
+- **`SET LOCAL` cannot take a bind parameter.** The chat backend must use
+  `SELECT set_config('app.current_project', %s, true)`; the literal form
+  would require concatenating a request-supplied project code into the
+  statement that establishes the security scope.
+- **`users` is granted SELECT with no policy**, deliberately — it has no
+  project dimension. It does mean the app role can enumerate all four
+  users. Not an AC09 breach (that is about project documents) but worth a
+  decision rather than a default; it is named in the test file so the
+  decision stays visible.
+
+### 13b. Retrieval quality is now measured, and the anecdote was wrong
+
+`evaluation/` — 29 questions across Arabic, English and mixed, all 9
+projects, each tagged with the document(s) that genuinely answer it. 39
+tests, 8 mutations, all caught. Baseline in `evaluation/baseline.json`.
+
+| | n | MRR | r@1 | r@3 | r@5 | mean top score |
+|---|---|---|---|---|---|---|
+| overall | 29 | 0.829 | 0.76 | 0.90 | 0.93 | 0.507 |
+| Arabic | 16 | 0.825 | 0.75 | 0.88 | **0.94** | 0.483 |
+| English | 10 | 0.850 | 0.80 | 0.90 | 0.90 | 0.551 |
+
+**The "Arabic ranking gap" is largely not a ranking gap.** The anecdote —
+Arabic ~0.40 against English ~0.60 — measured the *similarity score*, and
+that difference is real though smaller than remembered (0.483 vs 0.551).
+But ranking quality is essentially equal, and Arabic is *better* at
+recall@5. **A low similarity score is not a bad rank**, and conflating the
+two pointed at reranking as the obvious fix when the data does not support
+it. This is the same lesson as §11c in a different disguise: a true
+premise does not make the explanation true.
+
+**The one systematic failure is missing signal, not weak ranking.** Of two
+questions that missed entirely, the interesting one is the Emdad charter in
+`TEST-PROJECT`. That project groups six real charters from six *different*
+real projects, and the word "Emdad" appears **nowhere in the extracted
+text** — only in the filename, which is never embedded. All four charters
+carry the byte-identical breadcrumb `Project Charter — Test Project - Real
+Document Samples`. Retrieval cannot distinguish them because nothing
+distinguishing was ever indexed.
+
+Putting the filename in the breadcrumb is the obvious hypothesis. It is an
+ingestion change, it forces a full re-index, and — the point of building
+this — it can now be *tested* rather than argued about. No change was made.
+
+⚠️ **The baseline is only meaningful against this question set and this
+corpus.** Both are named in `baseline.json`. The harness validates every
+tagged filename against `document_links` before embedding anything, because
+a renamed document scores zero forever and reads exactly like a regression.
 
 ---
 

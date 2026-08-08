@@ -1,0 +1,575 @@
+{
+  "_what": "A point-in-time retrieval baseline. Re-run 'python -m evaluation.retrieval_eval --json' and compare against this to tell a real improvement from a comfortable feeling. Nothing reads this file automatically; it is a record, and it is only meaningful against the question set and corpus named below.",
+  "_recorded": "2026-08-09",
+  "_commit": "4670d1b",
+  "_corpus": "9 projects, 58 documents, 678 passages",
+  "_question_set": "questions.json",
+  "_embedding_model": "text-embedding-3-S",
+  "dry_run": false,
+  "questions": 29,
+  "search_limit": 5,
+  "mrr": 0.8287,
+  "recall": {
+    "1": 0.7586,
+    "3": 0.8966,
+    "5": 0.931
+  },
+  "mean_top_score": 0.5071,
+  "by_language": {
+    "ar": {
+      "n": 16,
+      "mrr": 0.825,
+      "recall": {
+        "1": 0.75,
+        "3": 0.875,
+        "5": 0.9375
+      },
+      "mean_top_score": 0.4828
+    },
+    "en": {
+      "n": 10,
+      "mrr": 0.85,
+      "recall": {
+        "1": 0.8,
+        "3": 0.9,
+        "5": 0.9
+      },
+      "mean_top_score": 0.5508
+    },
+    "mixed": {
+      "n": 3,
+      "mrr": 0.7778,
+      "recall": {
+        "1": 0.6667,
+        "3": 1.0,
+        "5": 1.0
+      },
+      "mean_top_score": 0.4909
+    }
+  },
+  "results": [
+    {
+      "id": "ar-01-risks",
+      "project": "PRJ-01",
+      "lang": "ar",
+      "rank": 1,
+      "top_score": 0.5577,
+      "expected": [
+        "PRJ-01_RiskRegister_20260701.docx"
+      ],
+      "returned": [
+        "PRJ-01_RiskRegister_20260701.docx",
+        "PRJ-01_RiskRegister_20260701.docx",
+        "PRJ-01_RiskRegister_20260701.docx",
+        "PRJ-01_RiskRegister_20260701.docx",
+        "PRJ-01_RiskRegister_20260701.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "ar-01-charter-owner",
+      "project": "PRJ-01",
+      "lang": "ar",
+      "rank": 2,
+      "top_score": 0.4254,
+      "expected": [
+        "PRJ-01_ProjectCharter_20250312.docx"
+      ],
+      "returned": [
+        "PRJ-01_MeetingMinutes_20260715.pdf",
+        "PRJ-01_ProjectCharter_20250312.docx",
+        "PRJ-01_ProjectCharter_20250312.docx",
+        "PRJ-01_ProjectCharter_20250312.docx",
+        "PRJ-01_ProjectCharter_20250312.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "ar-02-lessons",
+      "project": "PRJ-02",
+      "lang": "ar",
+      "rank": 1,
+      "top_score": 0.495,
+      "expected": [
+        "PRJ-02_LessonsLearned_20260620.docx"
+      ],
+      "returned": [
+        "PRJ-02_LessonsLearned_20260620.docx",
+        "PRJ-02_LessonsLearned_20260620.docx",
+        "PRJ-02_LessonsLearned_20260620.docx",
+        "PRJ-02_LessonsLearned_20260620.docx",
+        "PRJ-02_LessonsLearned_20260620.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "ar-02-decisions",
+      "project": "PRJ-02",
+      "lang": "ar",
+      "rank": 1,
+      "top_score": 0.5322,
+      "expected": [
+        "PRJ-02_MeetingMinutes_20260722.pdf"
+      ],
+      "returned": [
+        "PRJ-02_MeetingMinutes_20260722.pdf",
+        "PRJ-02_MeetingMinutes_20260722.pdf",
+        "PRJ-02_MeetingMinutes_20260722.pdf",
+        "PRJ-02_MeetingMinutes_20260722.pdf",
+        "PRJ-02_LessonsLearned_20260620.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "ar-03-delay-cause",
+      "project": "PRJ-03",
+      "lang": "ar",
+      "rank": 1,
+      "top_score": 0.5457,
+      "expected": [
+        "PRJ-03_LessonsLearned_20260625.docx"
+      ],
+      "returned": [
+        "PRJ-03_LessonsLearned_20260625.docx",
+        "PRJ-03_MeetingMinutes_20260708.pdf",
+        "PRJ-03_LessonsLearned_20260625.docx",
+        "PRJ-03_ProjectCharter_20240905.docx",
+        "PRJ-03_LessonsLearned_20260625.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "ar-03-mitigation",
+      "project": "PRJ-03",
+      "lang": "ar",
+      "rank": 1,
+      "top_score": 0.3471,
+      "expected": [
+        "PRJ-03_RiskRegister_20260715.docx"
+      ],
+      "returned": [
+        "PRJ-03_RiskRegister_20260715.docx",
+        "PRJ-03_RiskRegister_20260715.docx",
+        "PRJ-03_RiskRegister_20260715.docx",
+        "PRJ-03_RiskRegister_20260715.docx",
+        "PRJ-03_RiskRegister_20260715.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "ar-06-budget-dates",
+      "project": "PRJ-06",
+      "lang": "ar",
+      "rank": 1,
+      "top_score": 0.5637,
+      "expected": [
+        "PRJ-06_ProjectCharter_20250122.docx"
+      ],
+      "returned": [
+        "PRJ-06_ProjectCharter_20250122.docx",
+        "PRJ-06_ProjectCharter_20250122.docx",
+        "PRJ-06_BudgetReport_20260630.pdf",
+        "PRJ-06_ProjectCharter_20250122.docx",
+        "PRJ-06_ProjectCharter_20250122.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "ar-06-risk-owner",
+      "project": "PRJ-06",
+      "lang": "ar",
+      "rank": 2,
+      "top_score": 0.3528,
+      "expected": [
+        "PRJ-06_RiskRegister_20260720.docx"
+      ],
+      "returned": [
+        "PRJ-06_MeetingMinutes_20260723.pdf",
+        "PRJ-06_RiskRegister_20260720.docx",
+        "PRJ-06_RiskRegister_20260720.docx",
+        "PRJ-06_MeetingMinutes_20260723.pdf",
+        "PRJ-06_RiskRegister_20260720.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "ar-05-scope",
+      "project": "PRJ-05",
+      "lang": "ar",
+      "rank": 1,
+      "top_score": 0.4414,
+      "expected": [
+        "PRJ-05_ProjectCharter_20250910.docx"
+      ],
+      "returned": [
+        "PRJ-05_ProjectCharter_20250910.docx",
+        "PRJ-05_ProjectCharter_20250910.docx",
+        "PRJ-05_ProjectCharter_20250910.docx",
+        "PRJ-05_ProjectCharter_20250910.docx",
+        "PRJ-05_ProjectCharter_20250910.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "ar-05-actions",
+      "project": "PRJ-05",
+      "lang": "ar",
+      "rank": 5,
+      "top_score": 0.4244,
+      "expected": [
+        "PRJ-05_MeetingMinutes_20260716.pdf"
+      ],
+      "returned": [
+        "PRJ-05_ProjectCharter_20250910.docx",
+        "PRJ-05_ProjectCharter_20250910.docx",
+        "PRJ-05_ProjectCharter_20250910.docx",
+        "PRJ-05_ProjectCharter_20250910.docx",
+        "PRJ-05_MeetingMinutes_20260716.pdf"
+      ],
+      "error": null
+    },
+    {
+      "id": "ar-08-handover",
+      "project": "PRJ-08",
+      "lang": "ar",
+      "rank": 1,
+      "top_score": 0.5245,
+      "expected": [
+        "PRJ-08_HandoverDocument_20251218.pdf"
+      ],
+      "returned": [
+        "PRJ-08_HandoverDocument_20251218.pdf",
+        "PRJ-08_MeetingMinutes_20251210.pdf",
+        "PRJ-08_MeetingMinutes_20251210.pdf",
+        "PRJ-08_HandoverDocument_20251218.pdf",
+        "PRJ-08_HandoverDocument_20251218.pdf"
+      ],
+      "error": null
+    },
+    {
+      "id": "ar-08-recommendations",
+      "project": "PRJ-08",
+      "lang": "ar",
+      "rank": null,
+      "top_score": 0.5196,
+      "expected": [
+        "PRJ-08_LessonsLearned_20251222.docx"
+      ],
+      "returned": [
+        "PRJ-08_MeetingMinutes_20251210.pdf",
+        "PRJ-08_HandoverDocument_20251218.pdf",
+        "PRJ-08_MeetingMinutes_20251210.pdf",
+        "PRJ-08_MeetingMinutes_20251210.pdf",
+        "PRJ-08_MeetingMinutes_20251210.pdf"
+      ],
+      "error": null
+    },
+    {
+      "id": "ar-04-attendees",
+      "project": "PRJ-04",
+      "lang": "ar",
+      "rank": 1,
+      "top_score": 0.3567,
+      "expected": [
+        "PRJ-04_MeetingMinutes_20251028.pdf"
+      ],
+      "returned": [
+        "PRJ-04_MeetingMinutes_20251028.pdf",
+        "PRJ-04_MeetingMinutes_20251028.pdf",
+        "PRJ-04_ProjectCharter_20240208.docx",
+        "PRJ-04_MeetingMinutes_20251028.pdf",
+        "PRJ-04_MeetingMinutes_20251028.pdf"
+      ],
+      "error": null
+    },
+    {
+      "id": "ar-04-closure-budget",
+      "project": "PRJ-04",
+      "lang": "ar",
+      "rank": 1,
+      "top_score": 0.5715,
+      "expected": [
+        "PRJ-04_BudgetReport_20251130.pdf"
+      ],
+      "returned": [
+        "PRJ-04_BudgetReport_20251130.pdf",
+        "PRJ-04_MeetingMinutes_20251028.pdf",
+        "PRJ-04_MeetingMinutes_20251028.pdf",
+        "PRJ-04_MeetingMinutes_20251028.pdf",
+        "PRJ-04_MeetingMinutes_20251028.pdf"
+      ],
+      "error": null
+    },
+    {
+      "id": "ar-test-powerbi",
+      "project": "TEST-PROJECT",
+      "lang": "ar",
+      "rank": 1,
+      "top_score": 0.5843,
+      "expected": [
+        "وثيقة المتطلبات التفصيلية PowerBI وإعادة التصميم 01-07-2026.pdf"
+      ],
+      "returned": [
+        "وثيقة المتطلبات التفصيلية PowerBI وإعادة التصميم 01-07-2026.pdf",
+        "وثيقة المتطلبات التفصيلية PowerBI وإعادة التصميم 01-07-2026.pdf",
+        "وثيقة المتطلبات التفصيلية PowerBI وإعادة التصميم 01-07-2026.pdf",
+        "وثيقة المتطلبات التفصيلية PowerBI وإعادة التصميم 01-07-2026.pdf",
+        "وثيقة المتطلبات التفصيلية PowerBI وإعادة التصميم 01-07-2026.pdf"
+      ],
+      "error": null
+    },
+    {
+      "id": "ar-test-methodology",
+      "project": "TEST-PROJECT",
+      "lang": "ar",
+      "rank": 1,
+      "top_score": 0.4828,
+      "expected": [
+        "_المنهجية التقنية للمشروع.pdf"
+      ],
+      "returned": [
+        "_المنهجية التقنية للمشروع.pdf",
+        "Tanmiah_GenAI_POC_Proposal_Technical 1.pptx",
+        "Tanmiah_GenAI_POC_Proposal_Technical 1.pptx",
+        "Tanmiah_GenAI_POC_Proposal_Technical 1.pptx",
+        "Tanmiah_GenAI_POC_Proposal_Technical 1.pptx"
+      ],
+      "error": null
+    },
+    {
+      "id": "en-07-scope",
+      "project": "PRJ-07",
+      "lang": "en",
+      "rank": 1,
+      "top_score": 0.4597,
+      "expected": [
+        "PRJ-07_ProjectCharter_20241106.docx"
+      ],
+      "returned": [
+        "PRJ-07_ProjectCharter_20241106.docx",
+        "PRJ-07_ProjectCharter_20241106.docx",
+        "PRJ-07_RiskRegister_20260714.docx",
+        "PRJ-07_WeeklyStatusReport_20260731.docx",
+        "PRJ-07_RiskRegister_20260714.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "en-07-security-decision",
+      "project": "PRJ-07",
+      "lang": "en",
+      "rank": 2,
+      "top_score": 0.5485,
+      "expected": [
+        "PRJ-07_MeetingMinutes_20260709.pdf"
+      ],
+      "returned": [
+        "PRJ-07_LessonsLearned_20260630.docx",
+        "PRJ-07_MeetingMinutes_20260709.pdf",
+        "PRJ-07_MeetingMinutes_20260709.pdf",
+        "PRJ-07_MeetingMinutes_20260709.pdf",
+        "PRJ-07_WeeklyStatusReport_20260731.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "en-07-risks",
+      "project": "PRJ-07",
+      "lang": "en",
+      "rank": 1,
+      "top_score": 0.4775,
+      "expected": [
+        "PRJ-07_RiskRegister_20260714.docx"
+      ],
+      "returned": [
+        "PRJ-07_RiskRegister_20260714.docx",
+        "PRJ-07_RiskRegister_20260714.docx",
+        "PRJ-07_RiskRegister_20260714.docx",
+        "PRJ-07_RiskRegister_20260714.docx",
+        "PRJ-07_RiskRegister_20260714.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "en-02-amber",
+      "project": "PRJ-02",
+      "lang": "en",
+      "rank": 1,
+      "top_score": 0.6239,
+      "expected": [
+        "PRJ-02_WeeklyStatusReport_20260728.docx"
+      ],
+      "returned": [
+        "PRJ-02_WeeklyStatusReport_20260728.docx",
+        "PRJ-02_WeeklyStatusReport_20260728.docx",
+        "PRJ-02_WeeklyStatusReport_20260728.docx",
+        "PRJ-02_WeeklyStatusReport_20260728.docx",
+        "PRJ-02_WeeklyStatusReport_20260728.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "en-01-spend",
+      "project": "PRJ-01",
+      "lang": "en",
+      "rank": 1,
+      "top_score": 0.5482,
+      "expected": [
+        "PRJ-01_BudgetReport_20260630.pdf"
+      ],
+      "returned": [
+        "PRJ-01_BudgetReport_20260630.pdf",
+        "PRJ-01_WeeklyStatusReport_20260726.docx",
+        "PRJ-01_BudgetReport_20260630.pdf",
+        "PRJ-01_BudgetReport_20260630.pdf",
+        "PRJ-01_WeeklyStatusReport_20260726.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "en-01-licensing",
+      "project": "PRJ-01",
+      "lang": "en",
+      "rank": 1,
+      "top_score": 0.4932,
+      "expected": [
+        "PRJ-01_BudgetReport_20260630.pdf"
+      ],
+      "returned": [
+        "PRJ-01_BudgetReport_20260630.pdf",
+        "PRJ-01_BudgetReport_20260630.pdf",
+        "PRJ-01_WeeklyStatusReport_20260726.docx",
+        "PRJ-01_BudgetReport_20260630.pdf",
+        "PRJ-01_ProjectCharter_20250312.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "en-test-emdad",
+      "project": "TEST-PROJECT",
+      "lang": "en",
+      "rank": null,
+      "top_score": 0.4831,
+      "expected": [
+        "Emdad - Project Charter - V1 1.docx"
+      ],
+      "returned": [
+        "JEDCO002001 - Project Charter - Employee internal Portal V 1.0 .docx",
+        "TMO001001_DATA WAREHOUSE, BI & REPORTING BUSINESS INTELLIGENCE_Project Charter_16 July 2025_v0.1 1.docx",
+        "JEDCO002001 - Project Charter - Employee internal Portal V 1.0 .docx",
+        "JEDCO002001 - Project Charter - Employee internal Portal V 1.0 .docx",
+        "MOZN Project Charter-V0.1.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "en-test-sdd",
+      "project": "TEST-PROJECT",
+      "lang": "en",
+      "rank": 1,
+      "top_score": 0.7008,
+      "expected": [
+        "SDD_AI_Project_Charter_Generator_OnPrem.docx"
+      ],
+      "returned": [
+        "SDD_AI_Project_Charter_Generator_OnPrem.docx",
+        "SDD_AI_Project_Charter_Generator_OnPrem.docx",
+        "SDD_AI_Project_Charter_Generator_OnPrem.docx",
+        "SDD_AI_Project_Charter_Generator_OnPrem.docx",
+        "SDD_AI_Project_Charter_Generator_OnPrem.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "en-test-portal",
+      "project": "TEST-PROJECT",
+      "lang": "en",
+      "rank": 1,
+      "top_score": 0.6204,
+      "expected": [
+        "JEDCO002001 - Project Charter - Employee internal Portal V 1.0 .docx"
+      ],
+      "returned": [
+        "JEDCO002001 - Project Charter - Employee internal Portal V 1.0 .docx",
+        "SDD_AI_Project_Charter_Generator_OnPrem.docx",
+        "SDD_AI_Project_Charter_Generator_OnPrem.docx",
+        "TMO001001_DATA WAREHOUSE, BI & REPORTING BUSINESS INTELLIGENCE_Project Charter_16 July 2025_v0.1 1.docx",
+        "TMO001001_DATA WAREHOUSE, BI & REPORTING BUSINESS INTELLIGENCE_Project Charter_16 July 2025_v0.1 1.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "en-test-warehouse",
+      "project": "TEST-PROJECT",
+      "lang": "en",
+      "rank": 1,
+      "top_score": 0.553,
+      "expected": [
+        "TMO001001_DATA WAREHOUSE, BI & REPORTING BUSINESS INTELLIGENCE_Project Charter_16 July 2025_v0.1 1.docx"
+      ],
+      "returned": [
+        "TMO001001_DATA WAREHOUSE, BI & REPORTING BUSINESS INTELLIGENCE_Project Charter_16 July 2025_v0.1 1.docx",
+        "TMO001001_DATA WAREHOUSE, BI & REPORTING BUSINESS INTELLIGENCE_Project Charter_16 July 2025_v0.1 1.docx",
+        "TMO001001_DATA WAREHOUSE, BI & REPORTING BUSINESS INTELLIGENCE_Project Charter_16 July 2025_v0.1 1.docx",
+        "TMO001001_DATA WAREHOUSE, BI & REPORTING BUSINESS INTELLIGENCE_Project Charter_16 July 2025_v0.1 1.docx",
+        "TMO001001_DATA WAREHOUSE, BI & REPORTING BUSINESS INTELLIGENCE_Project Charter_16 July 2025_v0.1 1.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "mixed-03-status",
+      "project": "PRJ-03",
+      "lang": "mixed",
+      "rank": 1,
+      "top_score": 0.5719,
+      "expected": [
+        "PRJ-03_WeeklyStatusReport_20260727.docx",
+        "PRJ-03_WeeklyStatusReport_20260622.docx"
+      ],
+      "returned": [
+        "PRJ-03_WeeklyStatusReport_20260727.docx",
+        "PRJ-03_WeeklyStatusReport_20260622.docx",
+        "PRJ-03_WeeklyStatusReport_20260622.docx",
+        "PRJ-03_WeeklyStatusReport_20260727.docx",
+        "PRJ-03_WeeklyStatusReport_20260622.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "mixed-06-spend",
+      "project": "PRJ-06",
+      "lang": "mixed",
+      "rank": 3,
+      "top_score": 0.3698,
+      "expected": [
+        "PRJ-06_BudgetReport_20260630.pdf"
+      ],
+      "returned": [
+        "PRJ-06_WeeklyStatusReport_20260730.docx",
+        "PRJ-06_WeeklyStatusReport_20260730.docx",
+        "PRJ-06_BudgetReport_20260630.pdf",
+        "PRJ-06_BudgetReport_20260630.pdf",
+        "PRJ-06_WeeklyStatusReport_20260730.docx"
+      ],
+      "error": null
+    },
+    {
+      "id": "mixed-04-handover",
+      "project": "PRJ-04",
+      "lang": "mixed",
+      "rank": 1,
+      "top_score": 0.5308,
+      "expected": [
+        "PRJ-04_HandoverDocument_20251105.pdf"
+      ],
+      "returned": [
+        "PRJ-04_HandoverDocument_20251105.pdf",
+        "PRJ-04_HandoverDocument_20251105.pdf",
+        "PRJ-04_HandoverDocument_20251105.pdf",
+        "PRJ-04_HandoverDocument_20251105.pdf",
+        "PRJ-04_MeetingMinutes_20251028.pdf"
+      ],
+      "error": null
+    }
+  ]
+}

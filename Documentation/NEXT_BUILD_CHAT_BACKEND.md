@@ -48,8 +48,14 @@ documents under any circumstance. Two of the three layers already exist:
 | Layer | Mechanism | State |
 |---|---|---|
 | Vector search | One Qdrant collection per project — no shared index to misfilter | ✅ 678 payloads verified, 0 contamination |
-| SQL | Row-level security; `spm_app` is `SELECT`-only and scoped per transaction | ✅ migration `013`, fail-closed |
+| SQL | Row-level security; `spm_app` is `SELECT`-only and scoped per transaction | ✅ migration `013`, fail-closed, **23 regression tests since 2026-08-09** |
 | **Session gate** | Is the requested project actually assigned to this user? | ❌ **not built** |
+
+⚠️ **`SET LOCAL` cannot take a bind parameter.** Building it by string
+concatenation means interpolating a request-supplied project code into the
+statement that establishes the security scope. Use
+`SELECT set_config('app.current_project', %s, true)` — the parameterised
+equivalent. `tests/test_rls.py` pins the two forms together.
 
 **The gate is the one thing infrastructure cannot enforce.** RLS and
 per-project collections both assume the session is scoped *correctly* —
@@ -78,19 +84,49 @@ exercise the switcher.
 
 Deliberately not the order the ACs are numbered in.
 
-### Step 1 — a retrieval evaluation set (do this first)
+### Step 1 — a retrieval evaluation set ✅ **BUILT** (2026-08-09)
 
-**Right now nobody can answer "did that change make retrieval better?"**
-We have anecdotes: Arabic scores ~0.40 against English's ~0.60, and the
-correct chunk often lands 2nd–3rd rather than 1st. That is fine as an
-observation and useless as a baseline.
+`evaluation/` — 29 questions across Arabic, English and mixed, spanning all
+9 projects, each tagged with the document(s) that genuinely contain the
+answer. Run it:
 
-Build 20–30 realistic project-manager questions across Arabic and English,
-each tagged with the document that should answer it, and measure
-recall@1 / @3 / @5. It costs pennies (embeddings only) and it is the only
-way to tell a real improvement from a comfortable feeling.
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.retrieval_eval --dry-run
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.retrieval_eval
+```
 
-**It also de-risks the AC06/AC08 tension** described in §5.
+**The measured baseline** (recorded in `evaluation/baseline.json`):
+
+| | n | MRR | recall@1 | @3 | @5 | mean top score |
+|---|---|---|---|---|---|---|
+| **overall** | 29 | **0.829** | 0.76 | 0.90 | 0.93 | 0.507 |
+| Arabic | 16 | 0.825 | 0.75 | 0.88 | 0.94 | 0.483 |
+| English | 10 | 0.850 | 0.80 | 0.90 | 0.90 | 0.551 |
+| mixed | 3 | 0.778 | 0.67 | 1.00 | 1.00 | 0.491 |
+
+**MRR leads, not recall.** The known problem is ranking, and recall@5 can
+sit unchanged at 1.00 while the answer moves from 3rd to 1st — a large real
+improvement recall cannot see. MRR moves 0.33 → 1.00 for that same change.
+
+**Two findings that change what §5 says.** See `STATUS_AND_ROADMAP.md` §13.
+
+1. **The Arabic ranking gap is largely not real.** Arabic *similarity
+   scores* are lower (0.483 against 0.551), but ranking quality is
+   essentially equal — MRR 0.825 vs 0.850, and Arabic actually beats
+   English at recall@5. Score magnitude and ranking quality are different
+   things, and the anecdote conflated them. Reranking is therefore a much
+   weaker bet than it looked.
+2. **The one systematic failure is missing signal, not weak ranking.**
+   `TEST-PROJECT` holds six real charters from six different projects. The
+   word "Emdad" appears **nowhere** in that charter's extracted text — only
+   in its filename, which is never embedded — and all four charters carry
+   the byte-identical breadcrumb `Project Charter — Test Project - Real
+   Document Samples`. Retrieval has no way to tell them apart. That is an
+   ingestion question (put the filename in the breadcrumb), it forces a
+   re-index, and it is now measurable rather than arguable.
+
+**It also de-risks the AC06/AC08 tension** described in §5: any change that
+costs seconds can now be justified — or refuted — with a number.
 
 ### Step 2 — session gate + project scoping (AC09)
 
@@ -179,7 +215,13 @@ infrastructure was built; `grafana-lgtm:4317` accepts OTLP gRPC.
   candidates, or expanding to parent documents all improve grounding and
   all cost seconds. The 5-second budget is the constraint; the evaluation
   set in Step 1 is what makes the trade measurable instead of felt.
-- **Arabic ranking is the known quality gap.** The correct chunk *is*
+- ~~**Arabic ranking is the known quality gap.**~~ — **measured 2026-08-09
+  and largely refuted.** Arabic similarity *scores* are lower (0.483 against
+  English's 0.551) but *ranking* is essentially equal: MRR 0.825 vs 0.850,
+  and Arabic beats English at recall@5 (0.94 vs 0.90). A low score is not a
+  bad rank. Full numbers in §3 step 1 and `STATUS_AND_ROADMAP.md` §13. The
+  chunking warning below still stands unchanged, and is now doubly
+  supported. The correct chunk *is*
   retrieved, just not first. ⚠️ **Do not "fix" this by changing chunking** —
   the obvious theory (HTML table markup diluting the vectors) was tested
   across 5 queries and 75 samples and **refuted**: high-markup and
@@ -232,7 +274,7 @@ These cost real time to learn. All are recorded in full in
 ```bash
 docker compose ps                                            # 13 containers
 python infra/postgres-spm/apply_migrations.py --status        # 13 applied, 0 drifted
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 199 passed
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 261 passed
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status     # exit 0, HEALTHY
 ```
 

@@ -197,6 +197,23 @@ If `.venv/` doesn't exist yet: `python -m venv .venv`, then install.
 `infra/postgres-spm/apply_migrations.py` intentionally needs no
 third-party packages, so the database can be rebuilt without the venv.
 
+**Measuring retrieval quality.** `evaluation/` holds 29 tagged questions
+and scores them, so a change can be shown to help rather than felt to. The
+baseline is **MRR 0.829, recall@1 0.76 / @3 0.90 / @5 0.93**
+(`evaluation/baseline.json`). It validates every tagged filename against
+the database before embedding anything, and `--dry-run` costs nothing:
+
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.retrieval_eval --dry-run
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.retrieval_eval
+```
+
+⚠️ The often-repeated "Arabic ranking is the known gap" was **measured on
+2026-08-09 and largely refuted** — Arabic similarity *scores* are lower
+(0.483 vs 0.551) but ranking is essentially equal (MRR 0.825 vs 0.850, and
+Arabic wins at recall@5). See `STATUS_AND_ROADMAP.md` §13b before acting on
+the old claim.
+
 **The application code so far is seven modules in `pipeline/`** —
 `config.py` (all settings), `chunker.py` (markdown in, chunks out),
 `db.py` (the `spm_admin` connection), `scanner.py` (Stage 0, discovery),
@@ -208,8 +225,9 @@ as a containerised Celery worker** — `mof-pipeline-worker` and
 `mof-pipeline-beat`. There is still no FastAPI app and no frontend. See
 `STATUS_AND_ROADMAP.md` for the exact done/not-done line.
 
-The test suite is **199 tests** (chunker 26, scanner 38, ocr 23,
-native_extract 22, indexer 23, config 13, locking 12, tasks 27, status 15). **Most need `mof-postgres-spm`
+The test suite is **261 tests** (retrieval_eval 39, scanner 38, tasks 27,
+chunker 26, ocr 23, indexer 23, rls 23, native_extract 22, status 15,
+config 13, locking 12). **Most need `mof-postgres-spm`
 running, and the locking/tasks/status suites need Redis too** — they use the real schema inside a transaction they always roll
 back, and skip with a clear message if the container is down. The OCR tests
 stub Azure and the indexer tests stub both the embedding API and Qdrant, so
@@ -257,7 +275,7 @@ vector store.
 > next build**, so also read `Documentation\NEXT_BUILD_CHAT_BACKEND.md`.
 >
 > Then verify the live system rather than trusting the docs: 13 containers
-> up, 13 migrations applied and 0 drifted, 199 tests passing, all three
+> up, 13 migrations applied and 0 drifted, 261 tests passing, all three
 > pipeline stages reporting nothing to do (`--dry-run` on
 > `pipeline.scanner`, `pipeline.ocr` and `pipeline.indexer`), Qdrant
 > holding 9 collections / 678 points, and `python -m pipeline.status`
