@@ -133,6 +133,26 @@ class OcrSettings:
 
 
 @dataclass(frozen=True)
+class IndexingSettings:
+    """Stage 2+3 (chunk -> embed -> index) parameters.
+
+    Embedding requests are batched two ways at once, because either limit
+    can bite first: `batch_size` caps how many chunks go in one request,
+    `max_batch_tokens` caps their combined size. The corpus median chunk is
+    ~435 tokens, so 32 chunks is ~14k tokens — comfortably inside both.
+
+    `retry_failed_by_default` is True here, and deliberately the OPPOSITE
+    of the OCR stage's setting. The reasoning is cost asymmetry, not
+    inconsistency: re-OCRing a broken file re-bills per page, whereas
+    re-embedding the entire 58-document corpus costs under a cent. When
+    retrying is nearly free, hiding failures serves nobody.
+    """
+    batch_size: int = 32
+    max_batch_tokens: int = 16_000
+    retry_failed_by_default: bool = True
+
+
+@dataclass(frozen=True)
 class ChunkingSettings:
     """Chunking parameters, overridable per deployment via .env.
 
@@ -160,6 +180,7 @@ class Settings:
     chunking: ChunkingSettings = field(default_factory=ChunkingSettings)
     scanner: ScannerSettings = field(default_factory=ScannerSettings)
     ocr: OcrSettings = field(default_factory=OcrSettings)
+    indexing: IndexingSettings = field(default_factory=IndexingSettings)
 
 
 def _scanner_from_env() -> ScannerSettings:
@@ -181,6 +202,18 @@ def _ocr_from_env() -> OcrSettings:
             _optional("OCR_THIN_RESULT_CHARS", str(OcrSettings.thin_result_chars))
         ),
         retry_failed_by_default=_optional("OCR_RETRY_FAILED", "false").lower()
+        in ("1", "true", "yes"),
+    )
+
+
+def _indexing_from_env() -> IndexingSettings:
+    """Allow per-deployment tuning without touching code."""
+    return IndexingSettings(
+        batch_size=int(_optional("INDEX_BATCH_SIZE", str(IndexingSettings.batch_size))),
+        max_batch_tokens=int(
+            _optional("INDEX_MAX_BATCH_TOKENS", str(IndexingSettings.max_batch_tokens))
+        ),
+        retry_failed_by_default=_optional("INDEX_RETRY_FAILED", "true").lower()
         in ("1", "true", "yes"),
     )
 
@@ -244,4 +277,5 @@ def get_settings() -> Settings:
         chunking=_chunking_from_env(),
         scanner=_scanner_from_env(),
         ocr=_ocr_from_env(),
+        indexing=_indexing_from_env(),
     )
