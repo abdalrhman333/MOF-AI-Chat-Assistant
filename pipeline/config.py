@@ -112,6 +112,27 @@ class ScannerSettings:
 
 
 @dataclass(frozen=True)
+class OcrSettings:
+    """Stage 1 (OCR) parameters.
+
+    `thin_result_chars` is a WARNING threshold, never a failure condition.
+    A graphics-heavy deck or a scan whose content lives inside images will
+    always come back thin — measured, not assumed: one real 9-page scanned
+    PDF returned 11 <figure> blocks of which 10 held nothing but a stray
+    character. Marking that 'failed' would re-pay Document Intelligence for
+    the same document on every future run, forever, for a result that
+    cannot improve. So it is recorded, flagged in the run summary, and left
+    for a human to judge.
+
+    `retry_failed_by_default` is False for the same reason pointed the
+    other way: a document that genuinely errors should not silently
+    re-bill on every run. Retrying is explicit (`--retry-failed`).
+    """
+    thin_result_chars: int = 200
+    retry_failed_by_default: bool = False
+
+
+@dataclass(frozen=True)
 class ChunkingSettings:
     """Chunking parameters, overridable per deployment via .env.
 
@@ -138,6 +159,7 @@ class Settings:
     models: AzureModelSettings
     chunking: ChunkingSettings = field(default_factory=ChunkingSettings)
     scanner: ScannerSettings = field(default_factory=ScannerSettings)
+    ocr: OcrSettings = field(default_factory=OcrSettings)
 
 
 def _scanner_from_env() -> ScannerSettings:
@@ -149,6 +171,17 @@ def _scanner_from_env() -> ScannerSettings:
             "SCANNER_DEFAULT_DOC_TYPE", ScannerSettings.default_doc_type
         ),
         ignore_patterns=patterns or ScannerSettings.ignore_patterns,
+    )
+
+
+def _ocr_from_env() -> OcrSettings:
+    """Allow per-deployment tuning without touching code."""
+    return OcrSettings(
+        thin_result_chars=int(
+            _optional("OCR_THIN_RESULT_CHARS", str(OcrSettings.thin_result_chars))
+        ),
+        retry_failed_by_default=_optional("OCR_RETRY_FAILED", "false").lower()
+        in ("1", "true", "yes"),
     )
 
 
@@ -210,4 +243,5 @@ def get_settings() -> Settings:
         ),
         chunking=_chunking_from_env(),
         scanner=_scanner_from_env(),
+        ocr=_ocr_from_env(),
     )
