@@ -1,6 +1,6 @@
 # Infrastructure — MOF Enjaz Chatbot
 
-**Last verified:** 2026-08-08
+**Last verified:** 2026-08-09
 **Machine:** owner's own PC — Windows, RTX 3070, 32GB RAM, Docker Desktop
 (Compose v5, WSL2 backend)
 

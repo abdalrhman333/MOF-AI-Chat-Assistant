@@ -5,7 +5,7 @@ file first.** It tells you what this project is, which documents to read in
 what order, and how to verify the real state of the system before changing
 anything.
 
-**Last verified:** 2026-08-08 — infra, full SPM schema (13 migrations,
+**Last verified:** 2026-08-09 — infra, full SPM schema (13 migrations,
 row-level security enabled), complete mock corpus, and **the entire
 ingestion pipeline built and run over all 58 documents**: discovery → OCR →
 chunk → embed → index, ending in **678 vectors across 9 per-project Qdrant

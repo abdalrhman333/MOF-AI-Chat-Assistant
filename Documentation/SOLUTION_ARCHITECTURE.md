@@ -1,6 +1,6 @@
 # Solution Architecture — MOF Enjaz Chatbot
 
-**Last verified:** 2026-08-08
+**Last verified:** 2026-08-09
 
 This document describes **what the solution must do** (derived from the
 BRD) and **how we decided to build it** — the retrieval architecture, the

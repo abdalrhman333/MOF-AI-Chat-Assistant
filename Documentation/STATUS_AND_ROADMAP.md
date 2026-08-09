@@ -1,6 +1,6 @@
 # Status & Roadmap — MOF Enjaz Chatbot
 
-**Last verified:** 2026-08-08
+**Last verified:** 2026-08-09
 
 ---
 
@@ -218,8 +218,13 @@
   production-ready.
 - [ ] **Frontend**: chat interface, project switcher, knowledge-base
   view-only page, language switcher + RTL support, document upload UI.
-- [ ] **OCR approach.** Unresolved for this project; also unresolved in the
-  colleague's reference build — nothing to copy there.
+- [x] **OCR approach — resolved 2026-08-08 and built.** Azure Document
+  Intelligence `prebuilt-layout`, markdown output, for every format, with a
+  native fallback only for Office files Azure rejects. Measured across 11
+  files (§10a), and the measurement reversed the initial recommendation.
+  All 58 documents extracted. This line sat unticked for a day after the
+  work was finished — it stayed on the "not started" list while §10
+  described it in detail two screens below.
 
 ---
 
@@ -790,6 +795,29 @@ distinguishing was ever indexed.
 Putting the filename in the breadcrumb is the obvious hypothesis. It is an
 ingestion change, it forces a full re-index, and — the point of building
 this — it can now be *tested* rather than argued about. No change was made.
+
+**And on checking, its severity is largely an artifact of the test
+grouping.** `TEST-PROJECT` is a deliberate bag of 13 unrelated real
+documents filed as one "project"; a genuine project holds one project's
+documents. Counting same-type collisions across the corpus:
+
+| Project | Duplicated type | Count |
+|---|---|---|
+| TEST-PROJECT | Project Charter | 4 |
+| TEST-PROJECT | Risk Management Plan Template | 2 |
+| TEST-PROJECT | Business Requirements Document | 2 |
+| **PRJ-03** | **Weekly Status Report** | **2** |
+
+Exactly one *realistic* project has two documents of the same type — and
+both state their own identifying date in the body text (`22/06/2026` and
+`27/07/2026` respectively, in the first 1,400 characters), so they are
+distinguishable from content alone without the filename.
+
+So the defect is real but rare in the shape a real SharePoint would take.
+**Re-indexing the whole corpus to fix a problem that mostly does not occur
+outside an artificial test grouping is not obviously worth it** — and the
+payload schema is a live contract on 678 points. Recorded here so the
+finding is not acted on more forcefully than the evidence supports.
 
 ⚠️ **The baseline is only meaningful against this question set and this
 corpus.** Both are named in `baseline.json`. The harness validates every
