@@ -1,40 +1,41 @@
 {
   "_what": "A point-in-time retrieval baseline. Re-run 'python -m evaluation.retrieval_eval --json' and compare against this to tell a real improvement from a comfortable feeling. Nothing reads this file automatically; it is a record, and it is only meaningful against the question set and corpus named below.",
-  "_recorded": "2026-08-09",
-  "_commit": "4670d1b",
-  "_corpus": "9 projects, 58 documents, 678 passages",
+  "_caution": "Recall@k is NOT stable to four decimals across index rebuilds. Scores cluster tightly: on ar-05-actions, ranks 5/6/7 sit at 0.3118/0.3114/0.3111 — a 0.0007 spread. Qdrant's HNSW index is approximate, so rebuilding it reshuffles near-ties across a cut-off. Treat a recall change of one question (about 0.03 here) as noise; MRR and mean_top_score are steadier.",
+  "_recorded": "2026-08-12",
+  "_commit": "5d6652d",
+  "_corpus": "9 projects, 58 documents, 678 passages (index rebuilt 2026-08-12 after corpus recovery)",
   "_question_set": "questions.json",
   "_embedding_model": "text-embedding-3-S",
   "dry_run": false,
   "questions": 29,
   "search_limit": 5,
-  "mrr": 0.8287,
+  "mrr": 0.8391,
   "recall": {
-    "1": 0.7586,
+    "1": 0.7931,
     "3": 0.8966,
-    "5": 0.931
+    "5": 0.8966
   },
-  "mean_top_score": 0.5071,
+  "mean_top_score": 0.507,
   "by_language": {
     "ar": {
       "n": 16,
-      "mrr": 0.825,
+      "mrr": 0.8125,
       "recall": {
         "1": 0.75,
         "3": 0.875,
-        "5": 0.9375
+        "5": 0.875
       },
-      "mean_top_score": 0.4828
+      "mean_top_score": 0.4827
     },
     "en": {
       "n": 10,
-      "mrr": 0.85,
+      "mrr": 0.9,
       "recall": {
-        "1": 0.8,
+        "1": 0.9,
         "3": 0.9,
         "5": 0.9
       },
-      "mean_top_score": 0.5508
+      "mean_top_score": 0.5509
     },
     "mixed": {
       "n": 3,
@@ -44,7 +45,7 @@
         "3": 1.0,
         "5": 1.0
       },
-      "mean_top_score": 0.4909
+      "mean_top_score": 0.4905
     }
   },
   "results": [
@@ -53,7 +54,7 @@
       "project": "PRJ-01",
       "lang": "ar",
       "rank": 1,
-      "top_score": 0.5577,
+      "top_score": 0.5576,
       "expected": [
         "PRJ-01_RiskRegister_20260701.docx"
       ],
@@ -71,7 +72,7 @@
       "project": "PRJ-01",
       "lang": "ar",
       "rank": 2,
-      "top_score": 0.4254,
+      "top_score": 0.4253,
       "expected": [
         "PRJ-01_ProjectCharter_20250312.docx"
       ],
@@ -89,7 +90,7 @@
       "project": "PRJ-02",
       "lang": "ar",
       "rank": 1,
-      "top_score": 0.495,
+      "top_score": 0.4951,
       "expected": [
         "PRJ-02_LessonsLearned_20260620.docx"
       ],
@@ -107,7 +108,7 @@
       "project": "PRJ-02",
       "lang": "ar",
       "rank": 1,
-      "top_score": 0.5322,
+      "top_score": 0.5302,
       "expected": [
         "PRJ-02_MeetingMinutes_20260722.pdf"
       ],
@@ -125,7 +126,7 @@
       "project": "PRJ-03",
       "lang": "ar",
       "rank": 1,
-      "top_score": 0.5457,
+      "top_score": 0.5455,
       "expected": [
         "PRJ-03_LessonsLearned_20260625.docx"
       ],
@@ -161,7 +162,7 @@
       "project": "PRJ-06",
       "lang": "ar",
       "rank": 1,
-      "top_score": 0.5637,
+      "top_score": 0.5644,
       "expected": [
         "PRJ-06_ProjectCharter_20250122.docx"
       ],
@@ -179,7 +180,7 @@
       "project": "PRJ-06",
       "lang": "ar",
       "rank": 2,
-      "top_score": 0.3528,
+      "top_score": 0.3529,
       "expected": [
         "PRJ-06_RiskRegister_20260720.docx"
       ],
@@ -197,7 +198,7 @@
       "project": "PRJ-05",
       "lang": "ar",
       "rank": 1,
-      "top_score": 0.4414,
+      "top_score": 0.4412,
       "expected": [
         "PRJ-05_ProjectCharter_20250910.docx"
       ],
@@ -214,7 +215,7 @@
       "id": "ar-05-actions",
       "project": "PRJ-05",
       "lang": "ar",
-      "rank": 5,
+      "rank": null,
       "top_score": 0.4244,
       "expected": [
         "PRJ-05_MeetingMinutes_20260716.pdf"
@@ -224,7 +225,7 @@
         "PRJ-05_ProjectCharter_20250910.docx",
         "PRJ-05_ProjectCharter_20250910.docx",
         "PRJ-05_ProjectCharter_20250910.docx",
-        "PRJ-05_MeetingMinutes_20260716.pdf"
+        "PRJ-05_ProjectCharter_20250910.docx"
       ],
       "error": null
     },
@@ -233,7 +234,7 @@
       "project": "PRJ-08",
       "lang": "ar",
       "rank": 1,
-      "top_score": 0.5245,
+      "top_score": 0.5246,
       "expected": [
         "PRJ-08_HandoverDocument_20251218.pdf"
       ],
@@ -269,7 +270,7 @@
       "project": "PRJ-04",
       "lang": "ar",
       "rank": 1,
-      "top_score": 0.3567,
+      "top_score": 0.3569,
       "expected": [
         "PRJ-04_MeetingMinutes_20251028.pdf"
       ],
@@ -287,7 +288,7 @@
       "project": "PRJ-04",
       "lang": "ar",
       "rank": 1,
-      "top_score": 0.5715,
+      "top_score": 0.5706,
       "expected": [
         "PRJ-04_BudgetReport_20251130.pdf"
       ],
@@ -341,7 +342,7 @@
       "project": "PRJ-07",
       "lang": "en",
       "rank": 1,
-      "top_score": 0.4597,
+      "top_score": 0.4596,
       "expected": [
         "PRJ-07_ProjectCharter_20241106.docx"
       ],
@@ -358,14 +359,14 @@
       "id": "en-07-security-decision",
       "project": "PRJ-07",
       "lang": "en",
-      "rank": 2,
-      "top_score": 0.5485,
+      "rank": 1,
+      "top_score": 0.5496,
       "expected": [
         "PRJ-07_MeetingMinutes_20260709.pdf"
       ],
       "returned": [
-        "PRJ-07_LessonsLearned_20260630.docx",
         "PRJ-07_MeetingMinutes_20260709.pdf",
+        "PRJ-07_LessonsLearned_20260630.docx",
         "PRJ-07_MeetingMinutes_20260709.pdf",
         "PRJ-07_MeetingMinutes_20260709.pdf",
         "PRJ-07_WeeklyStatusReport_20260731.docx"
@@ -377,7 +378,7 @@
       "project": "PRJ-07",
       "lang": "en",
       "rank": 1,
-      "top_score": 0.4775,
+      "top_score": 0.4776,
       "expected": [
         "PRJ-07_RiskRegister_20260714.docx"
       ],
@@ -395,7 +396,7 @@
       "project": "PRJ-02",
       "lang": "en",
       "rank": 1,
-      "top_score": 0.6239,
+      "top_score": 0.6237,
       "expected": [
         "PRJ-02_WeeklyStatusReport_20260728.docx"
       ],
@@ -449,7 +450,7 @@
       "project": "TEST-PROJECT",
       "lang": "en",
       "rank": null,
-      "top_score": 0.4831,
+      "top_score": 0.4832,
       "expected": [
         "Emdad - Project Charter - V1 1.docx"
       ],
@@ -485,7 +486,7 @@
       "project": "TEST-PROJECT",
       "lang": "en",
       "rank": 1,
-      "top_score": 0.6204,
+      "top_score": 0.6203,
       "expected": [
         "JEDCO002001 - Project Charter - Employee internal Portal V 1.0 .docx"
       ],
@@ -521,7 +522,7 @@
       "project": "PRJ-03",
       "lang": "mixed",
       "rank": 1,
-      "top_score": 0.5719,
+      "top_score": 0.5709,
       "expected": [
         "PRJ-03_WeeklyStatusReport_20260727.docx",
         "PRJ-03_WeeklyStatusReport_20260622.docx"
@@ -540,7 +541,7 @@
       "project": "PRJ-06",
       "lang": "mixed",
       "rank": 3,
-      "top_score": 0.3698,
+      "top_score": 0.3699,
       "expected": [
         "PRJ-06_BudgetReport_20260630.pdf"
       ],
@@ -558,7 +559,7 @@
       "project": "PRJ-04",
       "lang": "mixed",
       "rank": 1,
-      "top_score": 0.5308,
+      "top_score": 0.5307,
       "expected": [
         "PRJ-04_HandoverDocument_20251105.pdf"
       ],

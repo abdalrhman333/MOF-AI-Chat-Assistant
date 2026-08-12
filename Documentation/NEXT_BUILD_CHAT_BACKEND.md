@@ -49,7 +49,12 @@ documents under any circumstance. Two of the three layers already exist:
 |---|---|---|
 | Vector search | One Qdrant collection per project — no shared index to misfilter | ✅ 678 payloads verified, 0 contamination |
 | SQL | Row-level security; `spm_app` is `SELECT`-only and scoped per transaction | ✅ migration `013`, fail-closed, **23 regression tests since 2026-08-09** |
-| **Session gate** | Is the requested project actually assigned to this user? | ❌ **not built** |
+| **Session gate** | Is the requested project actually assigned to this user? | ✅ **built 2026-08-12** — `Application/backend/session.py`, 40 tests, 16 mutations |
+
+**All three layers now exist.** The gate was demonstrated to be necessary
+before it was written: a user assigned to PRJ-02/05/06, scoping a session to
+PRJ-01, was handed PRJ-01's row by RLS without complaint. Full record in
+`STATUS_AND_ROADMAP.md` §14.
 
 ⚠️ **`SET LOCAL` cannot take a bind parameter.** Building it by string
 concatenation means interpolating a request-supplied project code into the
@@ -128,10 +133,48 @@ improvement recall cannot see. MRR moves 0.33 → 1.00 for that same change.
 **It also de-risks the AC06/AC08 tension** described in §5: any change that
 costs seconds can now be justified — or refuted — with a number.
 
-### Step 2 — session gate + project scoping (AC09)
+### Step 2 — session gate + project scoping (AC09) ✅ **BUILT** (2026-08-12)
 
-The absolute requirement, and the piece everything else depends on. Build
-it, test it adversarially, before anything sits on top of it.
+`Application/` — all chat-application code lives there, apart from the
+pipeline and the evaluation harness.
+
+```python
+from Application.backend.session import open_session, list_assigned_projects
+
+for project in list_assigned_projects(username):      # the switcher
+    ...
+session = open_session(username, project_code)        # raises AccessDenied
+with session.scoped() as cursor:                      # scoped to that project
+    cursor.execute("SELECT ... FROM document_links")
+```
+
+| Module | Responsibility |
+|---|---|
+| `backend/errors.py` | `AccessDenied` / `BackendUnavailable`, sharing `AccessError` so a caller that only fails closed still does the right thing |
+| `backend/db.py` | The `spm_app` pool, explicit transaction boundaries, scope applied with a bind parameter |
+| `backend/session.py` | The gate, the `Session` value object, and the switcher |
+
+Properties, each mutation-tested:
+
+- **Denial is non-enumerable.** "Not yours" and "does not exist" produce an
+  identical message and reason, or the error becomes a project directory.
+- **Failure is never permission.** An unreachable database raises rather
+  than returning an empty (and therefore apparently permitted) result.
+- **The app refuses to start as `spm_admin`.** That role bypasses RLS, and
+  every isolation test would still pass, because the tests scope correctly.
+- **`Session` is the only way to reach data.** It is obtainable only from
+  the gate, so a function requiring one cannot be handed an unvalidated code.
+
+⚠️ **Migration `014`** lets a user read the projects they are assigned to,
+by name, before any project is scoped — `013` alone returned zero rows in
+that state. It does **not** close the gap above; permissive policies combine
+with OR, so `project_scope` still serves a declared project.
+
+⚠️ **The gate trusts the username it is handed.** AD SSO and OTP are
+external dependencies that do not exist here, so it answers *"may this user
+open this project?"* and never *"is this really that user?"*. Whatever
+supplies the identity later becomes part of this security boundary; nothing
+downstream should accept a username from a request body.
 
 ### Step 3 — retrieval composition (AC06)
 
@@ -273,8 +316,8 @@ These cost real time to learn. All are recorded in full in
 
 ```bash
 docker compose ps                                            # 13 containers
-python infra/postgres-spm/apply_migrations.py --status        # 13 applied, 0 drifted
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 261 passed
+python infra/postgres-spm/apply_migrations.py --status        # 14 applied, 0 drifted
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 301 passed
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status     # exit 0, HEALTHY
 ```
 

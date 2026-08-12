@@ -259,11 +259,63 @@ def test_project_codes_are_matched_case_sensitively(world):
     "UPDATE projects SET name_en = 'tampered'",
 ])
 def test_a_valid_session_still_cannot_write(world, statement):
+    """These are live destructive statements. They must be unable to commit
+    even when they unexpectedly SUCCEED.
+
+    ⚠️ This test previously relied on the `spm_app` role to refuse them,
+    and ran them through the pool — which commits on clean exit. During
+    mutation testing, the mutation that points the pool at the owner role
+    made all three statements succeed, and they were committed before
+    `pytest.raises` reported the missing exception. It destroyed the corpus:
+    58 document rows, the cascaded OCR cache, and every project name.
+
+    The lesson generalises well beyond this file: **a destructive test must
+    not depend on the system under test for its own safety.** So the work
+    now happens inside a transaction this test owns and unconditionally
+    rolls back. `session.scoped(connection=...)` opens a nested transaction
+    (a savepoint), so a refusal still rolls back cleanly to it, while the
+    outer block guarantees nothing reaches disk on either path.
+    """
     psycopg = pytest.importorskip("psycopg")
+    settings = get_settings()
     session = open_session(world["user"], world["theirs"][0])
-    with pytest.raises(psycopg.errors.InsufficientPrivilege):
-        with session.scoped() as cursor:
-            cursor.execute(statement)
+
+    with psycopg.connect(settings.postgres_app.dsn, connect_timeout=3) as conn:
+        with conn.transaction():
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                with session.scoped(connection=conn) as cursor:
+                    cursor.execute(statement)
+            # Reached only when the statement was correctly refused. Rolling
+            # back explicitly means the passing path leaves nothing behind
+            # either. If the statement instead succeeded, pytest.raises
+            # raises Failed here, which also unwinds this transaction.
+            raise psycopg.Rollback()
+
+
+def test_the_write_denial_tests_cannot_commit(world, admin):
+    """Guards the guard: proves the harness above actually rolls back.
+
+    Runs the same shape of statement, asserts it was refused, and then
+    confirms from an independent connection that the corpus is untouched.
+    Without this, a future refactor could quietly reintroduce the commit
+    path that destroyed the corpus once already.
+    """
+    psycopg = pytest.importorskip("psycopg")
+    before = admin.execute("SELECT count(*) FROM document_links").fetchone()[0]
+    assert before > 0, "nothing to protect — is the corpus loaded?"
+
+    settings = get_settings()
+    session = open_session(world["user"], world["theirs"][0])
+    with psycopg.connect(settings.postgres_app.dsn, connect_timeout=3) as conn:
+        with conn.transaction():
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                with session.scoped(connection=conn) as cursor:
+                    cursor.execute("DELETE FROM document_links")
+            raise psycopg.Rollback()
+
+    admin.rollback()          # fresh snapshot, not this connection's view
+    after = admin.execute("SELECT count(*) FROM document_links").fetchone()[0]
+    assert after == before
 
 
 # ---------------------------------------------------------------------------
@@ -328,6 +380,41 @@ def test_scope_does_not_survive_a_borrow(world):
             assert cursor.execute("SELECT count(*) FROM projects").fetchone()[0] == 0
 
 
+def test_the_pool_scrubs_session_state_a_future_mistake_might_leave(world):
+    """Covers the *defence in depth*, not the primary mechanism.
+
+    `SET LOCAL` already ends with its transaction, so removing the pool's
+    `RESET ALL` changes nothing while every caller behaves — which is why
+    that mutation survived: a redundant layer is invisible when the layer
+    it backs up is intact. This exercises what the reset actually exists
+    for: someone, someday, reaching for a plain `SET`.
+
+    A dedicated pool with `max_size=1` guarantees the same connection comes
+    back, so the assertion cannot pass by getting a fresh one.
+    """
+    pytest.importorskip("psycopg")
+    from psycopg_pool import ConnectionPool
+
+    settings = get_settings()
+    code = world["theirs"][0]
+    single = ConnectionPool(conninfo=settings.postgres_app.dsn, min_size=1,
+                            max_size=1, timeout=5.0, reset=db._reset, open=True,
+                            name="reset-probe")
+    try:
+        with single.connection() as conn:
+            first = conn.execute("SELECT pg_backend_pid()").fetchone()[0]
+            # A plain SET: the mistake the reset is insurance against.
+            conn.execute("SELECT set_config(%s, %s, false)", (db.PROJECT_KEY, code))
+            assert conn.execute("SELECT count(*) FROM document_links").fetchone()[0] > 0
+        with single.connection() as conn:
+            assert conn.execute("SELECT pg_backend_pid()").fetchone()[0] == first, \
+                "different connection — the test proved nothing"
+            assert conn.execute("SELECT count(*) FROM document_links").fetchone()[0] == 0, \
+                "a plain SET survived the pool; RESET ALL is not doing its job"
+    finally:
+        single.close()
+
+
 def test_the_scope_is_transaction_local_on_one_connection(world, admin):
     """Proves `set_config(..., true)` directly, on a single connection,
     where the pool's own RESET ALL cannot mask a regression to `false`.
@@ -346,6 +433,32 @@ def test_the_scope_is_transaction_local_on_one_connection(world, admin):
         conn.commit()
         # Same connection, next transaction. Nothing re-applied.
         assert cursor.execute("SELECT count(*) FROM document_links").fetchone()[0] == 0
+        conn.rollback()
+
+
+def test_the_username_scope_is_transaction_local_too(world, admin):
+    """The project scope is not the only one that can leak.
+
+    ⚠️ Added because a mutation SURVIVED: switching only the *username*
+    scope to connection-level was caught by nothing. The test above applies
+    both scopes but asserts on `document_links`, which is scoped by
+    project — so a leaking username was invisible to it, and the pool's own
+    RESET ALL hid it from the pooled tests.
+
+    `projects` is the observable that depends on username alone, via
+    migration 014's policy. If the username survives the transaction, a
+    user's assigned projects stay visible into the next one.
+    """
+    psycopg = pytest.importorskip("psycopg")
+    settings = get_settings()
+    expected = len(world["theirs"])
+    with psycopg.connect(settings.postgres_app.dsn, connect_timeout=3) as conn:
+        cursor = conn.cursor()
+        db.apply_scope(cursor, username=world["user"])
+        assert cursor.execute("SELECT count(*) FROM projects").fetchone()[0] == expected
+        conn.commit()
+        assert cursor.execute("SELECT count(*) FROM projects").fetchone()[0] == 0, \
+            "the username scope survived its transaction"
         conn.rollback()
 
 

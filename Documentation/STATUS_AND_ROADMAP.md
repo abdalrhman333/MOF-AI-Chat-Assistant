@@ -1,6 +1,6 @@
 # Status & Roadmap — MOF Enjaz Chatbot
 
-**Last verified:** 2026-08-09
+**Last verified:** 2026-08-12
 
 ---
 
@@ -455,16 +455,17 @@ What the chat backend walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**261 tests, ~12s** — `test_retrieval_eval.py` 39 + `test_scanner.py` 38 +
-`test_tasks.py` 27 + `test_chunker.py` 26 + `test_ocr.py` 23 +
-`test_indexer.py` 23 + `test_rls.py` 23 + `test_native_extract.py` 22 +
-`test_status.py` 15 + `test_config.py` 13 + `test_locking.py` 12.
+**301 tests, ~20s** — `test_session_gate.py` 40 + `test_retrieval_eval.py` 39 +
+`test_scanner.py` 38 + `test_tasks.py` 27 + `test_chunker.py` 26 +
+`test_ocr.py` 23 + `test_indexer.py` 23 + `test_rls.py` 23 +
+`test_native_extract.py` 22 + `test_status.py` 15 + `test_config.py` 13 +
+`test_locking.py` 12.
 *(Counted from `--collect-only`, not estimated — this number has needed
 correcting three times when it was inferred instead.)*
 
-`test_rls.py` is the only file that connects as **`spm_app`**. Every other
-file uses `spm_admin`, which bypasses row-level security, which is exactly
-why RLS went untested for so long (§13a). `test_retrieval_eval.py` stubs
+`test_rls.py` and `test_session_gate.py` are the only files that connect as
+**`spm_app`**. Every other file uses `spm_admin`, which bypasses row-level
+security — exactly why RLS went untested for so long (§13a). `test_retrieval_eval.py` stubs
 the embedding API and Qdrant, so the evaluation harness is fully covered
 without a paid call.
 
@@ -473,7 +474,7 @@ they exercise the real lock, because atomic set-if-absent, expiry and
 compare-and-delete are exactly the properties a fake dictionary would not
 have.
 
-**Most of the 261 tests need `mof-postgres-spm` running**, and
+**Most of the 301 tests need `mof-postgres-spm` running**, and
 `test_locking.py` / `test_tasks.py` / `test_status.py` need **Redis** as
 well. They create a throwaway
 project, exercise the **real** schema and constraints, and always roll
@@ -714,6 +715,111 @@ What is real, and belongs to the chat backend: Arabic scores ~0.40 against
 English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
 That is **ranking**, not retrieval — the answer is in the results every
 time.
+
+---
+
+## 14. The AC09 session gate (2026-08-12)
+
+The first component of the chat application. `Application/` is its home;
+`pipeline/` and `evaluation/` stay where they are.
+
+### 14a. What RLS could never do, demonstrated before building
+
+Row-level security **serves whatever project the session declares**.
+Verified live before a line was written: a user assigned to PRJ-02/05/06,
+scoping a session to PRJ-01, was handed PRJ-01's row without complaint.
+That is RLS working correctly — scoping is an *input* to it. Deciding
+whether a scope is permitted happens exactly once, in
+`Application/backend/session.py`.
+
+| Layer | Enforced by | Can it be forgotten? |
+|---|---|---|
+| One Qdrant collection per project | infrastructure | no — no shared index |
+| Row-level security | the database | no — fail-closed |
+| **Is this project theirs?** | **the gate** | **yes. Hence the tests** |
+
+### 14b. Migration 014 — the switcher
+
+`projects` was scoped by `app.current_project`, so before a session exists
+a user saw **zero rows** and a switcher could offer codes with no names.
+A second policy lets a user read the projects they are assigned to. The
+alternative — one scoped query per project — moves an access rule into
+application code, the weakness `013` existed to remove.
+
+Verified it widens nothing else: with a username and no project, documents
+and OCR content both still return 0 rows.
+
+⚠️ It does **not** close 14a. Permissive policies combine with OR, so
+`project_scope` still serves a declared project. The gate is what closes it.
+
+### 14c. Three defects found by building and attacking it
+
+- **The pool was silently broken on first write.** `RESET ALL` on a
+  non-autocommit connection opens a transaction, and psycopg_pool discards
+  any connection returned `INTRANS` — so it threw away every connection and
+  reconnected per request. Caught by asserting reuse, now a test: a pool
+  that never reuses hides the very leak it exists to expose.
+- **A NUL byte in a project code escaped the module's contract**, raising
+  `psycopg.DataError` rather than `AccessError`. Found by the adversarial
+  tests. Rejected now — minimally, since only NUL is genuinely unstorable.
+- **A destructive test relied on the system under test for its own safety**
+  (§14e). That one cost a corpus.
+
+### 14d. Mutation testing — 16 mutations
+
+Round 1: 12 run, 9 caught, 3 survived. Of the survivors, **two were badly
+designed mutations that did not implement the threat they claimed** — re-run
+realistically, both were caught. The third was genuine: the pool's
+`RESET ALL` is defence in depth, invisible while `SET LOCAL` works, so a
+test was added that exercises what it actually guards (a plain `SET`
+surviving a borrow). Round 2: 4 realistic mutations, all caught.
+
+**Every real threat is now caught**, including one that survived the first
+round entirely: switching only the *username* scope to connection-level.
+The project-scope test asserted on `document_links`, which is project-
+scoped, so a leaking username was invisible to it.
+
+### 14e. The corpus was destroyed, and how
+
+Mutation 5 pointed the pool at the owner role, to prove the tests would
+notice. They did — 15 failures. But `test_a_valid_session_still_cannot_write`
+ran real `DELETE`/`UPDATE` statements and relied on the **role** to refuse
+them, through the pool, which **commits on clean exit**. As `spm_admin`
+they succeeded and committed before `pytest.raises` reported the missing
+exception.
+
+Lost: 58 `document_links` rows, 58 cascaded `document_content` rows (the
+paid OCR cache), and all 9 `projects.name_en` values.
+
+**The lesson generalises well past this repo: a destructive test must not
+depend on the system under test for its own safety.** Those tests now run
+inside a transaction they unconditionally roll back, so a statement that
+unexpectedly succeeds still cannot commit — and
+`test_the_write_denial_tests_cannot_commit` guards that guard. The mutation
+runner additionally takes a `pg_dump` and verifies a corpus fingerprint
+after **every** mutation.
+
+Recovery, in order: project names restored from seed `002` (compared
+column-by-column — only `name_en` had drifted), `document_links` reseeded
+from `008`/`009`, `pipeline.scanner` refilled hashes (`insert 0`, so seeds
+and disk agree exactly), the 9 stale Qdrant collections dropped, re-OCR,
+re-index. **Cost: 154 pages ≈ $1.54.** Result: 678 chunks and 295,232
+tokens — *identical* to the original, per project.
+
+Two things the rebuild exposed:
+
+- **The native fallback masks transient failures.** One `.docx` fell back
+  after a `ServiceResponseError` — a service blip, not the permanent
+  rejection the fallback was designed for — silently downgrading extraction
+  quality while the run reported "RECOVERED". Re-OCR'd it to restore the
+  57/1 split. **The fallback should distinguish a transient error from a
+  rejection and retry; it does not. Recorded, not changed.**
+- **Recall@k is not stable across index rebuilds.** On `ar-05-actions`,
+  ranks 5/6/7 sit at 0.3118/0.3114/0.3111 — a 0.0007 spread. Qdrant's HNSW
+  index is approximate, so rebuilding reshuffles near-ties across a
+  cut-off. One question moved out of the top 5 and another moved 2→1. Treat
+  a one-question recall change as noise; MRR and mean top score are
+  steadier (mean top score was identical to four decimals).
 
 ---
 

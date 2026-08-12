@@ -1,6 +1,6 @@
 # Inventory — Folders, Tools, Models, Libraries
 
-**Last verified:** 2026-08-09
+**Last verified:** 2026-08-12
 
 A tracking reference for everything installed, downloaded, or created on
 this machine for this project — what it is, why it exists, and how to
@@ -16,13 +16,14 @@ open it" reference.
 
 | Folder/file | Contents | Why here, not elsewhere |
 |---|---|---|
-| `Documentation\` | This file + `SOLUTION_ARCHITECTURE.md`, `INFRASTRUCTURE.md`, `STATUS_AND_ROADMAP.md`, `NEXT_BUILD_PIPELINE.md`, `NEXT_BUILD_CHAT_BACKEND.md`, `START_HERE.md` | Small text, versioned with the code it describes |
+| `Documentation\` | This file + `SOLUTION_ARCHITECTURE.md`, `INFRASTRUCTURE.md`, `STATUS_AND_ROADMAP.md`, `NEXT_BUILD_PIPELINE.md`, `NEXT_BUILD_CHAT_BACKEND.md`, `START_HERE.md`, `SYSTEM_WORKFLOW.html` | Small text, versioned with the code it describes |
 | `My_Prompts\` | `SOLUTION_SCOPE.md` (BRD-derived scope, assistant-authored) + `PRE_PIPELINE_ENHANCEMENTS.md` (user-authored) | Requirements/planning source material |
-| `infra\` | `docker-compose.yml`, `.env` / `.env.example`, `postgres-spm\init\` (one-time) + `migrations\` (13 SQL files, ongoing), `apply_migrations.py`, `README.md` | All infrastructure-as-code |
+| `infra\` | `docker-compose.yml`, `.env` / `.env.example`, `postgres-spm\init\` (one-time) + `migrations\` (14 SQL files, ongoing), `apply_migrations.py`, `README.md` | All infrastructure-as-code |
 | `mock-data\` | `spm_manifest.json` — the 8-project / 4-user / 45-document source data | Small structured data, worth versioning |
 | `pipeline\` | `__init__.py`, `config.py` (all settings), `chunker.py`, `db.py` (the `spm_admin` connection), `scanner.py` (Stage 0 — discovery), `ocr.py` (Stage 1 — extraction), `native_extract.py` (Office fallback), `indexer.py` (Stages 2+3 — chunk, embed, index), `locking.py` (cross-process stage locks), `tasks.py` (Celery tasks + schedule), `status.py` (operational health check) | The only application code that exists so far. The ingestion pipeline is complete and runs as a containerised worker; there is no chat backend or frontend |
+| `Application\` | `README.md` (layout + the trust boundary), `backend\errors.py` (typed access failures), `backend\db.py` (the `spm_app` pool, transaction boundaries, scope applied with a bind parameter), `backend\session.py` (the AC09 gate). An `api/` package and a `frontend/` are named in the README as their future home but are not built | **All chat-application code lives here**, kept apart from the pipeline that builds the knowledge base and the harness that measures it — they run as different processes under different database roles |
 | `evaluation\` | `dataset.py` (load + validate the question set), `retrieval_eval.py` (embed, search, score), `questions.json` (29 tagged questions — **data, not code**, path configurable via `EVAL_QUESTIONS_PATH`), `baseline.json` (the measured baseline, a record) | Measures retrieval quality so a change can be shown to help. Separate from `pipeline\` because the pipeline *produces* the vector store and this *judges* it |
-| `tests\` | `test_retrieval_eval.py` (39) + `test_scanner.py` (38) + `test_tasks.py` (27) + `test_chunker.py` (26) + `test_ocr.py` (23) + `test_indexer.py` (23) + `test_rls.py` (23) + `test_native_extract.py` (22) + `test_status.py` (15) + `test_config.py` (13) + `test_locking.py` (12) + `tests\fixtures\` (3 real OCR samples) | **261 tests.** The Postgres-backed ones roll back and leave nothing behind; `test_locking.py` and `test_tasks.py` need Redis. `test_ocr.py` stubs Azure, `test_indexer.py` and `test_retrieval_eval.py` stub both the embedding API and Qdrant, so everything that costs money is fully tested with no paid call and no writes to the live vector store. **`test_rls.py` is the only file that connects as `spm_app`** — every other file uses `spm_admin`, which bypasses row-level security, which is why RLS went untested until 2026-08-09 |
+| `tests\` | `test_session_gate.py` (40) + `test_retrieval_eval.py` (39) + `test_scanner.py` (38) + `test_tasks.py` (27) + `test_chunker.py` (26) + `test_ocr.py` (23) + `test_indexer.py` (23) + `test_rls.py` (23) + `test_native_extract.py` (22) + `test_status.py` (15) + `test_config.py` (13) + `test_locking.py` (12) + `testsixtures\` (3 real OCR samples) | **301 tests.** The Postgres-backed ones roll back and leave nothing behind; `test_locking.py` and `test_tasks.py` need Redis. `test_ocr.py` stubs Azure, `test_indexer.py` and `test_retrieval_eval.py` stub both the embedding API and Qdrant, so everything that costs money is fully tested with no paid call and no writes to the live vector store. **`test_rls.py` and `test_session_gate.py` are the only files that connect as `spm_app`** — every other file uses `spm_admin`, which bypasses row-level security, which is why RLS went untested until 2026-08-09 |
 | `Dockerfile` / `.dockerignore` | Image for the ingestion worker | Built by `docker compose build pipeline-worker`; excludes `.venv` and `infra/.env` from the build context |
 | `requirements.txt` / `requirements-dev.txt` | Pinned Python dependencies | Reproducible environment |
 | `.venv\` | Project virtualenv | **Gitignored** — machine-specific, never committed |
@@ -134,8 +135,8 @@ Never into system Python — one of the four gaps closed before the pipeline pha
 
 ```bash
 docker ps --format "{{.Names}}: {{.Status}}"                     # 13 containers
-python infra/postgres-spm/apply_migrations.py --status           # 13 applied, 0 pending
-.venv/Scripts/python -m pytest tests/ -q                         # 261 passed
+python infra/postgres-spm/apply_migrations.py --status           # 14 applied, 0 pending
+.venv/Scripts/python -m pytest tests/ -q                         # 301 passed
 find /d/MOF_DataSample -maxdepth 1 -type d                       # 9 project folders
 
 # The whole pipeline has run. Every stage is free to re-run unchanged:

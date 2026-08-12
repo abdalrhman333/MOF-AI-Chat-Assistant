@@ -5,12 +5,14 @@ file first.** It tells you what this project is, which documents to read in
 what order, and how to verify the real state of the system before changing
 anything.
 
-**Last verified:** 2026-08-09 — infra, full SPM schema (13 migrations,
+**Last verified:** 2026-08-12 — infra, full SPM schema (14 migrations,
 row-level security enabled), complete mock corpus, and **the entire
 ingestion pipeline built and run over all 58 documents**: discovery → OCR →
 chunk → embed → index, ending in **678 vectors across 9 per-project Qdrant
-collections**. Retrieval has been tested with real questions and works. The
-**chat backend is the next build**; there is no backend or frontend yet.
+collections**. Retrieval quality is measured, not guessed
+(`evaluation/`). The **AC09 session gate is built** — `Application/` is
+where all chat-application code lives. There is still no HTTP layer and no
+frontend; retrieval composition (AC06) is the next build.
 
 ---
 
@@ -44,6 +46,7 @@ This is a **different use case** than a colleague's separate build
 | 5 | **`NEXT_BUILD_CHAT_BACKEND.md`** | **If you are here to build the chat backend — the next thing — read this.** Acceptance criteria, the AC09 session gate, build order, non-negotiable rules, known-unknowns |
 | 6 | `NEXT_BUILD_PIPELINE.md` | The ingestion pipeline's brief. **Now a record, not a to-do** — what was specified, what was built, and the five places they differ |
 | 7 | `INVENTORY.md` | Every folder, container, cloud model, and library used on this machine — what it is, why, and how to access it |
+| — | `Application/README.md` | **The chat application's layout and its trust boundary.** Read before touching anything user-facing: the gate trusts the identity it is handed, and that is a deliberate, documented deferral |
 | — | `SYSTEM_WORKFLOW.html` | **Visual walkthrough of what is built, in plain language.** Eight diagrams: the whole machine, the container map, the schema and the two database roles, all four pipeline stages, the scheduler and its locks, and the health check. Open it in a browser. Describes the current state only — no roadmap |
 | — | `Enjaz_Solution_Guide.docx` | **For non-technical readers / stakeholders.** Plain-language guide to the whole solution: what it does, how it works, why each choice was made, and how to rebuild it. Not needed for development work |
 
@@ -93,7 +96,7 @@ find "/d/MOF_DataSample" -maxdepth 1 -type d
 ```
 
 ```bash
-python infra/postgres-spm/apply_migrations.py --status   # read-only; expect 13 applied, 0 pending, 0 drifted
+python infra/postgres-spm/apply_migrations.py --status   # read-only; expect 14 applied, 0 pending, 0 drifted
 ```
 
 Stages 0 and 1 have run: every `document_links` row carries a real SHA-256
@@ -225,9 +228,9 @@ as a containerised Celery worker** — `mof-pipeline-worker` and
 `mof-pipeline-beat`. There is still no FastAPI app and no frontend. See
 `STATUS_AND_ROADMAP.md` for the exact done/not-done line.
 
-The test suite is **261 tests** (retrieval_eval 39, scanner 38, tasks 27,
-chunker 26, ocr 23, indexer 23, rls 23, native_extract 22, status 15,
-config 13, locking 12). **Most need `mof-postgres-spm`
+The test suite is **301 tests** (session_gate 40, retrieval_eval 39,
+scanner 38, tasks 27, chunker 26, ocr 23, indexer 23, rls 23,
+native_extract 22, status 15, config 13, locking 12). **Most need `mof-postgres-spm`
 running, and the locking/tasks/status suites need Redis too** — they use the real schema inside a transaction they always roll
 back, and skip with a clear message if the container is down. The OCR tests
 stub Azure and the indexer tests stub both the embedding API and Qdrant, so
@@ -275,7 +278,7 @@ vector store.
 > next build**, so also read `Documentation\NEXT_BUILD_CHAT_BACKEND.md`.
 >
 > Then verify the live system rather than trusting the docs: 13 containers
-> up, 13 migrations applied and 0 drifted, 261 tests passing, all three
+> up, 14 migrations applied and 0 drifted, 301 tests passing, all three
 > pipeline stages reporting nothing to do (`--dry-run` on
 > `pipeline.scanner`, `pipeline.ocr` and `pipeline.indexer`), Qdrant
 > holding 9 collections / 678 points, and `python -m pipeline.status`

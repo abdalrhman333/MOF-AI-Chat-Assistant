@@ -1,6 +1,6 @@
 # Infrastructure — MOF Enjaz Chatbot
 
-**Last verified:** 2026-08-09
+**Last verified:** 2026-08-12
 **Machine:** owner's own PC — Windows, RTX 3070, 32GB RAM, Docker Desktop
 (Compose v5, WSL2 backend)
 
@@ -83,7 +83,7 @@ D:\MOF Enjaz Chatbot\infra\        <- tracked in the repo
   .env.example                      <- template, safe to commit
   postgres-spm\init\                <- SQL run ONCE on first container creation
                                         (extensions only)
-  postgres-spm\migrations\          <- ongoing, additive SPM schema (001-013).
+  postgres-spm\migrations\          <- ongoing, additive SPM schema (001-014).
                                         Apply with the runner, never by hand
                                         — see §7b.
   postgres-spm\apply_migrations.py  <- the migration runner
@@ -425,7 +425,7 @@ written* to *one gate that can be reviewed and tested once*.
 
 ---
 
-## 8. SPM database schema (as of migrations 001–013)
+## 8. SPM database schema (as of migrations 001–014)
 
 | Table | Purpose | Key columns |
 |---|---|---|
