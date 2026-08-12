@@ -348,14 +348,14 @@
   <header class="masthead">
     <div class="kicker">MOF · منصة إنجاز · Build state as of 9 August 2026</div>
     <h1>How the Enjaz assistant works today</h1>
-    <p class="standfirst">A walk through everything that has actually been built — the infrastructure it runs on, the database underneath it, and the four-stage pipeline that turns 58 project documents on a disk into 678 searchable vectors, kept in nine sealed per-project compartments.</p>
+    <p class="standfirst">A walk through everything that has actually been built — the infrastructure it runs on, the database underneath it, the four-stage pipeline that turns 58 project documents into 678 searchable passages in nine sealed compartments, the gate that decides who may open which project, and the measurement that says whether search is any good.</p>
   </header>
   <div class="underrule"></div>
 
   <div class="strip">
     <div class="cell"><span class="n">13</span><span class="k">containers running</span></div>
-    <div class="cell"><span class="n">13</span><span class="k">migrations applied, 0 drifted</span></div>
-    <div class="cell"><span class="n">199</span><span class="k">tests passing</span></div>
+    <div class="cell"><span class="n">14</span><span class="k">migrations applied, 0 drifted</span></div>
+    <div class="cell"><span class="n">301</span><span class="k">tests passing</span></div>
     <div class="cell"><span class="n">58</span><span class="k">documents, all indexed</span></div>
     <div class="cell"><span class="n">678</span><span class="k">vectors in 9 collections</span></div>
     <div class="cell"><span class="n">0</span><span class="k">failed · 0 pending</span></div>
@@ -621,6 +621,8 @@
     </figure>
 
     <p>Both behaviours were tested rather than assumed: a plain <code>UPDATE</code> as <code>spm_app</code> returns <em>permission denied</em>, and a session that forgets to declare its project sees zero rows instead of all 58.</p>
+
+    <p>One deliberate exception exists, and it is narrow. Before a session is opened there <em>is</em> no current project, so the rules above would show a person nothing at all — including the names of their own projects, which is what a project chooser needs. A second rule lets someone read the entries for projects they are personally assigned to, and nothing more. Documents stay invisible until a project is actually chosen.</p>
   </section>
 
   <!-- ============================================================= -->
@@ -1116,12 +1118,144 @@
 
   <!-- ============================================================= -->
   <section>
-    <div class="shead"><span class="snum">10</span><h2>How any of this is known to work</h2></div>
+    <div class="shead"><span class="snum">10</span><h2>Who is allowed to see what</h2></div>
     <div class="srule"></div>
 
-    <p class="lead">199 automated tests, running in about eleven seconds. But the tests are not the interesting part — the method used to check the tests themselves is.</p>
+    <p class="lead">The strictest requirement in the whole brief is that <strong>no one may see documents from a project they are not assigned to — under any circumstance</strong>. Three separate mechanisms stand behind it, and only one of them is ordinary application code.</p>
 
-    <p><strong>Every safety feature was proved by deliberately breaking it</strong> and confirming that the intended test caught the break. 44 such deliberate breakages were run across the pipeline. Four of them slipped through, which exposed four real gaps in the test suite that were invisible on inspection — including a test that quietly passed against broken code because it imported the very constant it was supposed to be checking.</p>
+    <p>That one matters most, because it is the only one that can be forgotten. It was built after being shown to be necessary: a user assigned to three projects, opening a session on a fourth, <strong>was handed that fourth project's data without complaint</strong>. Not a bug — the database faithfully serves whatever project the session claims to be about. Deciding whether that claim is <em>allowed</em> is a separate job, and nothing was doing it.</p>
+
+    <figure>
+      <div class="scroller">
+      <svg class="dg" viewBox="0 0 1080 480" role="img" aria-label="Three layers of project isolation: the session gate checks assignments and can deny; row-level security scopes every query to one project; and each project has its own vector collection. Only the gate can validate whether a project may be claimed at all.">
+        <defs>
+          <marker id="a9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="currentColor"/>
+          </marker>
+          <marker id="a9r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon class="mk-r" points="0,1 10,5 0,9"/>
+          </marker>
+        </defs>
+
+        <text class="lbl" x="24" y="26">EVERY REQUEST PASSES ALL THREE, IN THIS ORDER</text>
+
+        <rect class="bx" x="24" y="38" width="300" height="54" rx="2"/>
+        <text class="t" x="38" y="60">A request</text>
+        <text class="s" x="38" y="80">who is asking, and about which project</text>
+
+        <line class="ln" x1="174" y1="92" x2="174" y2="124" marker-end="url(#a9)"/>
+
+        <rect class="bx-a" x="24" y="126" width="300" height="104" rx="2"/>
+        <text class="tealtext" x="38" y="148">1 — THE GATE · application code</text>
+        <text class="t" x="38" y="170">Is this project theirs?</text>
+        <text class="s" x="38" y="190">Checks the assignment list — which is</text>
+        <text class="s" x="38" y="206">itself filtered to the asking user, so two</text>
+        <text class="s" x="38" y="222">mechanisms must fail to get a wrong answer.</text>
+
+        <g class="bad">
+          <line class="ln" x1="324" y1="178" x2="400" y2="178" marker-end="url(#a9r)"/>
+        </g>
+        <rect class="bx" x="404" y="152" width="188" height="52" rx="2"/>
+        <text class="tm bad" x="418" y="174">refused</text>
+        <text class="s" x="418" y="192">and no session is created</text>
+
+        <line class="ln" x1="174" y1="230" x2="174" y2="262" marker-end="url(#a9)"/>
+
+        <rect class="bx-a" x="24" y="264" width="300" height="98" rx="2"/>
+        <text class="tealtext" x="38" y="286">2 — THE DATABASE</text>
+        <text class="t" x="38" y="308">One project per transaction</text>
+        <text class="s" x="38" y="328">Every query is filtered by the database</text>
+        <text class="s" x="38" y="344">itself. Forget to say which project, and</text>
+        <text class="s" x="38" y="360">you see nothing at all.</text>
+
+        <line class="ln" x1="174" y1="362" x2="174" y2="394" marker-end="url(#a9)"/>
+
+        <rect class="bx-a" x="24" y="396" width="300" height="72" rx="2"/>
+        <text class="tealtext" x="38" y="418">3 — THE VECTOR STORE</text>
+        <text class="t" x="38" y="438">A separate store per project</text>
+        <text class="s" x="38" y="458">There is no shared index to search wrongly.</text>
+
+        <rect class="bx-o" x="620" y="38" width="440" height="196" rx="2"/>
+        <text class="lbl" x="638" y="62">WHY LAYER 1 CANNOT BE SKIPPED</text>
+        <text class="s" x="638" y="88">Layers 2 and 3 both assume the session already names</text>
+        <text class="s" x="638" y="106">the RIGHT project. Neither can tell a wrong-but-real</text>
+        <text class="s" x="638" y="124">project from the correct one — they simply serve what</text>
+        <text class="s" x="638" y="142">they are told, faithfully and quietly.</text>
+        <text class="s" x="638" y="170">Demonstrated on the live system before the gate was</text>
+        <text class="s" x="638" y="188">written: a user assigned to three projects asked for a</text>
+        <text class="s" x="638" y="206">fourth, and the database returned it. That is the exact</text>
+        <text class="s" x="638" y="224">gap layer 1 closes, and the only one it can.</text>
+
+        <rect class="bx-o" x="620" y="256" width="440" height="212" rx="2"/>
+        <text class="lbl" x="638" y="280">HOW A REFUSAL IS WORDED, AND WHY</text>
+        <text class="s" x="638" y="306">"You are not assigned to that project" and "that project</text>
+        <text class="s" x="638" y="324">does not exist" are deliberately the SAME message.</text>
+        <text class="s" x="638" y="350">Otherwise the error itself becomes a directory: submit</text>
+        <text class="s" x="638" y="368">codes one by one, read which ones answer differently,</text>
+        <text class="s" x="638" y="386">and you have listed the ministry's projects without ever</text>
+        <text class="s" x="638" y="404">being allowed into one.</text>
+        <text class="s" x="638" y="432">The real reason is still recorded internally, for logs —</text>
+        <text class="s" x="638" y="450">it just never reaches whoever asked.</text>
+      </svg>
+      </div>
+      <figcaption>The gate holds no data and owns no connection. It issues a session, and a session is the only way to reach anything — so a later function that requires one cannot be handed an unchecked project code.</figcaption>
+    </figure>
+
+    <h3>What the assistant can never do</h3>
+    <ul>
+      <li><strong>Write anything.</strong> The application's database account has read permission only. "The assistant makes no changes to any system" stopped being a promise and became something the database enforces.</li>
+      <li><strong>Run with the pipeline's privileges.</strong> The pipeline's account can reach every project — it has to, to process them all. If the application were ever configured with that account by mistake, it refuses to start rather than quietly seeing everything.</li>
+      <li><strong>Treat an outage as permission.</strong> If the database cannot be reached, the answer is a refusal, never an empty result that looks like "nothing to see here".</li>
+    </ul>
+
+    <div class="note">
+      <span class="nh">One honest limitation</span>
+      <p>The gate decides <em>whether a user may open a project</em>. It does not verify <em>that they are who they say they are</em> — real staff sign-on is an external system that isn't available here. That deferral is deliberate and written down rather than disguised, and whatever supplies the identity later becomes part of this boundary.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">11</span><h2>Measuring whether search actually works</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">Until recently nobody could answer a simple question: <em>did that change make search better?</em> There were impressions — Arabic seemed weaker than English, the right passage often came second rather than first — and impressions are a poor basis for spending effort.</p>
+
+    <p>So there is now a set of <strong>29 realistic questions</strong>, in Arabic, English and mixed, spanning all nine projects, each tagged with the document that genuinely contains the answer. Written by reading the extracted text, not by guessing from filenames. Running it costs a fraction of a penny.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <caption>The measured baseline</caption>
+        <thead>
+          <tr><th>Questions</th><th class="num">Count</th><th class="num">Right answer ranked 1st</th><th class="num">In the top 3</th><th class="num">Ranking score</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>All</strong></td><td class="num">29</td><td class="num">79%</td><td class="num">90%</td><td class="num">0.84</td></tr>
+          <tr><td>Arabic</td><td class="num">16</td><td class="num">75%</td><td class="num">88%</td><td class="num">0.81</td></tr>
+          <tr><td>English</td><td class="num">10</td><td class="num">90%</td><td class="num">90%</td><td class="num">0.90</td></tr>
+          <tr><td>Mixed</td><td class="num">3</td><td class="num">67%</td><td class="num">100%</td><td class="num">0.78</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>The "ranking score" is 1.00 when the right answer is always first and 0.50 when it is typically second. It leads the report rather than a simple hit rate, because the known weakness is <em>ordering</em>: a hit rate can stay flat at 90% while the answer moves from third place to first, which is a large real improvement that a hit rate cannot see.</p>
+
+    <div class="note">
+      <span class="nh">The measurement immediately corrected a belief</span>
+      <p>Arabic was assumed to rank worse than English. It scores lower on raw similarity — but the <em>ordering</em> is almost identical, and Arabic actually does slightly better at finding the answer within the top five. A low similarity score is not the same thing as a bad rank, and the two had been quietly conflated. The obvious fix that belief implied would have been effort spent on a problem that isn't there.</p>
+    </div>
+
+    <p>The question set is checked against the live document list before anything runs. If a document is renamed, the check fails loudly — because a question pointing at a document that no longer exists would score zero forever and look exactly like search getting worse.</p>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">12</span><h2>How any of this is known to work</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">301 automated tests, running in about twenty seconds. But the tests are not the interesting part — the method used to check the tests themselves is.</p>
+
+    <p><strong>Every safety feature was proved by deliberately breaking it</strong> and confirming that the intended test caught the break. 74 such deliberate breakages have been run across the system. The ones that slipped through were the valuable ones: each exposed a real gap that was invisible on inspection — including a test that quietly passed against broken code because it imported the very constant it was supposed to be checking, and a security check that no test was watching at all.</p>
 
     <div class="tbl-wrap">
       <table>
@@ -1130,11 +1264,14 @@
           <tr><th>Tests for</th><th class="num">Tests</th><th>What they exercise</th></tr>
         </thead>
         <tbody>
+          <tr><td class="mono">test_session_gate.py</td><td class="num">40</td><td>Who may open what, refusals, hostile input, pooled connections, concurrency</td></tr>
+          <tr><td class="mono">test_retrieval_eval.py</td><td class="num">39</td><td>The measurement itself — a wrong measuring tool is worse than none</td></tr>
           <tr><td class="mono">test_scanner.py</td><td class="num">38</td><td>All five discovery outcomes against the real database schema</td></tr>
           <tr><td class="mono">test_tasks.py</td><td class="num">27</td><td>The background tasks, the schedule, and stage sequencing</td></tr>
           <tr><td class="mono">test_chunker.py</td><td class="num">26</td><td>Cutting rules, including three real Document Intelligence samples</td></tr>
           <tr><td class="mono">test_ocr.py</td><td class="num">23</td><td>The full extraction path with Azure stubbed — no paid calls</td></tr>
           <tr><td class="mono">test_indexer.py</td><td class="num">23</td><td>Embedding and indexing with both the API and Qdrant stubbed</td></tr>
+          <tr><td class="mono">test_rls.py</td><td class="num">23</td><td>The database's own isolation rules, including future tables</td></tr>
           <tr><td class="mono">test_native_extract.py</td><td class="num">22</td><td>The local fallback reader for Office files</td></tr>
           <tr><td class="mono">test_status.py</td><td class="num">15</td><td>Health judgements, including the two-store comparison</td></tr>
           <tr><td class="mono">test_config.py</td><td class="num">13</td><td>Settings loading, and refusing an absolute stored path</td></tr>
@@ -1152,13 +1289,19 @@
 
     <div class="note">
       <span class="nh">The lesson that keeps repeating</span>
-      <p>Three of the pipeline's worst defects were invisible to a passing test suite and only appeared when something was actually run: a connection that closed itself, character positions that were wrong on 8 of 10 passages, and a stored path that only broke once a second machine mounted the same folder somewhere else.</p>
+      <p>The worst defects here were invisible to a passing test suite and only appeared when something was actually run: a connection that closed itself, character positions wrong on 8 of 10 passages, a stored path that only broke once a second machine mounted the same folder elsewhere, and a connection pool that was quietly throwing away every connection it was given.</p>
+    </div>
+
+    <div class="note cost">
+      <span class="nh">The most expensive lesson, kept on the record</span>
+      <p>The tests that check the assistant cannot write to the database used <em>real</em> delete statements, and relied on the database account's lack of permission to stop them. During a deliberate break — where that account was swapped for the powerful one, precisely to prove the tests would notice — the deletes succeeded and were saved before the test could report the problem. It destroyed the document records and the paid-for extracted text.</p>
+      <p>Everything was rebuilt from source files and version control, and the extraction re-run for about $1.54. The rebuild came back <em>identical</em>: same passage counts per project, same token totals. The fix is a general one worth stating plainly — <strong>a test that does something destructive must not rely on the thing it is testing to keep it safe.</strong> Those tests now undo their own work no matter what happens, and the break-testing tool takes a database snapshot and checks the corpus after every single break.</p>
     </div>
   </section>
 
   <!-- ============================================================= -->
   <section>
-    <div class="shead"><span class="snum">11</span><h2>What it all cost, and what exists</h2></div>
+    <div class="shead"><span class="snum">13</span><h2>What it all cost, and what exists</h2></div>
     <div class="srule"></div>
 
     <div class="tbl-wrap">
@@ -1170,8 +1313,10 @@
         <tbody>
           <tr><td>Reading the corpus</td><td class="num">154 pages</td><td class="num">≈ $1.54</td><td>All 58 documents, once. Re-running bills nothing.</td></tr>
           <tr><td>The extraction experiment</td><td class="num">87 pages</td><td class="num">≈ $0.87</td><td>Comparing Azure against free local reading — it reversed the plan</td></tr>
-          <tr><td>Embedding everything</td><td class="num">295,232 tokens</td><td class="num">&lt; $0.01</td><td>The whole corpus, for less than a cent</td></tr>
-          <tr><td><strong>Total</strong></td><td class="num"></td><td class="num"><strong>≈ $2.50</strong></td><td>For a complete, re-runnable, searchable corpus</td></tr>
+          <tr><td>Rebuilding after the test incident</td><td class="num">155 pages</td><td class="num">≈ $1.55</td><td>Recovery, described above. Verified identical to the original</td></tr>
+          <tr><td>Embedding, twice over</td><td class="num">590,464 tokens</td><td class="num">&lt; $0.02</td><td>The whole corpus, indexed and re-indexed, for under two cents</td></tr>
+          <tr><td>Measuring search quality</td><td class="num">~700 tokens</td><td class="num">&lt; $0.01</td><td>Each full evaluation run costs a fraction of a penny</td></tr>
+          <tr><td><strong>Total</strong></td><td class="num"></td><td class="num"><strong>≈ $4.00</strong></td><td>For a complete, re-runnable, searchable, access-controlled corpus</td></tr>
         </tbody>
       </table>
     </div>
@@ -1198,18 +1343,30 @@
     </div>
 
     <h3>The code that exists</h3>
-    <p>Eleven Python modules in one folder, and nothing else. There is no web application and no user interface yet — the pipeline is the entire codebase.</p>
-    <ul>
-      <li><code>config.py</code> — every setting, read from one file. No other module reads an environment variable or hardcodes a path, which is exactly why the pipeline moved into a container without a single code change.</li>
-      <li><code>scanner.py</code>, <code>ocr.py</code>, <code>native_extract.py</code>, <code>chunker.py</code>, <code>indexer.py</code> — the four stages and the fallback reader.</li>
-      <li><code>tasks.py</code>, <code>locking.py</code>, <code>status.py</code> — the layer that makes it run unattended.</li>
-      <li><code>db.py</code> — deliberately exposes only the pipeline's own database login. A pipeline module reaching for the restricted one is a pipeline module doing something wrong.</li>
-    </ul>
+    <p>Three separate packages, each with one job. There is still no web interface and no chat screen — nothing a person can type into yet.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <caption>What each package is for</caption>
+        <thead>
+          <tr><th>Package</th><th>Job</th><th>Database account</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="mono">pipeline/</td><td><strong>Builds</strong> the knowledge base — discovery, extraction, chunking, indexing, plus the worker, scheduler, locks and health check</td><td>the powerful one: it must reach every project</td></tr>
+          <tr><td class="mono">evaluation/</td><td><strong>Judges</strong> it — the tagged question set, the scoring, and the recorded baseline</td><td>read-only, all projects</td></tr>
+          <tr><td class="mono">Application/</td><td><strong>Serves</strong> it — the access gate and the scoped data layer. This is where the chat interface will be added</td><td>the restricted one: read-only, one project at a time</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>The separation is not filing tidiness. The three run as different processes with <em>deliberately different privileges</em>, and the one that faces users has the least. A module in <code>Application/</code> reaching for the pipeline's database account is a module doing something wrong, and the code refuses to start if it happens.</p>
+
+    <p>One rule holds all of it together: <strong>every setting is read from a single configuration file</strong> — no path, endpoint or project code is written into the code itself. That is why the pipeline could move into a container without a single code change, and why pointing this at a real document library later is configuration rather than a rewrite.</p>
   </section>
 
   <footer>
-    <p>Compiled 9 August 2026 from the running system on this machine. Every figure on this page was read from live output, not copied from documentation.</p>
-    <span class="mono">docker compose ps · apply_migrations.py --status · pytest tests/ -q · pipeline.status · pipeline.scanner --dry-run</span>
+    <p>Compiled 12 August 2026 from the running system on this machine. Every figure on this page was read from live output, not copied from documentation.</p>
+    <span class="mono">docker compose ps · apply_migrations.py --status · pytest tests/ -q · pipeline.status · pipeline.scanner --dry-run · evaluation.retrieval_eval</span>
   </footer>
 
 </div>

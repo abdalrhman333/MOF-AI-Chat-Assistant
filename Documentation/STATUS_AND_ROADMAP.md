@@ -203,14 +203,22 @@
   measure real retrieval: the 54 untested documents (`.pptx` and real
   English charters especially), and confirming whether the Arabic
   line-order oddity is a synthetic-file artifact.
-- [ ] **Workflow engine / chat backend.** Needs: language detection +
-  rejection of unsupported languages (AC01), intent routing (special vs.
-  general/SPM-retrieval, AC02), the three-source retrieval composition
-  (§3 of `SOLUTION_ARCHITECTURE.md`), grounded responses with citations
-  (AC06), safe fallback for out-of-scope/missing-knowledge queries (AC07),
-  5-second response budget (AC08). **Must validate the requested project
-  against `project_assignments` before opening a session** — RLS cannot
-  cover that gate.
+- [x] **Session gate + scoped data access (AC09)** — `Application/`,
+  built 2026-08-12. Validates the requested project against
+  `project_assignments` before a session opens, which RLS cannot do. 40
+  tests, 16 mutations. See §14.
+- [x] **Retrieval evaluation set** — `evaluation/`, built 2026-08-09.
+  29 tagged questions; MRR and recall@k; a recorded baseline. See §13b.
+- [ ] **Workflow engine / chat backend — remaining.** Still needs:
+  language detection + rejection of unsupported languages (AC01), intent
+  routing (special vs. general/SPM-retrieval, AC02), the three-source
+  retrieval composition (§3 of `SOLUTION_ARCHITECTURE.md`), grounded
+  responses with citations (AC06), safe fallback for out-of-scope queries
+  (AC07), and the 5-second response budget (AC08). The AC09 gate it sits
+  on is done.
+- [ ] **HTTP layer (FastAPI)** — `Application/backend/api/`. Deliberately
+  not built with the gate: keeping a web framework out of the security
+  boundary is what let it be tested without one.
 - [ ] **Auth**: AD SSO + OTP + RBAC. Real AD isn't available in dev — needs
   a mock per the BRD's own practical note (`SOLUTION_SCOPE.md`, "Practical
   note for a demo/development build"). True OTP is a hard external
@@ -290,38 +298,46 @@
 
 ---
 
-## 5. Immediate next step
+## 5. Where the build has reached, and what is next
 
-**The ingestion pipeline is finished and running unattended.** Next is the
-chat backend — the first component a user actually touches.
+📄 **The brief is `NEXT_BUILD_CHAT_BACKEND.md`.** Its five-step order is
+being followed; steps 1 and 2 are done.
 
-📄 **Its brief is `NEXT_BUILD_CHAT_BACKEND.md`** — acceptance criteria,
-the AC09 session gate, suggested build order, non-negotiable rules and
-known-unknowns. Written in the same shape as the pipeline brief, which
-caught five places that build had to deviate from what was specified.
+| # | Component | State |
+|---|---|---|
+| — | **Infrastructure** — 13 containers, all data on D: | ✅ |
+| — | **SPM schema** — 14 migrations, RLS, 23 regression tests | ✅ |
+| — | **Ingestion pipeline** — scan → OCR → chunk → embed → index | ✅ 58 docs, 678 vectors |
+| — | **Operations** — worker, daily schedule, stage locks, health check | ✅ runs unattended |
+| **1** | **Retrieval evaluation** — 29 tagged questions, MRR + recall | ✅ 2026-08-09, §13b |
+| **2** | **Session gate + scoped access** (AC09) — `Application/` | ✅ 2026-08-12, §14 |
+| **3** | **Retrieval composition** (AC06) — RAG + live SPM + CAG, cited | ⬜ **next** |
+| **4** | **Conversational layer** (AC01–AC05, AC07) | ⬜ |
+| **5** | **Latency (AC08) + observability** — Langfuse, OTLP → Grafana | ⬜ |
+| — | **HTTP layer** (FastAPI) — `Application/backend/api/` | ⬜ not started |
+| — | **Frontend** — chat, switcher, KB page, RTL | ⬜ not started |
+| — | **Auth** — AD SSO + OTP | ⬜ deferred, external dependency |
 
-| Stage | Does | Writes | State |
-|---|---|---|---|
-| **0 — Scan** | Walk `DOCUMENT_ROOT`, hash each file, upsert rows | `document_links` (seeded `file_path` placeholders **replaced with real discovery**) | ✅ done, 58/58 |
-| **1 — OCR** | Document Intelligence `prebuilt-layout` → markdown, native fallback for rejected Office files | `document_content` | ✅ done, 58/58 |
-| **2+3 — Chunk, embed, index** | `pipeline/chunker.py` → Azure embeddings → `project_<code>` collections | Qdrant; `indexing_status`, `chunk_count`, `indexed_at` | ✅ done, 678 vectors |
+**Step 3 is next: retrieval composition.** Everything it needs now exists —
+a gate that guarantees the session is legitimately scoped, a measurement
+that can tell whether a change to retrieval helped, and payloads already
+carrying `filename`, `doc_type`, `page`, `section` for citations.
 
-What the chat backend walks into, flagged in advance:
+What it walks into, flagged in advance:
 
-- **Ranking, not retrieval, is the open quality problem.** The right chunk
-  comes back for Arabic questions, but often 2nd or 3rd rather than 1st,
-  and Arabic scores ~0.40 against English's ~0.60. Reranking, hybrid
-  search, or simply retrieving more candidates and letting the LLM choose
-  are all untried. Do **not** reach for a chunking change first — that
-  hypothesis was already tested and rejected (§11c).
-- **The session gate is application code and cannot be delegated.**
-  Validating that the requested project is genuinely one of the user's,
-  against `project_assignments`, before the session opens. RLS and
-  per-project collections both assume the session is scoped *correctly*;
-  neither can tell a wrong-but-valid project from a right one
-  (`INFRASTRUCTURE.md` §7c).
-- **`SET LOCAL`, never `SET`** — a plain `SET` persists on a pooled
-  connection and leaks the previous request's project scope into the next.
+- ~~**Ranking is the open quality problem.**~~ **Measured 2026-08-09 and
+  largely refuted.** Arabic *similarity scores* are lower (0.483 vs 0.551)
+  but ranking is essentially equal (MRR 0.813 vs 0.900 on the current
+  index, and Arabic has matched or beaten English at recall@5). Reranking
+  is a much weaker bet than it looked. Do **not** reach for a chunking
+  change — tested and rejected twice (§11c, §13b).
+- **Every retrieval must go through a `Session`.** It is obtainable only
+  from the gate, so a function that requires one cannot be handed an
+  unvalidated project code. Do not call `db.scoped()` with a raw project.
+- **`SET LOCAL` cannot take a bind parameter** — use
+  `set_config(name, value, true)`. `Application/backend/db.py` already does.
+- **Recall@k is not stable across index rebuilds** (§14e). Treat a
+  one-question change as noise; MRR and mean top score are steadier.
 - **Source arbitration is decided** (2026-08-09, §3.3 of
   `SOLUTION_ARCHITECTURE.md`): when a weekly report and SPM's status field
   disagree, present **both**, attribute each with its date, and let the
