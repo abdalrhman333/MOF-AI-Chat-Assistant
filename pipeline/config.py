@@ -192,6 +192,26 @@ class CelerySettings:
 
 
 @dataclass(frozen=True)
+class ApplicationSettings:
+    """Chat application settings — the connection pool behind `spm_app`.
+
+    The pipeline needs none of this: it opens one connection per run and
+    closes it. The application serves concurrent requests, so it pools —
+    and pooling is exactly where `SET LOCAL` stops being a style preference
+    and becomes the isolation boundary. A plain `SET` on a pooled
+    connection persists onto whoever borrows it next.
+
+    `pool_max_size` bounds concurrent database work, not concurrent users;
+    requests queue for up to `pool_timeout_seconds` and then fail rather
+    than hang forever, because a request that waits indefinitely for a
+    connection has already blown the AC08 five-second budget.
+    """
+    pool_min_size: int = 1
+    pool_max_size: int = 8
+    pool_timeout_seconds: float = 10.0
+
+
+@dataclass(frozen=True)
 class EvaluationSettings:
     """Retrieval evaluation parameters.
 
@@ -248,6 +268,7 @@ class Settings:
             questions_path=REPO_ROOT / "evaluation" / "questions.json"
         )
     )
+    application: ApplicationSettings = field(default_factory=ApplicationSettings)
 
     def resolve_document(self, stored_path: str) -> pathlib.Path:
         """Turn a stored `document_links.file_path` into a real path.
@@ -349,6 +370,22 @@ def _indexing_from_env() -> IndexingSettings:
     )
 
 
+def _application_from_env() -> ApplicationSettings:
+    """Allow per-deployment tuning without touching code."""
+    return ApplicationSettings(
+        pool_min_size=int(
+            _optional("APP_POOL_MIN_SIZE", str(ApplicationSettings.pool_min_size))
+        ),
+        pool_max_size=int(
+            _optional("APP_POOL_MAX_SIZE", str(ApplicationSettings.pool_max_size))
+        ),
+        pool_timeout_seconds=float(
+            _optional("APP_POOL_TIMEOUT_SECONDS",
+                      str(ApplicationSettings.pool_timeout_seconds))
+        ),
+    )
+
+
 def _evaluation_from_env() -> EvaluationSettings:
     """Allow per-deployment tuning without touching code."""
     raw = _optional("EVAL_RECALL_AT", "1,3,5")
@@ -424,4 +461,5 @@ def get_settings() -> Settings:
         ocr=_ocr_from_env(),
         indexing=_indexing_from_env(),
         evaluation=_evaluation_from_env(),
+        application=_application_from_env(),
     )

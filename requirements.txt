@@ -16,6 +16,17 @@
 
 # ---- Database ---------------------------------------------------------
 psycopg[binary]==3.3.4                  # Postgres driver (psycopg3)
+psycopg_pool==3.3.1                     # connection pool for the chat
+                                        # application only — the pipeline
+                                        # opens one connection per run and
+                                        # needs none. It is here because
+                                        # pooling is precisely where the
+                                        # SET LOCAL rule earns its keep: a
+                                        # plain SET would persist onto the
+                                        # next request to borrow that
+                                        # connection, and that leak cannot
+                                        # be reproduced — or tested —
+                                        # without a real pool.
 
 # ---- Vector store -----------------------------------------------------
 qdrant-client==1.19.0
