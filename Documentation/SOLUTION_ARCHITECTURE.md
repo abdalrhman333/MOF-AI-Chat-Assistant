@@ -659,6 +659,26 @@ questions without calling the model. Building a semantic classifier to
 re-decide what the floor decides for free would spend the AC08 budget
 twice.
 
+**AC03 carries history to the model, but composes queries only on
+failure.** Two separate decisions, because they cost different things.
+Prior turns as chat messages cost tokens, not a round-trip, and fix
+reference resolution at answer time. Retrieval is different: a follow-up
+carrying any topical noun already retrieves well, because the collection is
+one project and the project record is always present — only *purely*
+referential follow-ups (`لماذا؟`, `tell me more`) retrieve nothing at all.
+So the previous question is prepended **only when the bare question found
+no evidence**, which converts a refusal into an answer rather than
+refining one that already worked. An LLM query-rewrite — the standard
+approach — would cost a round-trip on every turn against the AC08 budget
+to do what one extra embedding does on the minority of turns that need it.
+
+**A `Conversation` is bound to one `Session` for its lifetime.** This is
+§4.2's isolation guarantee extended through time: a transcript cannot come
+to hold two projects, and a follow-up cannot resolve against a project the
+user has left. Switching project produces a new session from the gate and
+therefore a new conversation, which is the honest model of what a switch
+is.
+
 ⚠️ **What "special handling" means is our definition, not the BRD's.** The
 source says only "queries needing special handling versus general
 SPM-knowledge retrieval". The intent set — `greeting`, `courtesy`,

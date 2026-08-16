@@ -11,11 +11,13 @@ ingestion pipeline built and run over all 58 documents**: discovery → OCR →
 chunk → embed → index, ending in **678 vectors across 9 per-project Qdrant
 collections**. Retrieval quality is measured, not guessed
 (`evaluation/`). `Application/` holds the AC09 session gate, grounded
-answering over RAG + live SPM, and — new on 2026-08-16 — **the
-conversational entry point: language verification (AC01), intent routing
-(AC02), reply-in-kind (AC05) and the out-of-scope fallback (AC07)**. There
-is still no HTTP layer and no frontend; session continuity (AC03) and the
-bilingual welcome (AC04) are the next build.
+answering over RAG + live SPM, and — new on 2026-08-16 — **the whole
+conversational layer: language verification (AC01), intent routing (AC02),
+multi-turn continuity (AC03), the bilingual welcome (AC04), reply-in-kind
+(AC05) and the out-of-scope fallback (AC07)**. **Every acceptance criterion
+the backend owns is now built**, apart from AC08's response time, which is
+met warm but not yet instrumented. There is still no HTTP layer and no
+frontend; latency + observability (step 5) is the next build.
 
 ---
 
@@ -238,19 +240,24 @@ importable Python, not a running service. `backend/api/` and `frontend/`
 are named in `Application/README.md` as their future home and do not exist.
 See `STATUS_AND_ROADMAP.md` §5 for the exact done/not-done line.
 
-Asking a real question end to end, today. **Use `handle_question`** — it is
-the entry point that applies AC01 and AC02 before spending anything;
-`answer_question` below it is the grounded-answering engine and skips both:
+Holding a real conversation end to end, today. **Use `open_conversation`**
+— it applies AC01 and AC02 before spending anything, carries history for
+AC03, and offers AC04's welcome. `answer_question` underneath is the
+grounded-answering engine and skips all of that:
 
 ```bash
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -c "from Application.backend.session import open_session; from Application.backend.conversation import handle_question; from Application.backend import db; s=open_session('noura.alharbi','PRJ-06'); r=handle_question(s,'ما الميزانية المعتمدة للمشروع؟'); print(r.outcome, r.reply_language); print(r.text); [print(' -',c.label) for c in r.citations]; print(r.timings.as_dict()); db.close_pool()"
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -c "from Application.backend.session import open_session; from Application.backend.conversation import open_conversation; from Application.backend import db; t=open_conversation(open_session('noura.alharbi','PRJ-06')); print(t.welcome); [print(q,'->',t.ask(q).text[:90]) for q in ['ما الميزانية المعتمدة للمشروع؟','وتاريخ الانتهاء؟']]; db.close_pool()"
 ```
 
-⚠️ **`handle_question` is an entry point, not a chokepoint.**
-`answer_question` is still importable and bypasses the language check, so
-anything user-facing must come through `conversation.py`. The rule that
-must never be bypassable — project scope — is structural already
-(`Session`), which is why this one is not duplicated.
+`handle_question(session, text)` is the single-turn form underneath it, for
+a caller that owns its own history.
+
+⚠️ **These are entry points, not chokepoints.** `answer_question` is still
+importable and bypasses the language check, so anything user-facing must
+come through `conversation.py`. The rule that must never be bypassable —
+project scope — is structural already (`Session`), which is why this one is
+not duplicated. A `Conversation` extends that through time: its session is
+fixed at construction, so switching project means a new one.
 
 **Checking AC01/AC02 without spending anything** — 47 tagged probes,
 offline, exit 0 when all pass:
@@ -261,10 +268,14 @@ PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.conversation_probe --n
 ```
 
 The second form disables the Latin language identifier and is what
-justifies the `py3langid` dependency: language accuracy drops 1.000 → 0.936
-and unsupported-language recall 1.00 → 0.62, missing French, Spanish and
-German exactly. If that ever stops being true the dependency is buying
-nothing.
+justifies the `py3langid` dependency: unsupported-language recall collapses,
+missing French, Spanish and German exactly. If that ever stops being true
+the dependency is buying nothing.
+
+⚠️ **A probe set inherits its author's blind spots.** Every non-English
+probe was originally a full sentence, so a live run — not the probe set —
+caught *"Quel est le budget?"* being answered in English (§18d). When
+adding a case, add the *awkward* shape too: short, fragmentary, mixed.
 
 ⚠️ **Cold start blows the AC08 five-second budget; warm runs sit inside
 it.** Measured on the command above: the *first* call in a fresh process
@@ -279,8 +290,8 @@ yet — it belongs with the latency work (`STATUS_AND_ROADMAP.md` §5, step
 per question. Recorded so the first person to measure it does not think
 they have found a regression.
 
-The test suite is **470 tests** (answering 50, session_gate 42,
-conversation 41, retrieval_eval 39, intent 40, scanner 38, language 37,
+The test suite is **508 tests** (answering 50, language 42, session_gate 42,
+conversation 40, intent 40, retrieval_eval 39, scanner 38, continuity 33,
 tasks 27, chunker 26, ocr 23, indexer 23, rls 23, native_extract 22,
 status 15, config 13, locking 12). **Most need `mof-postgres-spm`
 running, and the locking/tasks/status suites need Redis too** — they use the real schema inside a transaction they always roll
@@ -338,20 +349,21 @@ the model.
 > runs unattended. Retrieval quality is measured, not guessed
 > (`evaluation/`). The AC09 session gate, the scoped data-access layer,
 > grounded answering over RAG, the live SPM source, and the conversational
-> entry point (AC01 language check, AC02 intent routing, AC05 reply-in-kind,
-> AC07 fallback) are all built and live in `Application/`. **There is still
-> no HTTP layer and no frontend.** Next up is AC03 (session continuity) and
-> AC04 (bilingual welcome) — see `STATUS_AND_ROADMAP.md` §5 and §17.
+> layer (AC01–AC05, AC07) are all built and live in `Application/`. **Every
+> acceptance criterion the backend owns is built** except AC08's response
+> time, which is met warm but not yet instrumented. **There is still no HTTP
+> layer and no frontend.** Next up is step 5, latency and observability —
+> see `STATUS_AND_ROADMAP.md` §5, §17 and §18.
 >
 > Then verify the live system rather than trusting the docs: 13 containers
-> up, 14 migrations applied and 0 drifted, 470 tests passing, all three
+> up, 14 migrations applied and 0 drifted, 508 tests passing, all three
 > pipeline stages reporting nothing to do (`--dry-run` on
 > `pipeline.scanner`, `pipeline.ocr` and `pipeline.indexer`), Qdrant
 > holding 9 collections / 678 points, `python -m pipeline.status` exiting 0,
-> and `python -m evaluation.conversation_probe` scoring 47/47. You can also
-> ask a real question end to end: `open_session(username, project_code)`
-> then `handle_question(session, q)` — the entry point, not
-> `answer_question`, which skips AC01 and AC02.
+> and `python -m evaluation.conversation_probe` scoring 54/54. You can also
+> hold a real conversation end to end: `open_conversation(session)`, then
+> `.welcome` and `.ask(q)` — the entry point, not `answer_question`, which
+> skips AC01–AC04.
 >
 > Five working rules: use `.venv/Scripts/python`, never system Python;
 > prefix commands that print with `PYTHONIOENCODING=utf-8`, since most of
@@ -367,13 +379,16 @@ the model.
 >
 > Working method that has repeatedly paid for itself here: prove a safety
 > feature by deliberately breaking it and confirming the right test
-> catches it, and commit before doing so. Roughly 108 mutations have been
+> catches it, and commit before doing so. Roughly 127 mutations have been
 > run; the ones that *survived* found the real gaps, and none were visible
-> on inspection. Four cautions learned the hard way: a mutation that does
+> on inspection. Five cautions learned the hard way: a mutation that does
 > not compile proves nothing; a destructive test must not depend on the
 > thing it is testing to keep it safe (that one destroyed the corpus, §14e);
-> a passing stubbed suite is not evidence — run it live (§16a); and
+> a passing stubbed suite is not evidence — run it live (§16a, and §18d,
+> where a live run caught what the probe set structurally could not);
 > **commit before mutating really does mean before** — the runner's
-> `git checkout` has now eaten uncommitted work twice (§14e, §17e).
+> `git checkout` has now eaten uncommitted work twice (§14e, §17e); and a
+> guard whose effect is only *diagnostic* is invisible to a behavioural
+> test, so assert the value (§6, and §18e for the third occurrence).
 >
 > My request: <what you want>

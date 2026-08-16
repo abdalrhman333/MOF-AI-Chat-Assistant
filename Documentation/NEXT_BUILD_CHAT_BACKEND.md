@@ -23,8 +23,8 @@ Straight from the BRD (`..\My_Prompts\SOLUTION_SCOPE.md`), not paraphrased:
 |---|---|---|
 | **AC01** | Verify input language; reject unsupported ones with a clear apology | ✅ **done** — `language.py`, §17a |
 | **AC02** | Distinguish "special handling" queries from general SPM-knowledge retrieval | ✅ **done** — `intent.py`, §17b |
-| **AC03** | Session continuity — multiple questions, no restart | ⬜ next |
-| **AC04** | Bilingual welcome message immediately on session start | ⬜ next — `messages.py` is its home |
+| **AC03** | Session continuity — multiple questions, no restart | ✅ **done** — `Conversation`, §18 |
+| **AC04** | Bilingual welcome message immediately on session start | ✅ **done** — §18a |
 | **AC05** | Reply in the same language as the question | ✅ **done** — told, not inferred, §17c |
 | **AC06** | Answers grounded **only** in indexed documents, with the source cited | ✅ **done** — §15, §16 |
 | **AC07** | Clear, safe fallback for out-of-scope queries | ✅ **done** — §17c |
@@ -257,12 +257,25 @@ rather than a specific one. That is a wording gap, measured and recorded
 (§17b), so a classifier can be justified by observed misrouting rather
 than by anticipation.
 
-**What remains in step 4: AC03 (continuity) and AC04 (welcome).** AC04 is
-small — bilingual text in `messages.py`, emitted on session start. AC03 is
-the real one, and it is not just a loop: a follow-up like *"and the end
-date?"* has no retrievable subject of its own, so multi-turn history
-interacts with both AC06 (what is being grounded) and AC08 (what it costs
-to carry context forward).
+**Step 4 completed 2026-08-16 with AC03 and AC04** — `Conversation`, §18.
+Three more properties worth not undoing:
+
+- **A `Conversation`'s session is fixed at construction.** AC09 through
+  time. Switching project means a new one.
+- **The follow-up fallback fires only below the floor.** Measured:
+  referential follow-ups score 0.15–0.18 and retrieve nothing; composing
+  with the previous question lifts them to 0.35–0.51 *and lands on the
+  right document*. Topical follow-ups already work, so composing every
+  query would spend an embedding for nothing and blur a change of subject.
+- **The composition anchor must be the last turn that had a topic.** A
+  greeting in between would otherwise become the anchor — found by
+  mutation testing, §18e.
+
+⚠️ **The language rejection is gated on confidence, not string length.**
+An earlier length gate let *"Quel est le budget?"* (19 characters) through
+and a live conversation answered it in English. Do not reintroduce a length
+threshold, and do not lower the confidence one — 0.473 is how close the
+nearest false rejection of real English sits (§18d).
 
 ### Step 5 — latency (AC08) and observability
 
@@ -381,9 +394,9 @@ These cost real time to learn. All are recorded in full in
 ```bash
 docker compose ps                                            # 13 containers
 python infra/postgres-spm/apply_migrations.py --status        # 14 applied, 0 drifted
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 470 passed
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 508 passed
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status     # exit 0, HEALTHY
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.conversation_probe  # 47/47
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.conversation_probe  # 54/54
 ```
 
 Expect: 58 documents, 678 chunks, 9 Qdrant collections, 0 failures, and the

@@ -318,23 +318,33 @@ being followed; steps 1 and 2 are done.
 | **4a** | **Language check** (AC01) + **intent routing** (AC02) | ✅ 2026-08-16, §17 |
 | **4b** | **Reply-in-kind** (AC05) — now told, not inferred | ✅ 2026-08-16, §17c |
 | **4c** | **Out-of-scope fallback** (AC07) — a message, not a marker | ✅ 2026-08-16, §17c |
-| **4d** | **Session continuity** (AC03) + **bilingual welcome** (AC04) | ⬜ |
+| **4d** | **Session continuity** (AC03) + **bilingual welcome** (AC04) | ✅ 2026-08-16, §18 |
 | **5** | **Latency (AC08) + observability** — Langfuse, OTLP → Grafana | ⬜ |
 | — | **HTTP layer** (FastAPI) — `Application/backend/api/` | ⬜ not started |
 | — | **Frontend** — chat, switcher, KB page, RTL | ⬜ not started |
 | — | **Auth** — AD SSO + OTP | ⬜ deferred, external dependency |
 
-**Step 4d is next: session continuity (AC03) and the bilingual welcome
-(AC04).** Both now have a home — `Application/backend/conversation.py` is
-the entry point, and `messages.py` is where the welcome text belongs. AC03
-is the larger of the two: it needs a decision about what a "turn" carries
-forward, and multi-turn history interacts with the AC08 budget and with
-AC06 (a follow-up like *"and the end date?"* has no retrievable subject of
-its own).
+**Step 4 is complete. Step 5 is next: latency (AC08) and observability.**
+Every acceptance criterion the backend owns is now built except AC08's
+response-time guarantee, which is *met* on warm turns and not yet
+*instrumented*. Langfuse and Grafana have been running unused since the
+infrastructure was built; `grafana-lgtm:4317` accepts OTLP gRPC.
 
-After that, step 5 — latency and observability — and then the HTTP layer,
-which is also when AC08 should be measured properly: a long-lived process
-pays the cold start once rather than per question (§15c, §17d).
+Three measurements already waiting for that work:
+
+- **Cold start still dominates.** The first question in a fresh process
+  spends ~1.3–2.5 s embedding alone. A long-lived HTTP process pays that
+  once rather than per question, which is why AC08 should be measured
+  *after* the HTTP layer rather than against a script (§15c, §18f).
+- **The follow-up retry doubles the embedding on the turns it fires.**
+  Worst observed turn was 5.9 s. It only fires where the alternative was a
+  refusal, so it buys an answer — but it is the current worst case.
+- **AC07 still costs a completion when a project record exists**, which is
+  correct (§16) but means "out of scope" is only free when nothing at all
+  clears the floor.
+
+After step 5: the HTTP layer (`Application/backend/api/`), then the
+frontend — chat, switcher, KB page (AC10), RTL.
 
 What it walks into, flagged in advance:
 
@@ -744,6 +754,137 @@ What is real, and belongs to the chat backend: Arabic scores ~0.40 against
 English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
 That is **ranking**, not retrieval — the answer is in the results every
 time.
+
+---
+
+## 18. AC03 continuity, AC04 welcome — and the AC01 defect a live run found (2026-08-16)
+
+`Application/backend/conversation.py` gains a `Conversation`: the session,
+the transcript, the welcome, and one `ask()` per turn. Step 4 of
+`NEXT_BUILD_CHAT_BACKEND.md` is now complete.
+
+### 18a. AC09 extended through time
+
+**The session is fixed at construction and cannot be replaced.** A
+`Conversation` therefore cannot come to hold two projects' content, and a
+follow-up cannot resolve against a project the user has since left.
+Switching project means a new `Session` from the gate and so a new
+`Conversation` — which is also the honest model of what a switch *is*.
+Mutation-tested by making the attribute writable.
+
+### 18b. The follow-up design was measured before it was built
+
+The assumption going in was "a follow-up carries no subject, so retrieval
+fails". Measured against PRJ-06, that is **half true**, and the half that
+is false changes the design:
+
+| Follow-up | best score | above floor | outcome |
+|---|---|---|---|
+| *وتاريخ الانتهاء؟* | 0.253 | 1 | answered correctly |
+| *And which department sponsors it?* | 0.355 | 8 | answered correctly |
+| *لماذا؟* | **0.163** | **0** | refused |
+| *Give me more detail on the second one* | **0.181** | **0** | refused |
+
+A follow-up carrying **any topical noun** already retrieves fine — the
+collection is one project and the project record is always present. Only
+**purely referential** follow-ups fail, and they fail completely.
+
+Prefixing the previous question fixes exactly those, and demonstrably
+resolves the reference rather than adding noise:
+
+| Composed query | best | top match |
+|---|---|---|
+| *ما هي حالة المشروع الحالية؟ لماذا؟* | 0.507 | **Weekly Status Report** |
+| *ما هي المخاطر الحالية للمشروع؟ لماذا؟* | 0.390 | **Risk Register** |
+| *Who is the project manager? Tell me more* | 0.357 | Meeting Minutes |
+
+Same follow-up, different anchor, different — and correct — document.
+
+**So composition is a fallback, not a rewrite.** It fires only when the
+bare question found no evidence. Composing every query would spend an
+embedding where none is needed and drag the old topic into a genuine change
+of subject. An LLM query-rewrite would cost a round-trip on *every* turn
+against the AC08 budget to do what one extra embedding does on the minority
+of turns that need it. Both embeddings are reported, so AC08 is not
+understated by a hidden retry.
+
+### 18c. History, and the one new risk it introduces
+
+Prior turns go to the model as ordinary chat messages — the user's earlier
+text in a user role, ours in an assistant role — so the system message
+stays purely our instructions and passage data. Bounded by turns **and**
+tokens, because a turn cap says nothing about size. Only turns that had a
+topic are carried; a greeting is kept in the transcript (it is what the
+user saw) but would otherwise crowd out the exchange that matters.
+
+⚠️ **History can invite a citation for a passage that is no longer in
+context.** Passages are renumbered every turn, so an earlier turn's `[2]`
+is not this turn's `[2]`. The existing index validation already drops the
+stale one — the structural defence from §15b holding up under a new
+attack — and the prompt now says so explicitly. Tested with a model that
+deliberately cites stale indexes.
+
+### 18d. The live run found a real AC01 defect
+
+Turn 10 of an 11-turn live conversation answered **"Quel est le budget?"
+in English.** At 19 characters it fell under the 20-character floor that
+decided whether the Latin identifier was consulted at all — so it never
+was. **The probe set could not have caught this: every non-English probe
+in it was a full sentence.**
+
+Length turned out to be a poor proxy for the rule it stood in for.
+Measured:
+
+| | result |
+|---|---|
+| Identifier on short non-English (10–24 chars) | **10/10 correct** |
+| Its one false positive on real English (*"When does it end?"* → German) | confidence **0.473** |
+| Genuine non-English sentences | confidence **0.997–1.000** |
+
+So the gate is now **confidence**, which is what "rejection needs
+evidence" actually meant. Result: 3/11 → **7/11** of the short non-English
+probes rejected, with **zero** false rejections of English.
+
+⚠️ **Fragments below the threshold (`le budget?` 0.386, `das Budget?`
+0.366) are still accepted, deliberately.** The asymmetry is the whole
+point: the first legitimate English question turned away costs more than
+every French fragment let through. Do not "fix" this by lowering the
+threshold — 0.473 is how close the nearest false rejection sits.
+
+**The general lesson: a probe set inherits the blind spots of whoever
+wrote it.** Every non-English probe was a well-formed sentence because
+that is what came to mind. The probe set is now 54 and includes short
+non-English *and* the English false-positive guard.
+
+### 18e. Mutation testing — 19 + 19, and two real gaps
+
+The AC03/AC04 round ran 19; **two survived and both were genuine**:
+
+- **A failed retry silently replacing the original result.** Invisible to
+  a behavioural test — the outcome is `out_of_scope` either way and only
+  the *reported* score differs, attributing the composed query's score to a
+  question the user never asked. That is the "assert the value, not the
+  behaviour" lesson (§6) for the third time in this project.
+- **The composition anchor did not check whether the previous turn had a
+  topic.** Budget question → *"thanks"* → *"why?"* would have searched for
+  *"thanks why?"*.
+
+Both closed, then 19/19. The AC01/AC02 set was re-run against the
+confidence-gated code with three new mutations on the gate itself —
+removed, inverted, and threshold ignored — 19/19.
+
+### 18f. Verified live — 11 turns, one session, no restart
+
+The welcome renders bilingually before any question. `لماذا؟` after the
+risks question retrieved the Risk Register and answered correctly.
+`وتاريخ الانتهاء؟` resolved against the budget question. An English
+follow-up pair worked mid-conversation after six Arabic turns. A
+cross-project question was refused with no leak. 11 turns recorded, 6
+carried into the prompt.
+
+**Latency:** 2.5–3.3 s for a normal turn, 3.9–5.9 s where a retry embedded
+twice or the process was cold. Warm turns sit inside the AC08 budget; the
+retry pushes the worst case close to it, which is a real input to step 5.
 
 ---
 
