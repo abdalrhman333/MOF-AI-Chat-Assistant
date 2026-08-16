@@ -311,17 +311,28 @@ being followed; steps 1 and 2 are done.
 | — | **Operations** — worker, daily schedule, stage locks, health check | ✅ runs unattended |
 | **1** | **Retrieval evaluation** — 29 tagged questions, MRR + recall | ✅ 2026-08-09, §13b |
 | **2** | **Session gate + scoped access** (AC09) — `Application/` | ✅ 2026-08-12, §14 |
-| **3** | **Retrieval composition** (AC06) — RAG + live SPM + CAG, cited | ⬜ **next** |
+| **3a** | **Grounded answering, RAG only** (AC06) — cited, in-language | ✅ 2026-08-12, §15 |
+| **3b** | **Live SPM source** — structured fields alongside the passages | ⬜ **next** |
+| **3c** | **Both-sides presentation** when SPM and a document disagree | ⬜ |
+| **3d** | **Mid-chat upload** (CAG) — session-scoped, never persisted | ⬜ open design question |
 | **4** | **Conversational layer** (AC01–AC05, AC07) | ⬜ |
 | **5** | **Latency (AC08) + observability** — Langfuse, OTLP → Grafana | ⬜ |
 | — | **HTTP layer** (FastAPI) — `Application/backend/api/` | ⬜ not started |
 | — | **Frontend** — chat, switcher, KB page, RTL | ⬜ not started |
 | — | **Auth** — AD SSO + OTP | ⬜ deferred, external dependency |
 
-**Step 3 is next: retrieval composition.** Everything it needs now exists —
-a gate that guarantees the session is legitimately scoped, a measurement
-that can tell whether a change to retrieval helped, and payloads already
-carrying `filename`, `doc_type`, `page`, `section` for citations.
+**Step 3b is next: the live SPM source.** The RAG half of composition is
+built and verified end to end (§15) — a question in, a cited answer out, in
+the question's own language, inside the AC08 budget. What remains is the
+second source: structured project fields read from Postgres through the
+same session, presented alongside the passages with its own attribution.
+
+Before 3c is built, two things want deciding (they are why 3c is not simply
+"next"): what genuinely counts as *disagreement* when a weekly report
+restates SPM's own status field in prose, and whether conflict detection
+should trigger at all on wording differences. §3.3 of
+`SOLUTION_ARCHITECTURE.md` decided the *policy* (show both, attribute both);
+it did not decide the *trigger*.
 
 What it walks into, flagged in advance:
 
@@ -471,11 +482,11 @@ What it walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**301 tests, ~20s** — `test_session_gate.py` 40 + `test_retrieval_eval.py` 39 +
-`test_scanner.py` 38 + `test_tasks.py` 27 + `test_chunker.py` 26 +
-`test_ocr.py` 23 + `test_indexer.py` 23 + `test_rls.py` 23 +
-`test_native_extract.py` 22 + `test_status.py` 15 + `test_config.py` 13 +
-`test_locking.py` 12.
+**337 tests, ~20s** — `test_session_gate.py` 40 + `test_retrieval_eval.py` 39 +
+`test_scanner.py` 38 + `test_answering.py` 36 + `test_tasks.py` 27 +
+`test_chunker.py` 26 + `test_ocr.py` 23 + `test_indexer.py` 23 +
+`test_rls.py` 23 + `test_native_extract.py` 22 + `test_status.py` 15 +
+`test_config.py` 13 + `test_locking.py` 12.
 *(Counted from `--collect-only`, not estimated — this number has needed
 correcting three times when it was inferred instead.)*
 
@@ -490,7 +501,7 @@ they exercise the real lock, because atomic set-if-absent, expiry and
 compare-and-delete are exactly the properties a fake dictionary would not
 have.
 
-**Most of the 301 tests need `mof-postgres-spm` running**, and
+**Most of the 337 tests need `mof-postgres-spm` running**, and
 `test_locking.py` / `test_tasks.py` / `test_status.py` need **Redis** as
 well. They create a throwaway
 project, exercise the **real** schema and constraints, and always roll
@@ -731,6 +742,94 @@ What is real, and belongs to the chat backend: Arabic scores ~0.40 against
 English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
 That is **ranking**, not retrieval — the answer is in the results every
 time.
+
+---
+
+## 15. Grounded answering, RAG only (2026-08-12)
+
+The first slice a user could actually converse with: a `Session`, a
+question, and a cited answer. **RAG only** — no SPM composition, no
+conflict detection, no uploads, no HTTP layer. Those need the skeleton to
+exist before they can be judged.
+
+`Application/backend/retrieval.py` (search, scoped) and
+`Application/backend/answer.py` (prompt, LLM call, citation resolution).
+
+### 15a. The smoke test came first, and changed the design
+
+Everything here assumed the embeddings client pattern carried over to chat
+completions — a *different* Azure account, Foundry-style endpoint. That was
+an assumption, so it was checked once for a few hundred tokens before
+anything was built on it. It carried over, and answered three questions:
+
+| Probe | Result | Consequence |
+|---|---|---|
+| `temperature=0` | accepted | deterministic answers |
+| strict JSON schema output | **works** | citations by validated index, not parsed prose |
+| honours a refusal instruction | returns the marker | the "not in documents" path is real |
+
+The schema finding improved the design. Without it, citations would have
+been parsed out of the model's prose.
+
+### 15b. Three mechanisms enforce AC06
+
+1. **The model never sees a filename it could invent a citation from.**
+   Passages are numbered; it nominates the numbers it used; every citation
+   is then built from the *retrieved payload* at that index. A hallucinated
+   `[9]` when five passages were sent is dropped. **The structural form is
+   stronger than the runtime check**: the response schema gives the model
+   no field in which to put a filename, and that shape is pinned by a test
+   (§15d).
+2. **Nothing retrieved, nothing asked.** Below `ANSWER_MIN_SCORE` the LLM
+   is not called at all. Verified live: *"What is the capital of France?"*
+   against PRJ-06 scores 0.109, returns `NOT_IN_DOCUMENTS`, costs nothing.
+3. **The model is instructed to refuse**, and does.
+
+**Retrieval takes a `Session`, never a project code.** The collection is
+derived from it, so it cannot be called with a project the user was not
+granted — AC09 extends into retrieval by construction.
+
+**Passage text is treated as hostile.** A document can contain a sentence
+shaped like an instruction. The blast radius is small (no tools, no
+database, and the scope was fixed before retrieval ran), but passages are
+fenced, numbered, and declared as data. Tested by retrieving a poisoned
+passage and asserting it stays inside its fence.
+
+**Synchronous, deliberately.** The three steps of one answer are
+sequential, so async buys nothing per request; FastAPI runs sync handlers
+in a worker thread, and the database pool is sync. Recorded so it is
+revisited with measurements rather than re-argued.
+
+### 15c. Verified live against PRJ-06
+
+| Question | Answer | Citation | Time |
+|---|---|---|---|
+| *ما الميزانية المعتمدة… وتاريخ الانتهاء المخطط؟* | 22,900,000 ريال · 30/09/2026 — in Arabic | Project Charter, page 1 | **3.4 s** |
+| *Who is the project manager and which department sponsors…?* | Eng. Sultan bin Abdulaziz Al-Dosari · General Budget Agency — in English | Weekly Status Report, page 1 | **1.8 s** |
+| *What is the capital of France?* | `NOT_IN_DOCUMENTS` | none | no LLM call |
+| *مخاطر مشروع PRJ-03…?* (from a PRJ-06 session) | `NOT_IN_DOCUMENTS` | none | no leak |
+
+**The first real numbers against AC08.** Both answers land inside the
+five-second budget, and the split is recorded per phase — embed, search,
+LLM. The 2.0 s embed on the first call is cold start; the second was 0.6 s.
+
+### 15d. Mutation testing — 18 mutations
+
+Every real threat caught. Three did not resolve first time, each for a
+different reason, and separating them mattered:
+
+- **Two were tooling, not test gaps.** A level of backslash escaping was
+  consumed between the shell heredoc and Python, so the fence-removal
+  pattern matched nothing and the mutation *never applied* while being
+  counted as a survivor. Re-run correctly, both were caught.
+- **One was a badly designed mutation** — it wrapped an already-validated
+  index in `min()`, a no-op. Chasing it found something better: the runtime
+  defence was tested, the structural one was not. Three new mutations now
+  try to open that door (add a `source_file` field, loosen
+  `additionalProperties`, drop `strict`) and all three are caught.
+- **A mutation that fails to compile proves nothing.** The first fence
+  removal was a syntax error, so Python caught it rather than a test. Re-run
+  as valid code, two tests catch it.
 
 ---
 

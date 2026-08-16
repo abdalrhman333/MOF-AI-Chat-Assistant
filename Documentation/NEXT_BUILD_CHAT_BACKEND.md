@@ -176,15 +176,43 @@ open this project?"* and never *"is this really that user?"*. Whatever
 supplies the identity later becomes part of this security boundary; nothing
 downstream should accept a username from a request body.
 
-### Step 3 — retrieval composition (AC06)
+### Step 3 — retrieval composition (AC06) — **RAG half built** (2026-08-12)
 
 The three sources from `SOLUTION_ARCHITECTURE.md` §3.3:
 
-| Source | What | Persisted |
-|---|---|---|
-| RAG | Vector search in the session's project collection | yes — the collection |
-| Live SPM | Structured fields by project code from Postgres | yes — Postgres |
-| CAG | Documents uploaded mid-chat, OCR'd into session context only | **no** — session-scoped |
+| Source | What | Persisted | State |
+|---|---|---|---|
+| RAG | Vector search in the session's project collection | yes — the collection | ✅ **built**, §15 |
+| Live SPM | Structured fields by project code from Postgres | yes — Postgres | ⬜ next |
+| CAG | Documents uploaded mid-chat, OCR'd into session context only | **no** — session-scoped | ⬜ open design question |
+
+```python
+from Application.backend.session import open_session
+from Application.backend.answer import answer_question
+
+session = open_session(username, project_code)
+answer  = answer_question(session, "ما الميزانية المعتمدة للمشروع؟")
+
+answer.text          # in the question's language
+answer.citations     # resolved from retrieved payloads, never model-invented
+answer.found         # False when the documents do not answer it
+answer.timings       # embed / search / llm / total, in ms — AC08
+```
+
+**Three properties worth not undoing** (all mutation-tested, §15d):
+
+- **Retrieval takes a `Session`, never a project code.** The collection is
+  derived from it, so cross-project retrieval is structurally impossible.
+- **The model cannot fabricate a citation.** The response schema gives it
+  no field for a filename — only integers, resolved here against what was
+  actually retrieved. Widening that schema is how hallucinated citations
+  would get in; a test pins its shape.
+- **Below the relevance floor, the LLM is not called at all.** No evidence
+  means an honest refusal, not a paid invitation to improvise.
+
+⚠️ **Passage text is document content and is treated as hostile.** Passages
+are fenced and declared as data. Anything that later reformats the prompt
+must keep that boundary.
 
 **When two sources disagree, show both.** Attribute each — "SPM, updated
 2026-08-01" vs "Weekly Status Report, 2026-07-12" — and let the project
@@ -317,7 +345,7 @@ These cost real time to learn. All are recorded in full in
 ```bash
 docker compose ps                                            # 13 containers
 python infra/postgres-spm/apply_migrations.py --status        # 14 applied, 0 drifted
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 301 passed
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 337 passed
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status     # exit 0, HEALTHY
 ```
 
