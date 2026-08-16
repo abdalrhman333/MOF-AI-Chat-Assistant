@@ -270,6 +270,34 @@ class LanguageSettings:
 
 
 @dataclass(frozen=True)
+class ConversationSettings:
+    """AC03 — how much of the conversation is carried forward, and how.
+
+    **The follow-up retry is a fallback, not a rewrite.** Measured on this
+    corpus before it was built: a bare referential follow-up (`لماذا؟`,
+    `tell me more`) scores 0.15–0.18 and clears the relevance floor with
+    **nothing**, while the same question prefixed with the previous one
+    scores 0.35–0.51 and lands on the right document. A follow-up that
+    carries any topical noun of its own already retrieves fine, because the
+    collection is a single project and the project record is always present.
+
+    So composing every query would spend an embedding on turns that do not
+    need it and risk dragging the previous topic into a genuine change of
+    subject. `retry_below_floor` composes **only** when the bare question
+    found no evidence at all — which is the case that would otherwise
+    refuse, so the extra embedding buys an answer rather than a refinement.
+
+    `max_history_turns` and `max_history_tokens` bound what reaches the
+    prompt. Both, because they fail differently: a cap on turns says nothing
+    about their size, and one long answer can outweigh five short ones —
+    the same asymmetry `select_context` handles for passages.
+    """
+    max_history_turns: int = 6
+    max_history_tokens: int = 1500
+    retry_below_floor: bool = True
+
+
+@dataclass(frozen=True)
 class IntentSettings:
     """AC02 — how a query needing special handling is told from a normal one.
 
@@ -356,6 +384,8 @@ class Settings:
     application: ApplicationSettings = field(default_factory=ApplicationSettings)
     answering: AnswerSettings = field(default_factory=AnswerSettings)
     language: LanguageSettings = field(default_factory=LanguageSettings)
+    conversation: ConversationSettings = field(
+        default_factory=ConversationSettings)
     intent: IntentSettings = field(
         default_factory=lambda: IntentSettings(
             phrases_path=REPO_ROOT / "Application" / "backend" / "intent_phrases.json"
@@ -517,6 +547,22 @@ def _language_from_env() -> LanguageSettings:
     )
 
 
+def _conversation_from_env() -> ConversationSettings:
+    """Allow per-deployment tuning without touching code."""
+    d = ConversationSettings
+    return ConversationSettings(
+        max_history_turns=int(
+            _optional("CONVERSATION_MAX_HISTORY_TURNS", str(d.max_history_turns))
+        ),
+        max_history_tokens=int(
+            _optional("CONVERSATION_MAX_HISTORY_TOKENS", str(d.max_history_tokens))
+        ),
+        retry_below_floor=_optional(
+            "CONVERSATION_RETRY_BELOW_FLOOR", "true"
+        ).lower() not in {"false", "0", "no"},
+    )
+
+
 def _intent_from_env() -> IntentSettings:
     """Allow per-deployment tuning without touching code.
 
@@ -614,5 +660,6 @@ def get_settings() -> Settings:
         application=_application_from_env(),
         answering=_answering_from_env(),
         language=_language_from_env(),
+        conversation=_conversation_from_env(),
         intent=_intent_from_env(),
     )

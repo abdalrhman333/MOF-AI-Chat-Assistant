@@ -48,7 +48,9 @@ from Application.backend.language import (
     REASON_NO_LETTERS,
     LanguageVerdict,
 )
+from Application.backend.retrieval import search
 from Application.backend.session import Session
+from pipeline.chunker import count_tokens
 from pipeline.config import Settings, get_settings
 
 # Outcome slugs, distinct from intents: an intent is what the user asked
@@ -95,6 +97,46 @@ def _reply_language(verdict: LanguageVerdict) -> str:
     return verdict.primary or ENGLISH
 
 
+def _resolve_retrieval(session: Session, text: str, previous_question: str,
+                       settings: Settings, embedder, qdrant):
+    """Search for this turn, falling back to the previous question's context.
+
+    **A fallback, not a rewrite, and the difference was measured.** On this
+    corpus a bare referential follow-up — `لماذا؟`, `tell me more`, `the
+    second one` — scores 0.15–0.18 and clears the relevance floor with
+    nothing at all. The same question prefixed with the previous one scores
+    0.35–0.51 and lands on the *right* document: `لماذا؟` after a status
+    question retrieves the Weekly Status Report, and after a risks question
+    retrieves the Risk Register. That is reference resolution, not noise.
+
+    A follow-up carrying any topical noun of its own already retrieves fine,
+    because the collection is one project and the project record is always
+    present. So composing *every* query would spend an embedding where none
+    is needed and would drag the old topic into a genuine change of subject.
+    Composing only when the bare question found no evidence spends the extra
+    embedding exactly where it converts a refusal into an answer.
+
+    An LLM rewrite would be the heavier alternative: a round-trip on every
+    turn against the AC08 budget, to do what one extra embedding does on the
+    minority of turns that need it.
+    """
+    found = search(session, text, settings=settings, embedder=embedder,
+                   qdrant=qdrant)
+    floor = settings.answering.min_score
+    if (found.above(floor) or not previous_question
+            or not settings.conversation.retry_below_floor):
+        return found
+
+    composed = f"{previous_question} {text}"
+    retried = search(session, composed, settings=settings, embedder=embedder,
+                     qdrant=qdrant)
+    # Both embeddings were paid for, so both are reported. An AC08 number
+    # that hid the retry would understate the turns that are slowest.
+    retried.embed_ms += found.embed_ms
+    retried.search_ms += found.search_ms
+    return retried if retried.above(floor) else found
+
+
 def handle_question(
     session: Session,
     text: str,
@@ -102,9 +144,16 @@ def handle_question(
     settings: Settings | None = None,
     discriminator=None,
     phrases=None,
+    history: list[tuple[str, str]] | None = None,
+    previous_question: str = "",
     **answer_kwargs,
 ) -> Reply:
     """Take one user turn and produce one reply.
+
+    Stateless by design: `history` and `previous_question` are arguments,
+    not attributes, so a single turn stays testable in isolation and the
+    thing that owns the conversation (`Conversation`) is the only thing that
+    has to be right about what a turn remembers.
 
     `**answer_kwargs` passes straight through to `answer_question`, so the
     whole path — including the parts that cost money — stays injectable and
@@ -151,9 +200,19 @@ def handle_question(
             reason=routed.tier,
         )
 
-    # ---- AC06 -------------------------------------------------------------
+    # ---- AC03 + AC06 ------------------------------------------------------
+    # The follow-up fallback needs the retrieval result in hand, so it is
+    # resolved here and passed down. Without a previous question this is the
+    # same single search `answer_question` would have run itself.
+    if previous_question and "retrieval" not in answer_kwargs:
+        answer_kwargs["retrieval"] = _resolve_retrieval(
+            session, text, previous_question, settings,
+            answer_kwargs.get("embedder"), answer_kwargs.get("qdrant"),
+        )
+
     answer = answer_question(session, text, settings=settings,
-                             reply_language=reply_language, **answer_kwargs)
+                             reply_language=reply_language, history=history,
+                             **answer_kwargs)
 
     # ---- AC07 -------------------------------------------------------------
     if not answer.found:
@@ -183,8 +242,137 @@ def handle_question(
     )
 
 
+@dataclass(frozen=True)
+class Turn:
+    """One exchange, kept whole so a UI can render the transcript."""
+    question: str
+    reply: Reply
+
+    @property
+    def reached_retrieval(self) -> bool:
+        """Did this turn have a topic? A greeting or a rejection did not."""
+        return self.reply.outcome in (OUTCOME_ANSWERED, OUTCOME_OUT_OF_SCOPE)
+
+
+class Conversation:
+    """AC03 — many questions, one session, no restart. And AC04's welcome.
+
+    > **AC03** — The system supports session continuity (a loop) — the user
+    > can ask multiple consecutive questions without restarting.
+
+    **The session is fixed at construction and never changes.** That is the
+    AC09 guarantee extended through time: a `Conversation` cannot be
+    repointed at another project, so a transcript cannot come to contain two
+    projects' content and a follow-up cannot resolve against a project the
+    user has since switched away from. Switching projects means a new
+    `Session` from the gate, and therefore a new `Conversation` — which is
+    also the honest model of what a project switch *is*.
+
+    **History is bounded twice, by turns and by tokens**, because they fail
+    differently: a turn cap says nothing about size, and one long answer can
+    outweigh five short ones. The same asymmetry `select_context` handles
+    for passages.
+
+    **Only turns that had a topic are carried forward.** A greeting, a
+    language rejection or an empty input contributes nothing a follow-up
+    could refer to, and spending prompt tokens on `hello` / `Hello. I'm the
+    Enjaz Platform assistant…` would crowd out the exchange that matters.
+    """
+
+    def __init__(self, session: Session, *, settings: Settings | None = None):
+        self._session = session
+        self._settings = settings or get_settings()
+        self._turns: list[Turn] = []
+
+    # ---- state ------------------------------------------------------------
+
+    @property
+    def session(self) -> Session:
+        """Read-only on purpose — see the class docstring."""
+        return self._session
+
+    @property
+    def project_code(self) -> str:
+        return self._session.project_code
+
+    @property
+    def turns(self) -> tuple[Turn, ...]:
+        return tuple(self._turns)
+
+    def __len__(self) -> int:
+        return len(self._turns)
+
+    # ---- AC04 -------------------------------------------------------------
+
+    @property
+    def welcome(self) -> str:
+        """The bilingual greeting, available before the user types anything.
+
+        Bilingual is not decoration here: no question has been asked, so
+        there is no language to reply in. A property rather than something
+        pushed on construction, so a caller decides when it is shown.
+        """
+        return messages.bilingual("welcome", project=self.project_code)
+
+    # ---- AC03 -------------------------------------------------------------
+
+    def history_for_prompt(self) -> list[tuple[str, str]]:
+        """The recent exchange, newest-last, within both budgets.
+
+        Walks backwards so the *most recent* turns survive the cut — the
+        ones a follow-up is most likely to refer to — then restores order.
+        """
+        config = self._settings.conversation
+        chosen: list[tuple[str, str]] = []
+        used = 0
+        for turn in reversed(self._turns):
+            if not turn.reached_retrieval:
+                continue
+            if len(chosen) >= config.max_history_turns:
+                break
+            cost = count_tokens(turn.question) + count_tokens(turn.reply.text)
+            if chosen and used + cost > config.max_history_tokens:
+                break
+            chosen.append((turn.question, turn.reply.text))
+            used += cost
+        return list(reversed(chosen))
+
+    def _previous_question(self) -> str:
+        """The last question that had a topic, for the retrieval fallback."""
+        for turn in reversed(self._turns):
+            if turn.reached_retrieval:
+                return turn.question
+        return ""
+
+    def ask(self, text: str, **kwargs) -> Reply:
+        """One turn. Records it, and returns the reply.
+
+        Every turn is recorded, including rejections and greetings — a
+        transcript that silently dropped them would not be what the user saw.
+        What they do not do is reach the prompt; `history_for_prompt` filters.
+        """
+        kwargs.setdefault("settings", self._settings)
+        kwargs.setdefault("history", self.history_for_prompt())
+        kwargs.setdefault("previous_question", self._previous_question())
+        reply = handle_question(self._session, text, **kwargs)
+        self._turns.append(Turn(question=text, reply=reply))
+        return reply
+
+
+def open_conversation(session: Session, *,
+                      settings: Settings | None = None) -> Conversation:
+    """Start a conversation on an already-authorised session.
+
+    Takes a `Session` rather than a username and a project code, for the
+    same reason `retrieval.search` does: the gate is the only place a
+    project is authorised, and a function that requires its output cannot be
+    handed an unvalidated code.
+    """
+    return Conversation(session, settings=settings)
+
+
 __all__ = [
-    "Reply", "handle_question",
+    "Reply", "Turn", "Conversation", "handle_question", "open_conversation",
     "OUTCOME_ANSWERED", "OUTCOME_REJECTED_LANGUAGE", "OUTCOME_NO_LANGUAGE",
     "OUTCOME_HANDLED", "OUTCOME_OUT_OF_SCOPE",
     "ARABIC", "ENGLISH", "MIXED",

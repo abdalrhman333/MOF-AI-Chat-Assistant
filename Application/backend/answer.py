@@ -106,6 +106,19 @@ LANGUAGE_DIRECTIVE = (
     "{name}. This overrides rule 4 for this request."
 )
 
+# AC03. Earlier turns are supplied as ordinary chat messages so the model can
+# resolve "and the end date?" against what was just asked. They are context
+# for *understanding* the question, never a source to answer from — the
+# passages below are rebuilt for each turn, and an earlier turn's passage [2]
+# is not this turn's passage [2].
+HISTORY_RULE = (
+    "\n8. Earlier turns of this conversation may appear before the current "
+    "question. Use them ONLY to understand what the current question refers "
+    "to. They are NOT a source: every fact in your answer must still come "
+    "from the PROJECT RECORD or the PASSAGES above, and \"used_passages\" "
+    "must refer to the passages in THIS request, which are numbered afresh."
+)
+
 RESPONSE_SCHEMA = {
     "type": "json_schema",
     "json_schema": {
@@ -219,7 +232,8 @@ def select_context(passages: list[Passage], settings: Settings) -> list[Passage]
 
 def build_messages(question: str, passages: list[Passage],
                    record: ProjectRecord | None = None,
-                   reply_language: str = "") -> list[dict]:
+                   reply_language: str = "",
+                   history: list[tuple[str, str]] | None = None) -> list[dict]:
     """Assemble the prompt: the project record, then the fenced passages.
 
     The two sources are kept in **separate, labelled sections** rather than
@@ -258,10 +272,21 @@ def build_messages(question: str, passages: list[Passage],
         # a weak instruction and a place where caller input reaches the
         # system message unchecked.
         system += LANGUAGE_DIRECTIVE.format(name=name)
-    return [
+    if history:
+        system += HISTORY_RULE
+
+    messages = [
         {"role": "system", "content": system + "\n\n" + "\n\n".join(sections)},
-        {"role": "user", "content": question},
     ]
+    # Prior turns as ordinary chat messages rather than a block inside the
+    # system prompt: the assistant's earlier text is its own output and
+    # belongs in an assistant role, and the user's earlier text belongs in a
+    # user role — which keeps the system message purely our instructions.
+    for asked, replied in history or []:
+        messages.append({"role": "user", "content": asked})
+        messages.append({"role": "assistant", "content": replied})
+    messages.append({"role": "user", "content": question})
+    return messages
 
 
 def parse_response(raw: str, passages: list[Passage],
@@ -330,6 +355,7 @@ def answer_question(
     project_record=_UNSET,
     connection=None,
     reply_language: str = "",
+    history: list[tuple[str, str]] | None = None,
 ) -> Answer:
     """Answer one question from one project's documents, with citations.
 
@@ -368,7 +394,8 @@ def answer_question(
                       timings=timings, project_code=session.project_code)
 
     context = select_context(relevant, settings)
-    messages = build_messages(question.strip(), context, record, reply_language)
+    messages = build_messages(question.strip(), context, record, reply_language,
+                              history)
 
     llm = llm or build_llm(settings)
     started = time.perf_counter()

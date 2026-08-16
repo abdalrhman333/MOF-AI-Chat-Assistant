@@ -22,6 +22,19 @@ from Application.backend.language import ARABIC, ENGLISH
 
 # key -> {language -> text}
 MESSAGES: dict[str, dict[str, str]] = {
+    # AC04 — shown immediately on session start, before the user has typed
+    # anything. Bilingual is not a nicety here: there is no question yet, so
+    # there is no language to reply in. `{project}` comes from the Session.
+    "welcome": {
+        ARABIC: "أهلاً بك في مساعد منصة إنجاز. جلستك مرتبطة بالمشروع "
+                "{project}. يمكنك طرح أسئلتك بالعربية أو الإنجليزية، "
+                "وسأجيب اعتماداً على وثائق المشروع المعتمدة وسجله في نظام "
+                "SPM، مع ذكر المصدر في كل إجابة.",
+        ENGLISH: "Welcome to the Enjaz Platform assistant. This session is "
+                 "for project {project}. Ask in Arabic or English, and I'll "
+                 "answer from the project's approved documents and its SPM "
+                 "record, citing the source each time.",
+    },
     # AC01 — the clear apology. Says what is supported, because a rejection
     # that does not tell the user what to do instead is not "clear".
     "unsupported_language": {
