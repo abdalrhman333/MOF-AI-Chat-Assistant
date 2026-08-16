@@ -285,6 +285,38 @@ class LanguageSettings:
 
 
 @dataclass(frozen=True)
+class ApiSettings:
+    """The HTTP layer: who the caller is, and how long a chat is kept.
+
+    ⚠️ **`auth_mode` is the AC09 boundary.** The gate answers *"may this
+    user open this project?"* and never *"is this really that user?"*, so
+    whatever establishes the username becomes part of that guarantee.
+
+    `dev_fixed` (the default) takes the identity from configuration: every
+    request is the same signed-in user, which cannot be spoofed by a client
+    and does not pretend to be authentication. `trusted_header` reads it
+    from a request header and is correct **only** behind a proxy that
+    authenticates the user and overwrites that header inbound.
+
+    A username is never read from a request body or query string in either
+    mode. That is not a setting.
+
+    `conversation_idle_minutes` bounds the in-memory chat store. Sessions
+    are held server-side, so an unbounded store is a slow memory leak and a
+    growing pile of transcripts nobody will read.
+    """
+    host: str = "127.0.0.1"
+    port: int = 8000
+    auth_mode: str = "dev_fixed"
+    auth_header: str = "X-Remote-User"
+    dev_username: str = ""
+    conversation_idle_minutes: int = 60
+    max_conversations: int = 500
+    max_question_chars: int = 2000
+    cors_origins: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class ObservabilitySettings:
     """Tracing — one instrumentation, two backends.
 
@@ -450,6 +482,7 @@ class Settings:
         default_factory=ConversationSettings)
     observability: ObservabilitySettings = field(
         default_factory=ObservabilitySettings)
+    api: ApiSettings = field(default_factory=ApiSettings)
     intent: IntentSettings = field(
         default_factory=lambda: IntentSettings(
             phrases_path=REPO_ROOT / "Application" / "backend" / "intent_phrases.json"
@@ -615,6 +648,30 @@ def _flag(name: str, default: str) -> bool:
     return _optional(name, default).lower() not in {"false", "0", "no", "off"}
 
 
+def _api_from_env() -> ApiSettings:
+    """Allow per-deployment tuning without touching code."""
+    d = ApiSettings
+    raw_origins = _optional("API_CORS_ORIGINS", "")
+    return ApiSettings(
+        host=_optional("API_HOST", d.host),
+        port=int(_optional("API_PORT", str(d.port))),
+        auth_mode=_optional("API_AUTH_MODE", d.auth_mode).strip().lower(),
+        auth_header=_optional("API_AUTH_HEADER", d.auth_header),
+        dev_username=_optional("API_DEV_USERNAME", ""),
+        conversation_idle_minutes=int(
+            _optional("API_CONVERSATION_IDLE_MINUTES",
+                      str(d.conversation_idle_minutes))
+        ),
+        max_conversations=int(
+            _optional("API_MAX_CONVERSATIONS", str(d.max_conversations))
+        ),
+        max_question_chars=int(
+            _optional("API_MAX_QUESTION_CHARS", str(d.max_question_chars))
+        ),
+        cors_origins=tuple(o.strip() for o in raw_origins.split(",") if o.strip()),
+    )
+
+
 def _observability_from_env() -> ObservabilitySettings:
     """Allow per-deployment tuning without touching code.
 
@@ -756,5 +813,6 @@ def get_settings() -> Settings:
         language=_language_from_env(),
         conversation=_conversation_from_env(),
         observability=_observability_from_env(),
+        api=_api_from_env(),
         intent=_intent_from_env(),
     )
