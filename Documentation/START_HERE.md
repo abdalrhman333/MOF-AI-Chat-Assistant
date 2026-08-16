@@ -228,8 +228,8 @@ as a containerised Celery worker** — `mof-pipeline-worker` and
 `mof-pipeline-beat`. There is still no FastAPI app and no frontend. See
 `STATUS_AND_ROADMAP.md` for the exact done/not-done line.
 
-The test suite is **337 tests** (session_gate 40, retrieval_eval 39,
-scanner 38, answering 36, tasks 27, chunker 26, ocr 23, indexer 23,
+The test suite is **353 tests** (answering 50, session_gate 42,
+retrieval_eval 39, scanner 38, tasks 27, chunker 26, ocr 23, indexer 23,
 rls 23, native_extract 22, status 15, config 13, locking 12). **Most need `mof-postgres-spm`
 running, and the locking/tasks/status suites need Redis too** — they use the real schema inside a transaction they always roll
 back, and skip with a clear message if the container is down. The OCR tests
@@ -278,7 +278,7 @@ vector store.
 > next build**, so also read `Documentation\NEXT_BUILD_CHAT_BACKEND.md`.
 >
 > Then verify the live system rather than trusting the docs: 13 containers
-> up, 14 migrations applied and 0 drifted, 337 tests passing, all three
+> up, 14 migrations applied and 0 drifted, 353 tests passing, all three
 > pipeline stages reporting nothing to do (`--dry-run` on
 > `pipeline.scanner`, `pipeline.ocr` and `pipeline.indexer`), Qdrant
 > holding 9 collections / 678 points, and `python -m pipeline.status`

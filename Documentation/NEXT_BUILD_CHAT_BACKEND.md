@@ -183,7 +183,7 @@ The three sources from `SOLUTION_ARCHITECTURE.md` §3.3:
 | Source | What | Persisted | State |
 |---|---|---|---|
 | RAG | Vector search in the session's project collection | yes — the collection | ✅ **built**, §15 |
-| Live SPM | Structured fields by project code from Postgres | yes — Postgres | ⬜ next |
+| Live SPM | Structured fields by project code from Postgres | yes — Postgres | ✅ **built**, §16 |
 | CAG | Documents uploaded mid-chat, OCR'd into session context only | **no** — session-scoped | ⬜ open design question |
 
 ```python
@@ -345,7 +345,7 @@ These cost real time to learn. All are recorded in full in
 ```bash
 docker compose ps                                            # 13 containers
 python infra/postgres-spm/apply_migrations.py --status        # 14 applied, 0 drifted
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 337 passed
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 353 passed
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status     # exit 0, HEALTHY
 ```
 

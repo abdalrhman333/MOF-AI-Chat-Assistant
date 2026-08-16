@@ -312,8 +312,8 @@ being followed; steps 1 and 2 are done.
 | **1** | **Retrieval evaluation** — 29 tagged questions, MRR + recall | ✅ 2026-08-09, §13b |
 | **2** | **Session gate + scoped access** (AC09) — `Application/` | ✅ 2026-08-12, §14 |
 | **3a** | **Grounded answering, RAG only** (AC06) — cited, in-language | ✅ 2026-08-12, §15 |
-| **3b** | **Live SPM source** — structured fields alongside the passages | ⬜ **next** |
-| **3c** | **Both-sides presentation** when SPM and a document disagree | ⬜ |
+| **3b** | **Live SPM source** — structured fields alongside the passages | ✅ 2026-08-12, §16 |
+| **3c** | **Both-sides presentation** when SPM and a document disagree | ✅ as prompting, §16 — over-triggering unobserved |
 | **3d** | **Mid-chat upload** (CAG) — session-scoped, never persisted | ⬜ open design question |
 | **4** | **Conversational layer** (AC01–AC05, AC07) | ⬜ |
 | **5** | **Latency (AC08) + observability** — Langfuse, OTLP → Grafana | ⬜ |
@@ -482,8 +482,8 @@ What it walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**337 tests, ~20s** — `test_session_gate.py` 40 + `test_retrieval_eval.py` 39 +
-`test_scanner.py` 38 + `test_answering.py` 36 + `test_tasks.py` 27 +
+**353 tests, ~19s** — `test_answering.py` 50 + `test_session_gate.py` 42 +
+`test_retrieval_eval.py` 39 + `test_scanner.py` 38 + `test_tasks.py` 27 +
 `test_chunker.py` 26 + `test_ocr.py` 23 + `test_indexer.py` 23 +
 `test_rls.py` 23 + `test_native_extract.py` 22 + `test_status.py` 15 +
 `test_config.py` 13 + `test_locking.py` 12.
@@ -501,7 +501,7 @@ they exercise the real lock, because atomic set-if-absent, expiry and
 compare-and-delete are exactly the properties a fake dictionary would not
 have.
 
-**Most of the 337 tests need `mof-postgres-spm` running**, and
+**Most of the 353 tests need `mof-postgres-spm` running**, and
 `test_locking.py` / `test_tasks.py` / `test_status.py` need **Redis** as
 well. They create a throwaway
 project, exercise the **real** schema and constraints, and always roll
@@ -742,6 +742,84 @@ What is real, and belongs to the chat backend: Arabic scores ~0.40 against
 English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
 That is **ranking**, not retrieval — the answer is in the results every
 time.
+
+---
+
+## 16. The live SPM source, and the leak it exposed (2026-08-12)
+
+The second of §3.3's three sources: the project record itself — status,
+dates, budget, sponsor — alongside the document passages.
+`Application/backend/spm.py`.
+
+**Two labelled sections, not one merged list.** That separation is what
+makes §3.3's "attribute each to its source" possible: a project manager
+comparing two claims needs to know which came from the system of record and
+which from a document somebody wrote. The both-sides rule is implemented as
+a *prompt instruction*, which is what §3.3 specifies — hand the model both
+sources with provenance and have it surface disagreement, never resolve it
+in code. The "only for a genuine factual difference, not the same fact
+worded differently" clause is there because over-triggering turns a useful
+signal into noise.
+
+**The refusal rule changed shape** from "no passages" to "no evidence at
+all". A project record alone *is* evidence: *"what is the budget?"* is
+answerable from the system of record even when nothing clears the
+relevance floor, and refusing then would hide the most authoritative source
+available.
+
+### 16a. A cross-project leak, caused by our own migration
+
+The first live run returned **PRJ-02's record inside a session scoped to
+PRJ-06**, and the answer reported PRJ-02's budget as this project's — then
+flagged it as a *disagreement* with the document's correct figure. Silently
+wrong, confidently presented, with a citation attached.
+
+The cause was **migration `014`**. The read relied on row-level security
+alone, which is correct for `document_links` and `document_content`. It is
+wrong for `projects`, because `014` deliberately widened that one table so
+a user can read every project they are assigned to and the switcher can
+show names. **Permissive policies combine with OR**, so inside a scoped
+session `projects` returns the session's project *plus* every other project
+the user holds, and an unfiltered `fetchone()` takes whichever comes first.
+
+Two things made it invisible until it ran:
+
+- **Every stubbed test passed**, because the stub returned exactly one row.
+- **One test asserted the *absence* of a `WHERE` clause** — it locked the
+  defect in rather than catching it. That test is now inverted.
+
+Two live tests were added that a stub cannot reproduce: each of a
+multi-project user's sessions must read its own record, and the raw read
+must genuinely return several rows — so the filter is never mistaken for
+redundant belt-and-braces and removed later.
+
+⚠️ **The general lesson:** *a table whose visibility rules were widened for
+one caller stops being a safe implicit single-row read for another.* Worth
+checking wherever RLS is trusted to return exactly one row.
+
+### 16b. Attribution has no last-updated date, and cannot invent one
+
+`projects` carries only `created_at`. §3.3 requires attribution to carry
+dates — *"SPM, updated 2026-08-01"* against *"Weekly Status Report,
+2026-07-12"* is often the whole answer a PM needs. So the record is
+attributed as **"record created …"**, labelled as what it actually is.
+
+This is a *mock* SPM; inventing a last-modified timestamp would manufacture
+provenance the real system never supplied. **A real SPM integration must
+carry its own last-updated field**, and until it does, dated comparison
+between this source and a document is weaker than §3.3 assumes.
+
+### 16c. Mutation testing — 9 mutations, all caught
+
+Including the leak itself (dropping the filter), pointing the filter at a
+caller value instead of the session, unscoping the read, citing a
+claimed-but-unfetched record, merging the record into the passages,
+replacing both-sides with pick-the-most-recent, dropping the date from
+attribution, and treating a record as insufficient evidence.
+
+One first attempt failed to compile, so Python caught it rather than a
+test — re-run as valid code, it is caught by a test. Same discipline as
+§15d: **a mutation that does not compile proves nothing.**
 
 ---
 

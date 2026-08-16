@@ -318,7 +318,7 @@ backend, which needs Langfuse alongside it.
 ## 5. Verify with
 
 ```bash
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q     # 337 pass
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q     # 353 pass
 
 docker exec -i mof-postgres-spm psql -U spm_admin -d spm_data -c \
   "SELECT indexing_status, count(*) FROM document_links GROUP BY 1;"
