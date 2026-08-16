@@ -11,14 +11,18 @@ ingestion pipeline built and run over all 58 documents**: discovery → OCR →
 chunk → embed → index, ending in **678 vectors across 9 per-project Qdrant
 collections**. Retrieval quality is measured, not guessed
 (`evaluation/`). `Application/` holds the AC09 session gate, grounded
-answering over RAG + live SPM, and — new on 2026-08-16 — **the whole
-conversational layer: language verification (AC01), intent routing (AC02),
-multi-turn continuity (AC03), the bilingual welcome (AC04), reply-in-kind
-(AC05) and the out-of-scope fallback (AC07)**. **AC08 is now measured, not
-asserted** — p50 1845 ms / p95 2782 ms against a 5 s budget — and tracing
-goes to Grafana and Langfuse from one instrumentation. **Every acceptance
-criterion the backend owns is built and measured.** There is still no HTTP
-layer and no frontend; those are the next build.
+answering over RAG + live SPM, the whole conversational layer (AC01–AC05,
+AC07), **an HTTP layer and a chat UI** — so the system now runs in a
+browser. AC08 is measured, not asserted (p50 1845 ms / p95 2782 ms against
+a 5 s budget), and tracing goes to Grafana and Langfuse from one
+instrumentation.
+
+**Every acceptance criterion in the BRD is implemented except SSO/OTP,
+which is a deferred external dependency.** Start it with:
+
+```bash
+.venv/Scripts/python -m Application.backend.api      # http://127.0.0.1:8000
+```
 
 ---
 
@@ -231,16 +235,28 @@ processes, and the one that faces users has the least access.
 |---|---|---|
 | `pipeline/` | **Builds** the knowledge base — `config.py` (all settings), `chunker.py`, `db.py`, `scanner.py` (Stage 0), `ocr.py` + `native_extract.py` (Stage 1), `indexer.py` (Stages 2+3), plus `locking.py`, `tasks.py`, `status.py` to run it unattended | `spm_admin` — needs every project |
 | `evaluation/` | **Judges** it — the tagged question set, scoring, recorded baseline, `conversation_probe.py` for AC01/AC02, `latency_bench.py` for AC08 | read-only |
-| `Application/` | **Serves** it — `backend/conversation.py` (**the entry point**), `backend/session.py` (the AC09 gate), `backend/db.py` (pool + scope), `backend/retrieval.py`, `backend/answer.py`, `backend/spm.py`, `backend/language.py`, `backend/intent.py`, `backend/messages.py`, `backend/clients.py` (the AC08 client cache) | `spm_app` — SELECT-only, one project per transaction |
+| `Application/` | **Serves** it — `backend/api/` (**FastAPI + the identity boundary**), `backend/conversation.py` (the entry point), `backend/session.py` (the AC09 gate), `backend/db.py` (pool + scope), `backend/retrieval.py`, `backend/answer.py`, `backend/spm.py`, `backend/language.py`, `backend/intent.py`, `backend/messages.py`, `backend/clients.py` (the AC08 client cache), `frontend/index.html` (the UI) | `spm_app` — SELECT-only, one project per transaction |
 | `observability/` | **Watches** them — one OpenTelemetry instrumentation, exported to Grafana *and* Langfuse. Belongs to none of the three, which is why it is its own package | none |
 
 **The pipeline runs as a containerised Celery worker** —
 `mof-pipeline-worker` and `mof-pipeline-beat`.
 
-⚠️ **There is still no HTTP layer and no frontend.** `Application/` is
-importable Python, not a running service. `backend/api/` and `frontend/`
-are named in `Application/README.md` as their future home and do not exist.
-See `STATUS_AND_ROADMAP.md` §5 for the exact done/not-done line.
+**The HTTP layer and the UI exist** (`backend/api/`, `frontend/index.html`,
+§20). One process serves both, on the same origin.
+
+⚠️ **`api/identity.py` is the second most security-sensitive file here,
+after `session.py`.** The gate answers *"may this user open this project?"*
+and never *"is this really that user?"* — this is where the second question
+gets answered. A username never comes from a request body or query string,
+and there is deliberately no field to put one in. The default `dev_fixed`
+mode takes the identity from config: unspoofable, and not pretending to be
+authentication. `trusted_header` is production-*shaped*, not
+production-*safe* — correct only behind a proxy that overwrites the header.
+
+⚠️ **A conversation id is a handle, not a credential.** Every lookup is
+owner-checked; without that, a leaked id bypasses AC09 entirely, because
+the gate validated the *owner's* assignment. The store is in memory and
+per-process, so run the API single-process until it moves to Redis.
 
 Holding a real conversation end to end, today. **Use `open_conversation`**
 — it applies AC01 and AC02 before spending anything, carries history for
@@ -324,9 +340,9 @@ Langfuse can read every project's passages. Fine here — same machine, same
 corpus — and **not** fine against anything shared. Turning it off keeps
 timing and token counts.
 
-The test suite is **542 tests** (answering 50, language 42, session_gate 42,
-conversation 40, intent 40, retrieval_eval 39, scanner 38, observability 34,
-continuity 33, tasks 27, chunker 26, ocr 23, indexer 23, rls 23,
+The test suite is **569 tests** (answering 50, session_gate 42, language 42,
+intent 40, conversation 40, retrieval_eval 39, scanner 38, observability 34,
+continuity 33, tasks 27, api 27, chunker 26, rls 23, ocr 23, indexer 23,
 native_extract 22, status 15, config 13, locking 12). **Most need `mof-postgres-spm`
 running, and the locking/tasks/status suites need Redis too** — they use the real schema inside a transaction they always roll
 back, and skip with a clear message if the container is down. The OCR tests
@@ -383,22 +399,20 @@ the model.
 > runs unattended. Retrieval quality is measured, not guessed
 > (`evaluation/`). The AC09 session gate, the scoped data-access layer,
 > grounded answering over RAG, the live SPM source, and the conversational
-> layer (AC01–AC05, AC07) are all built and live in `Application/`, and
-> AC08 is measured (p50 1845 ms / p95 2782 ms) with tracing going to both
-> Grafana and Langfuse. **Every acceptance criterion the backend owns is
-> built and measured. There is still no HTTP layer and no frontend** —
-> those are next. See `STATUS_AND_ROADMAP.md` §5 and §17–§19.
+> layer (AC01–AC05, AC07), the HTTP layer and the chat UI are all built.
+> AC08 is measured (p50 1845 ms / p95 2782 ms), tracing goes to Grafana and
+> Langfuse, and **the system runs in a browser**. Every acceptance
+> criterion in the BRD is implemented except SSO/OTP, a deferred external
+> dependency. See `STATUS_AND_ROADMAP.md` §5 and §17–§20.
 >
 > Then verify the live system rather than trusting the docs: 13 containers
-> up, 14 migrations applied and 0 drifted, 542 tests passing, all three
+> up, 14 migrations applied and 0 drifted, 569 tests passing, all three
 > pipeline stages reporting nothing to do (`--dry-run` on
 > `pipeline.scanner`, `pipeline.ocr` and `pipeline.indexer`), Qdrant
 > holding 9 collections / 678 points, `python -m pipeline.status` exiting 0,
 > `python -m evaluation.conversation_probe` scoring 54/54, and
-> `python -m evaluation.latency_bench` exiting 0. You can also hold a real
-> conversation end to end: `open_conversation(session)`, then `.welcome`
-> and `.ask(q)` — the entry point, not `answer_question`, which skips
-> AC01–AC04.
+> `python -m evaluation.latency_bench` exiting 0. Then run it —
+> `python -m Application.backend.api` and open http://127.0.0.1:8000.
 >
 > Six working rules: call `clients.warmup()` and
 > `observability.configure()` once at startup, and `observability.shutdown()`

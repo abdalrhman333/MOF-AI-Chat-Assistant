@@ -273,6 +273,7 @@ a blank value.
 | Postgres (SPM) | `localhost:5432` | SPM data — `projects`, `users`, `project_assignments`, `document_links` (see §8) | `POSTGRES_SPM_USER` / `POSTGRES_SPM_PASSWORD`, db `POSTGRES_SPM_DB` |
 | Qdrant | http://localhost:6333/dashboard | Vector DB, one collection per project | `QDRANT_API_KEY` |
 | Redis | `localhost:6379` | Celery broker + result backend for the ingestion worker, and the store behind the cross-process stage locks | `REDIS_PASSWORD` |
+| **Enjaz Assistant** | **http://localhost:8000** | **The application itself** — chat, project switcher, knowledge-base page. `/docs` for the OpenAPI UI. Not a container: `python -m Application.backend.api` | Identity per `API_AUTH_MODE`; `dev_fixed` by default |
 | Langfuse | http://localhost:3001 | LLM execution tracing — **in use since 2026-08-16**. Turns of one conversation appear as a single **session**, attributed to the user, with a span per phase | Own account, created in-browser (unrelated to Enjaz/AD auth). API keys: `LANGFUSE_SECRET_KEY`/`LANGFUSE_PUBLIC_KEY` |
 | Grafana (LGTM) | http://localhost:3000 | App workflow observability — **in use since 2026-08-16**. Traces under service `enjaz-chat` in Tempo; OTLP on :4317/:4318 | `GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD` |
 

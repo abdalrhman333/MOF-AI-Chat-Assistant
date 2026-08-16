@@ -320,35 +320,44 @@ being followed; steps 1 and 2 are done.
 | **4c** | **Out-of-scope fallback** (AC07) — a message, not a marker | ✅ 2026-08-16, §17c |
 | **4d** | **Session continuity** (AC03) + **bilingual welcome** (AC04) | ✅ 2026-08-16, §18 |
 | **5** | **Latency (AC08) + observability** — Langfuse, OTLP → Grafana | ✅ 2026-08-16, §19 |
-| — | **HTTP layer** (FastAPI) — `Application/backend/api/` | ⬜ not started |
-| — | **Frontend** — chat, switcher, KB page, RTL | ⬜ not started |
+| — | **HTTP layer** (FastAPI) — `Application/backend/api/` | ✅ 2026-08-16, §20 |
+| — | **Frontend** — chat, switcher, KB page (AC10), RTL | ✅ 2026-08-16, §20 |
 | — | **Auth** — AD SSO + OTP | ⬜ deferred, external dependency |
 
-**All five steps of the build order are complete. The HTTP layer is next.**
-Every acceptance criterion the backend owns is built and measured. What
-remains is not backend logic — it is exposure: `Application/backend/api/`
-(FastAPI), then the frontend.
+**The build order is finished, and the system runs in a browser.** Every
+acceptance criterion the BRD assigns to this build is implemented,
+measured, and exercised end to end:
 
-What the HTTP layer walks into, flagged in advance:
+```bash
+.venv/Scripts/python -m Application.backend.api    # then open http://127.0.0.1:8000
+```
 
-- **Call `warmup()` once at startup.** The whole AC08 result depends on it
-  (§19a). A process that skips it pays ~19 s on its first question.
-- **Call `observability.configure()` once at startup, and `shutdown()` on
-  exit.** Spans are batched, so a process that exits without flushing drops
-  the traces it was run to produce.
-- **`handle_question` / `Conversation` are entry points, not chokepoints.**
-  A route must not call `answer_question` directly — that skips AC01–AC04.
-- **Nothing downstream may accept a username from a request body.** The
-  gate trusts the identity it is handed, and whatever supplies it becomes
-  part of the security boundary (`Application/README.md`).
-- **A `Conversation` is per session and per project.** Switching project
-  means a new one, so an HTTP session store must key on both.
-- **The AC07 fallback still costs a completion when a project record
-  exists** — correct per §16, but it means "out of scope" is only free when
-  nothing at all clears the floor.
+| AC | State |
+|---|---|
+| AC01 language · AC02 intent · AC03 continuity · AC04 welcome | ✅ §17, §18 |
+| AC05 reply-in-kind · AC06 grounded + cited · AC07 fallback | ✅ §15, §16, §17 |
+| AC08 response time | ✅ measured, p50 1845 / p95 2782 ms, §19 |
+| AC09 no cross-project access | ✅ four layers, §14, §20a–b |
+| AC10 knowledge-base page · AC11 document links | ✅ §20, §11 |
+| AC08 *(dup)* SSO/OTP sign-in | ⬜ **deferred — external dependency** |
 
-Then the frontend: chat, project switcher, the KB page (AC10 — the data is
-ready and unused), and RTL.
+**What is genuinely left**, in the order it matters:
+
+1. **Auth is the only unbuilt acceptance criterion.** `dev_fixed` is an
+   honest simulation, not authentication. Real AD SSO + OTP replaces
+   `api/identity.py` and nothing else — that seam exists for it.
+2. **CAG — mid-chat upload** (§3.3 source 3, step 3d). Still an open design
+   question: OCR into session context, never persisted.
+3. **The conversation store is in-memory and per-process**, so the API runs
+   single-process. Redis is already in the stack for it.
+4. **`doc_type` classification was deferred and never built** — new files
+   get `'Unclassified'`. Zero rows affected today, but the KB page now
+   surfaces it.
+5. **A real SPM integration must carry its own last-updated field** (§16b);
+   until it does, dated comparison between sources is weaker than §3.3
+   assumes.
+6. **The native-extraction fallback does not distinguish a transient error
+   from a rejection** (§14e) and silently downgrades quality when it fires.
 
 What it walks into, flagged in advance:
 
@@ -758,6 +767,112 @@ What is real, and belongs to the chat backend: Arabic scores ~0.40 against
 English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
 That is **ranking**, not retrieval — the answer is in the results every
 time.
+
+---
+
+## 20. The HTTP layer and the frontend (2026-08-16)
+
+`Application/backend/api/` (FastAPI) and `Application/frontend/index.html`.
+**The system is now usable in a browser**, and every acceptance criterion
+the BRD assigns to this build is implemented, measured and exercised end to
+end.
+
+**Neither layer adds behaviour.** That framing is the point: a route that
+reached past `Conversation` into `answer_question` would silently skip
+AC01–AC04, and a frontend that decided anything would make the acceptance
+criteria true of one client rather than of the system. Both are
+deliberately thin.
+
+### 20a. Identity — the boundary the whole of AC09 rests on
+
+`Application/README.md` has always said the gate answers *"may this user
+open this project?"* and never *"is this really that user?"*. The HTTP
+layer is where that second question finally had to be answered, so
+`api/identity.py` is the new most-security-sensitive file after
+`session.py`.
+
+**A username never comes from the request body or the query string**, and
+that is enforced structurally — there is no field to put one in. Same
+argument as the response schema that gives the model no field for a
+filename: a rule you cannot express is a rule that cannot be broken by
+accident. Two mutations add such a field, and both are caught.
+
+| Mode | Identity from | Safe when |
+|---|---|---|
+| `dev_fixed` *(default)* | configuration | always — a client cannot change it |
+| `trusted_header` | a request header | **only** behind a proxy that overwrites it |
+
+`dev_fixed` is the honest default: every request is the same signed-in
+user, which cannot be spoofed and does not pretend to be authentication.
+`trusted_header` is production-*shaped*, not production-*safe*, and the
+startup log says so in those words — a mutation that softens that wording
+is caught.
+
+### 20b. A conversation id is a handle, not a credential
+
+Conversations are held server-side under an opaque token. **Every lookup is
+owner-checked**, because the gate validated the *owner's* assignment and
+not the caller's — so without that check an id that was guessed, logged,
+shared or left in a browser history is a complete AC09 bypass.
+
+Demonstrated rather than asserted: removing the check fails three tests.
+
+"No such conversation" and "not yours" return **byte-identical** 403s, for
+the same reason `AccessDenied` is non-enumerable — a caller who can tell
+them apart can probe for other people's live conversations. A mutation that
+returns 404 for one and 403 for the other is caught.
+
+⚠️ **The store is per-process and in memory**, so the API must run
+single-process until it moves to Redis — which is already in the stack for
+exactly this. Bounded twice, by idle time and by count with LRU eviction,
+because an unbounded store is a slow leak.
+
+### 20c. What the frontend deliberately is not
+
+One static file, no build step, no framework, served by the API process on
+the same origin. A `node_modules` tree and a bundler would be three more
+things to install, version and explain for a page with four screens, and
+this is a demo build whose job is to show the backend working.
+
+**RTL is the default, not an option** — the platform is Arabic-first — and
+direction is then set *per message* from the language the backend detected,
+so a bilingual transcript reads correctly in both directions.
+
+Everything from the API is inserted as **text, never markup**. Document
+content is not trusted input; that is the passage-fencing reasoning from
+§15b applied to the DOM.
+
+### 20d. Verified in a real browser
+
+Switcher populated from `/api/projects` (three assigned projects, and only
+those). AC04's bilingual welcome before anything was typed. A question
+answered in **2564 ms** with four citations. The knowledge-base page
+showing **6/6 indexed** with type, chunk count and date.
+
+**The answer returned PRJ-02's budget — 28,750,000 — not PRJ-06's
+22,900,000.** Project scoping holding through session gate, RLS, the
+per-project collection, the HTTP layer and the UI, verified by the number
+being the right one rather than by reading the code.
+
+### 20e. Mutation testing — 17 mutations, all caught
+
+Owner checks removed from `get()` and `close()`; expiry and eviction
+disabled; predictable ids; `dev_fixed` falling back to a header; blank,
+missing and unknown identities allowed through; the trusted-header warning
+softened; a 404/403 oracle; the reason slug rendered to the client; an
+outage reported as a permission decision; the knowledge base read without
+opening a session; the question-length bound removed; and a username field
+added to each request model.
+
+**One was a badly designed mutation** — it edited the first line of a
+multi-line warning string, leaving the actual warning text intact, so it
+never implemented the threat it claimed. Re-run against the whole string,
+it is caught. Same species as §15d's `min()` no-op.
+
+⚠️ **And a documented command did not work.** `python -m
+Application.backend.api` needs a `__main__.py`, which the package did not
+have — the module docstring said one thing and the package did another.
+Found by running it, not by reading it. §16a's lesson in miniature.
 
 ---
 

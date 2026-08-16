@@ -24,19 +24,26 @@ Application/
                     Settings. An AC08 fix: rebuilding them cost ~2.3s a
                     question. Call warmup() once at startup
     intent_phrases.json   tier-1 phrases, as data
-    api/            (not built yet) FastAPI routes and schemas
-  frontend/         (not built yet) chat UI, project switcher, KB page
+    api/
+      identity.py   WHERE THE USERNAME COMES FROM — the AC09 boundary
+      store.py      server-side conversations; an id is not a credential
+      schemas.py    request/response shapes — no field holds a username
+      app.py        the routes, deliberately thin
+  frontend/
+    index.html      the whole UI: chat, switcher, KB page, RTL
 ```
 
 ## What is built today
 
-**Everything except the HTTP layer and the UI.** A multi-turn conversation
-can be held end to end — bilingual welcome, unsupported languages rejected,
-greetings answered without touching the model, cited answers in the
-question's language, and follow-ups that resolve against what was just
-asked. What does not exist is a way for a browser to reach it: `api/` and
-`frontend/` are named above so it is clear where they go, not because they
-exist.
+**All of it, except SSO/OTP.** A project manager can open the page, pick an
+assigned project, and hold a bilingual multi-turn conversation whose
+answers are grounded and cited — with unsupported languages refused,
+greetings answered without touching the model, and a knowledge-base page
+showing what is indexed.
+
+```bash
+.venv/Scripts/python -m Application.backend.api    # http://127.0.0.1:8000
+```
 
 ## Call `open_conversation`, not `answer_question`
 
@@ -104,7 +111,27 @@ was handed PRJ-01's row without complaint. Deciding whether a project may
 be scoped *at all* is `session.py`, and it is the most security-sensitive
 code in the repository.
 
-## Trust boundary — read before wiring anything in front of this
+## Trust boundary — where it now actually lives
+
+**`api/identity.py` is the other half of this section, and it is the second
+most security-sensitive file here.** The gate answers *"may this user open
+this project?"*; identity answers *"who is this?"*, and until the HTTP
+layer existed nothing did.
+
+Two rules it holds, both mutation-tested:
+
+- **A username never comes from a request body or query string**, enforced
+  structurally — no schema has a field for one. Same argument as the LLM
+  response schema having no field for a filename.
+- **A conversation id is a handle, not a credential.** Every lookup is
+  owner-checked; the gate validated the *owner's* assignment, so a leaked
+  id would otherwise bypass AC09 completely.
+
+`dev_fixed` (the default) takes the identity from configuration —
+unspoofable, and honestly not authentication. `trusted_header` is
+production-*shaped*, not production-*safe*: correct only behind a proxy
+that authenticates the user and overwrites the header on every inbound
+request. **Real AD SSO + OTP replaces `identity.py` and nothing else.**
 
 `open_session()` **trusts the username it is given.** Real Active Directory
 SSO and OTP are external dependencies that do not exist in this

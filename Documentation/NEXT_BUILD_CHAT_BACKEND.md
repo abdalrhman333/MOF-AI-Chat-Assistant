@@ -3,10 +3,12 @@
 **A brief for whoever builds this next, assuming no memory of earlier
 sessions.** Read `START_HERE.md` first, then this.
 
-The ingestion pipeline is finished and running unattended
-(`NEXT_BUILD_PIPELINE.md`). 58 documents are indexed as 678 vectors across
-9 per-project Qdrant collections, and retrieval has been spot-checked in
-both languages. What does not exist is anything a user can talk to.
+⚠️ **This is now a record, not a to-do.** Every step below is built, and
+the system runs in a browser: `python -m Application.backend.api`, then
+http://127.0.0.1:8000. The only unbuilt acceptance criterion is SSO/OTP, a
+deferred external dependency. Kept in full because the *reasoning* — what
+was specified, what was built, and where they differ — is what the next
+person needs, not the to-do list.
 
 This document is written in the same shape as the pipeline brief, because
 that shape earned its keep: it caught five places the build had to deviate
@@ -28,11 +30,11 @@ Straight from the BRD (`..\My_Prompts\SOLUTION_SCOPE.md`), not paraphrased:
 | **AC05** | Reply in the same language as the question | ✅ **done** — told, not inferred, §17c |
 | **AC06** | Answers grounded **only** in indexed documents, with the source cited | ✅ **done** — §15, §16 |
 | **AC07** | Clear, safe fallback for out-of-scope queries | ✅ **done** — §17c |
-| **AC08** | Response time ≤ 5 seconds under normal conditions | backend |
+| **AC08** | Response time ≤ 5 seconds under normal conditions | ✅ **measured** — p50 1845 / p95 2782 ms, §19 |
 | **AC08** *(dup)* | Authorized user signs in via SSO/OTP | **deferred** — external dependency |
-| **AC09** | No user can view documents of a project not assigned to them | **partly done** — see §2 |
-| **AC10** | Knowledge-base page shows document type + indexing status | frontend (data ready) |
-| **AC11** | Documents linked to projects | **done** — `document_links` |
+| **AC09** | No user can view documents of a project not assigned to them | ✅ **done** — four layers, §2, §14, §20a–b |
+| **AC10** | Knowledge-base page shows document type + indexing status | ✅ **done** — §20 |
+| **AC11** | Documents linked to projects | ✅ **done** — `document_links` |
 
 AC08 is genuinely duplicated in the source document — used for both
 response time and auth success. Reported as written rather than renumbered.
@@ -308,17 +310,31 @@ that break the budget; a max fails the run on one slow upstream response.
 
 ---
 
-### Next — the HTTP layer, then the frontend
+### Step 6 — the HTTP layer and the frontend ✅ **BUILT** (2026-08-16)
 
-Not backend logic; exposure. What it walks into:
+`Application/backend/api/` and `Application/frontend/index.html`, §20.
+**This brief is now a record, not a to-do.**
 
-- Call `clients.warmup()` and `observability.configure()` once at startup,
-  and `observability.shutdown()` on exit — batched spans are otherwise lost.
-- Routes must go through `Conversation` / `handle_question`, never
-  `answer_question`, which skips AC01–AC04.
-- **Never accept a username from a request body** (`Application/README.md`).
-- A `Conversation` is per session and per project, so a session store keys
-  on both; switching project means a new one.
+```bash
+.venv/Scripts/python -m Application.backend.api    # http://127.0.0.1:8000
+```
+
+**Three properties worth not undoing:**
+
+- **A username never comes from a request**, enforced structurally: no
+  schema has a field for one. `api/identity.py` is the AC09 boundary, and
+  real AD SSO replaces it and nothing else.
+- **A conversation id is a handle, not a credential** — every lookup is
+  owner-checked. Removing that check fails three tests.
+- **Refusals stay uniform.** Unassigned and nonexistent projects, and
+  unknown and someone-else's conversations, return byte-identical 403s.
+
+⚠️ **The conversation store is in memory and per-process** — run the API
+single-process until it moves to Redis.
+
+⚠️ **`trusted_header` mode is production-shaped, not production-safe.**
+Exposed without a proxy that overwrites the header, any client can claim
+any identity. The startup log says so; do not soften it.
 
 ---
 
@@ -429,7 +445,7 @@ These cost real time to learn. All are recorded in full in
 ```bash
 docker compose ps                                            # 13 containers
 python infra/postgres-spm/apply_migrations.py --status        # 14 applied, 0 drifted
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 508 passed
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 569 passed
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status     # exit 0, HEALTHY
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.conversation_probe  # 54/54
 ```
