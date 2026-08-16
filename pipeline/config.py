@@ -212,6 +212,34 @@ class ApplicationSettings:
 
 
 @dataclass(frozen=True)
+class AnswerSettings:
+    """Grounded answering — retrieval depth, context budget, and the LLM call.
+
+    `top_k` is how many passages are retrieved; `max_context_tokens` is the
+    ceiling on what is actually sent. Both exist because they bound
+    different things: retrieving more costs nothing extra, while *sending*
+    more costs tokens and seconds against the AC08 five-second budget.
+
+    `min_score` is the floor below which the LLM is not called at all. A
+    question whose best match is noise should produce an honest "not in the
+    documents" rather than a paid call inviting the model to improvise.
+    Measured range on this corpus is roughly 0.31–0.56, so the default sits
+    below every genuine hit while still catching nothing-matched.
+
+    `request_timeout_seconds` is a hard ceiling, not a target. AC08 asks for
+    five seconds under *normal* conditions; this stops an abnormal request
+    hanging indefinitely. Tightening it toward the budget belongs with the
+    real latency work, once there are measurements to tighten against.
+    """
+    top_k: int = 8
+    max_context_tokens: int = 6000
+    max_completion_tokens: int = 2000
+    temperature: float = 0.0
+    min_score: float = 0.25
+    request_timeout_seconds: float = 20.0
+
+
+@dataclass(frozen=True)
 class EvaluationSettings:
     """Retrieval evaluation parameters.
 
@@ -269,6 +297,7 @@ class Settings:
         )
     )
     application: ApplicationSettings = field(default_factory=ApplicationSettings)
+    answering: AnswerSettings = field(default_factory=AnswerSettings)
 
     def resolve_document(self, stored_path: str) -> pathlib.Path:
         """Turn a stored `document_links.file_path` into a real path.
@@ -386,6 +415,25 @@ def _application_from_env() -> ApplicationSettings:
     )
 
 
+def _answering_from_env() -> AnswerSettings:
+    """Allow per-deployment tuning without touching code."""
+    d = AnswerSettings
+    return AnswerSettings(
+        top_k=int(_optional("ANSWER_TOP_K", str(d.top_k))),
+        max_context_tokens=int(
+            _optional("ANSWER_MAX_CONTEXT_TOKENS", str(d.max_context_tokens))
+        ),
+        max_completion_tokens=int(
+            _optional("ANSWER_MAX_COMPLETION_TOKENS", str(d.max_completion_tokens))
+        ),
+        temperature=float(_optional("ANSWER_TEMPERATURE", str(d.temperature))),
+        min_score=float(_optional("ANSWER_MIN_SCORE", str(d.min_score))),
+        request_timeout_seconds=float(
+            _optional("ANSWER_TIMEOUT_SECONDS", str(d.request_timeout_seconds))
+        ),
+    )
+
+
 def _evaluation_from_env() -> EvaluationSettings:
     """Allow per-deployment tuning without touching code."""
     raw = _optional("EVAL_RECALL_AT", "1,3,5")
@@ -462,4 +510,5 @@ def get_settings() -> Settings:
         indexing=_indexing_from_env(),
         evaluation=_evaluation_from_env(),
         application=_application_from_env(),
+        answering=_answering_from_env(),
     )
