@@ -266,6 +266,25 @@ def test_the_model_is_asked_for_a_strict_json_schema():
     assert set(fmt["json_schema"]["schema"]["required"]) == {"answer", "used_passages"}
 
 
+def test_the_schema_makes_a_fabricated_source_structurally_impossible():
+    """The strongest form of the citation guarantee.
+
+    Dropping a bad index is a runtime defence; this is the structural one —
+    the model has no field in which to *put* a filename, page or section.
+    It may nominate an integer and nothing else, and the code resolves that
+    against what was really retrieved.
+
+    Widening this schema is precisely how hallucinated citations would get
+    in, so the shape is pinned here rather than left to review.
+    """
+    schema = ans.RESPONSE_SCHEMA["json_schema"]["schema"]
+    assert set(schema["properties"]) == {"answer", "used_passages"}, \
+        "a new field could carry model-invented source metadata"
+    assert schema["properties"]["used_passages"]["items"]["type"] == "integer"
+    assert schema["additionalProperties"] is False
+    assert ans.RESPONSE_SCHEMA["json_schema"]["strict"] is True
+
+
 # ---------------------------------------------------------------------------
 # What actually goes to the model
 # ---------------------------------------------------------------------------
