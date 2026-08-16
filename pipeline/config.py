@@ -255,18 +255,33 @@ class LanguageSettings:
     project code becomes "mixed"; too high and a real code-switched question
     is reported as monolingual, which degrades AC05's reply-in-kind.
 
-    `latin_discriminator_min_chars` is the honest part. Latin script alone
-    cannot separate English from French or Spanish, so a statistical
-    identifier runs on Latin-dominant text — but it is unreliable on very
-    short strings, where it tends to answer `en` regardless. Below this
-    length its verdict is **ignored and the text accepted**, because the
-    failure we must not make is rejecting a legitimate English question.
-    Rejection requires enough evidence to be confident; acceptance does not.
+    `latin_discriminator_min_confidence` is the honest part. Latin script
+    alone cannot separate English from French or Spanish, so a statistical
+    identifier runs on Latin-dominant text — and a **non-English verdict is
+    acted on only when the identifier is confident**. Below this, the text
+    is accepted, because the failure we must not make is rejecting a
+    legitimate English question. Rejection requires evidence; acceptance
+    does not.
+
+    **The threshold was measured, not chosen.** A live run rejected nothing
+    for *"Quel est le budget?"* because an earlier version gated on string
+    length instead, and at 19 characters it fell under a 20-character floor.
+    Length turned out to be a poor proxy: the identifier is reliable on
+    short text (10/10 non-English strings down to 11 characters), and its
+    one false positive on real English — *"When does it end?"* → German —
+    comes back at **0.473**, while genuine non-English sentences come back
+    at **0.997–1.000**. Confidence separates what length could not, and it
+    measures the thing the rule is actually about.
+
+    Fragments below the threshold (*"le budget?"*, *"das Budget?"*) are
+    still accepted. That is the asymmetry working as intended, not a gap to
+    close by lowering it — the first English question it turns away costs
+    more than every French fragment it lets through.
     """
     supported: tuple[str, ...] = ("ar", "en")
     mixed_min_share: float = 0.20
     latin_discriminator_enabled: bool = True
-    latin_discriminator_min_chars: int = 20
+    latin_discriminator_min_confidence: float = 0.90
 
 
 @dataclass(frozen=True)
@@ -540,9 +555,9 @@ def _language_from_env() -> LanguageSettings:
         latin_discriminator_enabled=_optional(
             "LANGUAGE_LATIN_DISCRIMINATOR", "true"
         ).lower() not in {"false", "0", "no"},
-        latin_discriminator_min_chars=int(
-            _optional("LANGUAGE_LATIN_MIN_CHARS",
-                      str(d.latin_discriminator_min_chars))
+        latin_discriminator_min_confidence=float(
+            _optional("LANGUAGE_LATIN_MIN_CONFIDENCE",
+                      str(d.latin_discriminator_min_confidence))
         ),
     )
 

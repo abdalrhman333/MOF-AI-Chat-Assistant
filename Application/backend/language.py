@@ -28,13 +28,20 @@ French — is a statistical identifier consulted.
 
 **Rejection needs evidence; acceptance does not.** The asymmetry is
 deliberate and shows up twice. Text with no letters at all is
-`UNDETERMINED`, not "unsupported" — there is no language to reject. And the
-Latin discriminator's verdict is ignored below
-`latin_discriminator_min_chars`, because it answers `en` for almost any
-short string and the failure we must never make is turning away a
+`UNDETERMINED`, not "unsupported" — there is no language to reject. And a
+non-English verdict from the Latin discriminator is acted on **only when it
+is confident**, because the failure we must never make is turning away a
 legitimate English question. The cost of the opposite error — accepting a
 French question and answering it badly — is a poor answer, not a locked-out
 user.
+
+⚠️ **That gate is on confidence, not on length, and the difference was
+found by running it.** An earlier version ignored the identifier below 20
+characters; a live conversation then answered *"Quel est le budget?"* (19
+characters) in English. Length is a poor proxy — the identifier is reliable
+well below that — and confidence measures the thing the rule is actually
+about: its one false positive on real English (*"When does it end?"* →
+German) scores 0.473, while genuine non-English sentences score 0.997–1.000.
 
 Nothing here performs I/O or calls a network service, so the whole decision
 space is testable exhaustively and adds no latency to a question.
@@ -43,6 +50,7 @@ from __future__ import annotations
 
 import unicodedata
 from dataclasses import dataclass
+from functools import lru_cache
 
 from pipeline.config import LanguageSettings, Settings, get_settings
 
@@ -163,16 +171,28 @@ def _script_name(char: str) -> str:
         return f"U+{ord(char):04X}"
 
 
-def _default_discriminator(text: str) -> str:
-    """Identify a Latin-script language. Imported lazily and injectable.
+@lru_cache(maxsize=1)
+def _identifier():
+    """The statistical model, loaded once.
 
-    Lazy because it pulls in numpy, and a caller that supplies its own
-    discriminator — every test here does — should not pay for a model it
-    will not use.
+    `norm_probs=True` is the point: the raw model returns log-probabilities,
+    and the rejection rule needs a comparable confidence, not a score whose
+    scale depends on the input length.
     """
-    import py3langid
-    code, _score = py3langid.classify(text)
-    return str(code)
+    from py3langid.langid import MODEL_FILE, LanguageIdentifier
+    return LanguageIdentifier.from_pickled_model(MODEL_FILE, norm_probs=True)
+
+
+def _default_discriminator(text: str) -> tuple[str, float]:
+    """Identify a Latin-script language, with a confidence. Injectable.
+
+    Returns `(code, confidence)` rather than a bare code because the policy
+    — *how sure must we be to turn someone away* — belongs in `detect`
+    alongside the rest of AC01, not inside the identifier. Imported lazily:
+    it pulls in numpy, and every test supplies its own.
+    """
+    code, confidence = _identifier().classify(text)
+    return str(code), float(confidence)
 
 
 def detect(text: str, *, settings: Settings | None = None,
@@ -249,12 +269,19 @@ def detect(text: str, *, settings: Settings | None = None,
 
     # Latin-dominant. Script has run out of information: English, French and
     # Spanish are indistinguishable from here, so a statistical identifier
-    # decides — but only when there is enough text for it to be trusted.
-    code = ENGLISH
-    if (config.latin_discriminator_enabled
-            and len(text.strip()) >= config.latin_discriminator_min_chars):
+    # decides — but a verdict that would *reject* the user is acted on only
+    # when the identifier is confident. Below the threshold the text is
+    # accepted, because turning away a legitimate English question is the
+    # one failure this module must not make.
+    code, confidence = ENGLISH, 1.0
+    if config.latin_discriminator_enabled:
         identify = discriminator or _default_discriminator
-        code = (identify(text) or ENGLISH).lower()
+        verdict = identify(text)
+        code, confidence = verdict if isinstance(verdict, tuple) else (verdict, 1.0)
+        code = (code or ENGLISH).lower()
+        if (code not in config.supported
+                and confidence < config.latin_discriminator_min_confidence):
+            code = ENGLISH          # not sure enough to refuse — see above
 
     if code in config.supported:
         return LanguageVerdict(

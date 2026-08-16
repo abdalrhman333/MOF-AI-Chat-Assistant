@@ -49,6 +49,13 @@
     {"text": "شكرا، ومتى ينتهي المشروع؟", "language": "ar", "route": "general_retrieval"},
 
     {"text": "Quel est le budget approuve pour ce projet cette annee?", "language": "unsupported", "route": null, "note": "Latin script — only the discriminator can catch this"},
+    {"text": "Quel est le budget?", "language": "unsupported", "route": null, "note": "19 chars — a live run answered this in English under the old length gate"},
+    {"text": "Quel est le statut?", "language": "unsupported", "route": null, "note": "short French"},
+    {"text": "el presupuesto?", "language": "unsupported", "route": null, "note": "short Spanish"},
+    {"text": "Qual e lo stato?", "language": "unsupported", "route": null, "note": "short Italian"},
+    {"text": "When does it end?", "language": "en", "route": "general_retrieval", "note": "the identifier calls this German at 0.473 — must NOT be rejected"},
+    {"text": "project status", "language": "en", "route": "general_retrieval", "note": "low-confidence English must still pass"},
+    {"text": "Tell me more", "language": "en", "route": "general_retrieval", "note": "short, referential — AC03 handles it, AC01 must not reject it"},
     {"text": "Cual es el presupuesto aprobado para este proyecto?", "language": "unsupported", "route": null},
     {"text": "Wie hoch ist das genehmigte Budget fuer dieses Projekt?", "language": "unsupported", "route": null},
     {"text": "这个项目的预算是多少", "language": "unsupported", "route": null, "note": "Han"},

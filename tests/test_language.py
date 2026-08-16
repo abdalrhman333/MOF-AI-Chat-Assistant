@@ -223,36 +223,70 @@ def test_a_latin_script_language_that_is_not_english_is_rejected():
     assert verdict.detail == "fr"
 
 
-def test_short_latin_text_is_accepted_without_trusting_the_discriminator():
+def test_an_unconfident_rejection_is_not_acted_on():
     """Rejection needs evidence; acceptance does not.
 
-    The identifier answers `en` for almost any short string, so below the
-    threshold its verdict is ignored — the failure we must never make is
-    turning away a legitimate English question.
+    Measured: the identifier's one false positive on real English —
+    *"When does it end?"* → German — comes back at 0.473, while genuine
+    non-English sentences come back at 0.997–1.000. So a low-confidence
+    non-English verdict must not turn a user away.
     """
-    calls = []
-
-    def spy(text):
-        calls.append(text)
-        return "fr"
-
-    verdict = detect("budget?", discriminator=spy)
+    verdict = detect("When does it end?", discriminator=lambda _t: ("de", 0.47))
     assert verdict.language == lang.ENGLISH
     assert verdict.supported
-    assert calls == [], "the discriminator must not be consulted on short text"
 
 
-def test_the_discriminator_is_consulted_once_text_is_long_enough():
+def test_a_confident_rejection_is_acted_on():
+    verdict = detect("Quel est le budget?", discriminator=lambda _t: ("fr", 0.99))
+    assert verdict.language == lang.UNSUPPORTED
+    assert verdict.reason == lang.REASON_UNSUPPORTED_LANGUAGE
+
+
+def test_a_short_non_english_question_is_still_rejected_when_confident():
+    """The live-run regression this replaced a length threshold to fix.
+
+    *"Quel est le budget?"* is 19 characters. Under the old 20-character
+    floor the identifier was never consulted and a conversation answered it
+    in English.
+    """
+    text = "Quel est le budget?"
+    assert len(text) < 20
+    assert not detect(text, discriminator=lambda _t: ("fr", 1.0)).supported
+
+
+def test_confidence_is_only_a_gate_on_rejection_never_on_acceptance():
+    """A low-confidence *English* verdict still means English — the
+    threshold exists to protect the user, not to second-guess a pass."""
+    verdict = detect("project status", discriminator=lambda _t: ("en", 0.17))
+    assert verdict.language == lang.ENGLISH
+    assert verdict.supported
+
+
+def test_the_confidence_threshold_is_configuration_not_a_literal():
+    unconfident = ("fr", 0.60)
+    assert detect("Quel est le budget du projet",
+                  discriminator=lambda _t: unconfident).supported
+    trusting = with_language(latin_discriminator_min_confidence=0.5)
+    assert not lang.detect("Quel est le budget du projet", settings=trusting,
+                           discriminator=lambda _t: unconfident).supported
+
+
+def test_the_discriminator_is_consulted_exactly_once_on_latin_text():
     calls = []
 
     def spy(text):
         calls.append(text)
-        return "en"
+        return "en", 1.0
 
-    long_enough = "What is the approved budget for this project this year"
-    assert len(long_enough) >= SETTINGS.language.latin_discriminator_min_chars
-    detect(long_enough, discriminator=spy)
+    detect("What is the approved budget for this project?", discriminator=spy)
     assert len(calls) == 1
+
+
+def test_a_discriminator_returning_a_bare_code_is_still_understood():
+    """The injected form stays simple for tests that do not care about
+    confidence; a bare code is treated as certain."""
+    assert not detect("Quel est le budget du projet",
+                      discriminator=lambda _t: "fr").supported
 
 
 def test_arabic_never_reaches_the_discriminator():
@@ -269,7 +303,7 @@ def test_the_discriminator_can_be_disabled_by_configuration():
     settings = with_language(latin_discriminator_enabled=False)
     verdict = lang.detect("Quel est le budget approuve pour ce projet",
                           settings=settings,
-                          discriminator=lambda _t: "fr")
+                          discriminator=lambda _t: ("fr", 1.0))
     assert verdict.language == lang.ENGLISH, "disabled means script-only"
 
 
