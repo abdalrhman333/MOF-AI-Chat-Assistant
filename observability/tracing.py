@@ -216,6 +216,10 @@ def span(name: str, **attributes):
         yield _NoopSpan()
         return
 
+    # OpenTelemetry drops a `None` attribute itself — but it logs a warning
+    # for each one first, and a warning per span per turn is how a log stops
+    # being read. Filtering here is therefore about the log, not the export;
+    # mutation testing showed that removing it changes no exported span.
     clean = {k: v for k, v in attributes.items() if v is not None}
     try:
         with _tracer.start_as_current_span(name) as current:

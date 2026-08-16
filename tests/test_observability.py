@@ -257,14 +257,40 @@ def test_a_span_records_its_attributes(spans):
     assert recorded[0].attributes["project"] == "PRJ-06"
 
 
-def test_none_attributes_are_dropped_rather_than_exported_as_none(spans):
-    """Otherwise half a trace reads `page: "None"` and stops being useful."""
+def test_none_attributes_do_not_reach_the_exported_span(spans):
     with tracing.span("x", present="yes", missing=None):
         pass
     tracing.shutdown()
     attributes = spans.get_finished_spans()[0].attributes
     assert attributes["present"] == "yes"
     assert "missing" not in attributes
+
+
+def test_filtering_none_attributes_keeps_the_log_quiet(spans, caplog):
+    """What that filter actually guards, found by mutation testing.
+
+    OpenTelemetry drops a `None` attribute by itself, so removing the
+    filter changes no exported span and the test above cannot see it. What
+    it does change is a warning per attribute per span per turn — which is
+    how a log stops being read. Assert the thing that actually differs.
+    """
+    import logging
+    with caplog.at_level(logging.WARNING):
+        with tracing.span("x", present="yes", missing=None):
+            pass
+    assert not [r for r in caplog.records if "missing" in r.getMessage()]
+
+
+def test_spans_are_exported_in_the_background_never_on_the_request_thread(spans):
+    """A synchronous processor would put the collector's latency straight
+    into the AC08 budget — the failure mode of naive tracing."""
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    tracing.configure(traced(), force=True)
+    processors = tracing._provider._active_span_processor._span_processors
+    assert processors, "no span processor was installed"
+    assert all(isinstance(p, BatchSpanProcessor) for p in processors), \
+        f"a non-batching processor exports on the caller's thread: {processors}"
 
 
 def test_nested_spans_share_one_trace(spans):
@@ -311,11 +337,18 @@ def _answer_once(settings, spans_sink):
 
 def test_capture_content_off_keeps_document_text_out_of_the_trace(spans):
     """A trace store has no notion of AC09: anyone who can read it can read
-    every project's passages. This switch is how that is contained."""
+    every project's passages. This switch is how that is contained.
+
+    Both directions are asserted. Checking only the prompt let a mutation
+    survive that captured the completion regardless of the switch — and a
+    completion quotes the passages back.
+    """
     recorded = _answer_once(traced(capture_content=False), spans)
     blob = repr([dict(s.attributes) for s in recorded])
     assert "SECRET-PASSAGE-TEXT" not in blob
-    assert tracing.LF_INPUT not in blob
+    assert tracing.LF_INPUT not in blob, "the prompt leaked"
+    assert tracing.LF_OUTPUT not in blob, "the completion leaked"
+    assert "22,900,000" not in blob
 
 
 def test_capture_content_on_records_the_prompt_and_completion(spans):
@@ -351,21 +384,63 @@ def test_percentile(values, fraction, expected):
 
 
 def test_the_budget_verdict_uses_p95_and_a_slow_tail_fails_it():
-    """A mean hides exactly the turns that break the budget."""
+    """A mean hides exactly the turns that break the budget.
+
+    Nineteen fast turns and one very slow one average under a second, so a
+    mean-based verdict passes a run a user would call broken.
+    """
     assert latency_bench.BUDGET_SECONDS == 5.0
-    tail = [500] * 10 + [9000] * 10               # half the turns are slow
+    tail = [500] * 12 + [9000] * 8
     assert sum(tail) / len(tail) < 5000, "the mean would pass this"
-    assert latency_bench.percentile(tail, 0.95) > 5000, "p95 must not"
+    assert not latency_bench.verdict(tail, 5000), "p95 must fail it"
+
+
+def test_the_budget_verdict_passes_a_run_that_is_genuinely_fast():
+    assert latency_bench.verdict([1800] * 20, 5000)
+
+
+def test_an_empty_run_is_never_reported_as_meeting_the_budget():
+    """Zero measurements is not a pass."""
+    assert not latency_bench.verdict([], 5000)
 
 
 def test_a_lone_outlier_does_not_fail_the_budget_but_is_still_reported():
     """AC08 says "under normal conditions", which is a percentile
     statement — one slow turn in twenty is not the normal condition.
 
-    Recorded as a deliberate reading rather than an accident: `max_ms` is
+    A deliberate reading, recorded rather than left implicit: `max_ms` is
     reported alongside p95 precisely so the outlier stays visible instead
     of being averaged away.
     """
     values = [500] * 19 + [30000]
-    assert latency_bench.percentile(values, 0.95) <= 5000
+    assert latency_bench.verdict(values, 5000)
     assert max(values) > 5000
+
+
+# ---------------------------------------------------------------------------
+# 7. The harness must not flatter itself
+# ---------------------------------------------------------------------------
+
+def _question(qid, project):
+    from evaluation.dataset import Question
+    return Question(id=qid, project=project, lang="ar", text="س؟",
+                    expect_documents=())
+
+
+def test_a_project_with_no_assignment_is_reported_not_dropped():
+    """AC09 forbids opening a session there at all, so it cannot be
+    measured — but a benchmark whose denominator quietly shrinks is a
+    benchmark that flatters itself."""
+    questions = [_question("a", "PRJ-06"), _question("b", "PRJ-08")]
+    runnable, skipped = latency_bench.plan(questions, {"PRJ-06": "noura"})
+    assert [q.id for q, _ in runnable] == ["a"]
+    assert [s["id"] for s in skipped] == ["b"]
+    assert "AC09" in skipped[0]["why"]
+
+
+def test_the_plan_pairs_each_question_with_its_assigned_user():
+    questions = [_question("a", "PRJ-06"), _question("b", "PRJ-01")]
+    runnable, skipped = latency_bench.plan(
+        questions, {"PRJ-06": "noura", "PRJ-01": "fahad"})
+    assert skipped == []
+    assert [user for _, user in runnable] == ["noura", "fahad"]

@@ -82,6 +82,42 @@ def percentile(values: list[float], fraction: float) -> float:
     return ordered[index]
 
 
+def verdict(totals: list[float], budget_ms: float) -> bool:
+    """Does this run meet AC08?
+
+    **p95, not the mean.** "Does not exceed 5 seconds" is a claim about the
+    tail, and a mean hides exactly the turns that break it: nineteen
+    half-second turns and one thirty-second turn average under a second.
+
+    p95 rather than max, because AC08 says *under normal conditions* — one
+    slow turn in twenty is not the normal condition. `max_ms` is reported
+    alongside so the outlier stays visible rather than being averaged away.
+
+    A pure function because the alternative — asserting this through a run
+    that needs a database and paid calls — is how a verdict goes untested.
+    """
+    return bool(totals) and percentile(totals, 0.95) <= budget_ms
+
+
+def plan(questions, users: dict[str, str]) -> tuple[list, list[dict]]:
+    """Split the question set into what can be measured and what cannot.
+
+    A project with no assignment cannot have a session opened at all — that
+    is AC09, not a harness limitation — so those questions are **reported
+    as skipped rather than dropped**. A benchmark whose denominator quietly
+    shrinks is a benchmark that flatters itself.
+    """
+    runnable, skipped = [], []
+    for question in questions:
+        username = users.get(question.project)
+        if username:
+            runnable.append((question, username))
+        else:
+            skipped.append({"id": question.id, "project": question.project,
+                            "why": "no assignment — AC09 forbids a session"})
+    return runnable, skipped
+
+
 def run(settings: Settings | None = None, *, limit: int | None = None,
         cold: bool = False, warm: bool = True) -> dict:
     settings = settings or get_settings()
@@ -98,15 +134,11 @@ def run(settings: Settings | None = None, *, limit: int | None = None,
     else:
         warmup = None
 
-    results, skipped = [], []
     questions = dataset.questions[:limit] if limit else dataset.questions
+    runnable, skipped = plan(questions, users)
 
-    for question in questions:
-        username = users.get(question.project)
-        if not username:
-            skipped.append({"id": question.id, "project": question.project,
-                            "why": "no assignment — AC09 forbids a session"})
-            continue
+    results = []
+    for question, username in runnable:
         try:
             session = open_session(username, question.project)
         except AccessError as exc:
@@ -152,7 +184,7 @@ def run(settings: Settings | None = None, *, limit: int | None = None,
             "n": len(subset), "p50_ms": round(percentile(subset, 0.50)),
             "p95_ms": round(percentile(subset, 0.95)),
         }
-    summary["ok"] = bool(totals) and summary["p95_ms"] <= summary["budget_ms"]
+    summary["ok"] = verdict(totals, summary["budget_ms"])
     return summary
 
 
