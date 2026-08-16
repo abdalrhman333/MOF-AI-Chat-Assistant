@@ -26,11 +26,12 @@ Run it:
 from __future__ import annotations
 
 import logging
+import pathlib
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 import observability
 from Application.backend import clients, db
@@ -147,6 +148,25 @@ def _conversation_or_denied(token: str, who: identity_module.Identity):
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+FRONTEND = (pathlib.Path(__file__).resolve().parents[2] / "frontend"
+            / "index.html")
+
+
+@app.get("/", include_in_schema=False)
+def ui():
+    """Serve the chat UI from the API process.
+
+    One thing to run, and same-origin so the browser needs no CORS grant
+    and no separate dev server. The page is a single static file with no
+    build step — see its own comment for why.
+    """
+    if not FRONTEND.is_file():
+        return JSONResponse(status_code=404,
+                            content={"error": "no_ui",
+                                     "detail": "frontend/index.html is missing"})
+    return FileResponse(FRONTEND, media_type="text/html")
+
 
 @app.get("/health", response_model=schemas.HealthOut, tags=["ops"])
 def health():
