@@ -58,6 +58,9 @@ from Application.backend.spm import fetch as fetch_project
 from pipeline.chunker import count_tokens
 from pipeline.config import Settings, get_settings
 
+import observability
+from observability import tracing
+
 # The marker the model returns when the passages do not answer the question.
 # Checked against this deployment in a smoke test before the module existed.
 NOT_FOUND = "NOT_IN_DOCUMENTS"
@@ -403,21 +406,51 @@ def answer_question(
         from Application.backend import clients
         llm = clients.llm(settings)
     started = time.perf_counter()
-    try:
-        response = llm.chat.completions.create(
-            model=settings.models.llm_deployment,
-            messages=messages,
-            max_completion_tokens=answering.max_completion_tokens,
-            temperature=answering.temperature,
-            response_format=RESPONSE_SCHEMA,
-        )
-    except Exception as exc:                                # noqa: BLE001
-        raise BackendUnavailable(f"the language model call failed: {exc}") from exc
+    with observability.span(
+        f"chat {settings.models.llm_deployment}",
+        **{
+            tracing.GEN_AI_OPERATION: "chat",
+            tracing.GEN_AI_SYSTEM: "az.ai.openai",
+            tracing.GEN_AI_REQUEST_MODEL: settings.models.llm_deployment,
+            tracing.GEN_AI_REQUEST_TEMPERATURE: answering.temperature,
+            tracing.GEN_AI_REQUEST_MAX_TOKENS: answering.max_completion_tokens,
+            "enjaz.passages_sent": len(context),
+            "enjaz.project_record": record is not None,
+            "enjaz.history_turns": len(history or []),
+        },
+    ) as current:
+        if settings.observability.capture_content:
+            # Gated: the prompt carries document passages. The reasoning is
+            # in ObservabilitySettings — a trace store has no notion of AC09.
+            current.set_attribute(tracing.LF_INPUT,
+                                  json.dumps(messages, ensure_ascii=False))
+        try:
+            response = llm.chat.completions.create(
+                model=settings.models.llm_deployment,
+                messages=messages,
+                max_completion_tokens=answering.max_completion_tokens,
+                temperature=answering.temperature,
+                response_format=RESPONSE_SCHEMA,
+            )
+        except Exception as exc:                            # noqa: BLE001
+            tracing.record_exception(current, exc)
+            raise BackendUnavailable(
+                f"the language model call failed: {exc}") from exc
+
+        raw = (response.choices[0].message.content or "").strip()
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            current.set_attributes({
+                tracing.GEN_AI_USAGE_INPUT:
+                    getattr(usage, "prompt_tokens", 0) or 0,
+                tracing.GEN_AI_USAGE_OUTPUT:
+                    getattr(usage, "completion_tokens", 0) or 0,
+            })
+        if settings.observability.capture_content:
+            current.set_attribute(tracing.LF_OUTPUT, raw)
     timings.llm_ms = int((time.perf_counter() - started) * 1000)
 
-    text, citations = parse_response(
-        (response.choices[0].message.content or "").strip(), context, record
-    )
+    text, citations = parse_response(raw, context, record)
     return Answer(
         text=text or NOT_FOUND,
         citations=citations,

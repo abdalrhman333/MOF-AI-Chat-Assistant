@@ -78,6 +78,22 @@ py3langid==0.3.0                        # Latin-script language ID only.
                                         # call site in Application/backend/
                                         # language.py, so a swap stays there.
 
+# ---- Tracing (observability/tracing.py) -------------------------------
+# ONE instrumentation, TWO backends. Langfuse v3 exposes an OTLP endpoint
+# (verified against this deployment: POST /api/public/otel/v1/traces -> 200),
+# so LLM tracing needs no second SDK -- which matters, because two SDKs mean
+# two sets of instrumentation calls that drift apart.
+#
+# HTTP rather than gRPC: grafana-lgtm accepts OTLP on both :4317 (gRPC) and
+# :4318 (HTTP), Langfuse only on HTTP, and one exporter package covering
+# both backends is one fewer moving part.
+#
+# NOTE: this pins protobuf to the 6.x line (it was 7.35.1). Verified after
+# the change: 508 tests pass, Qdrant reads fine and `pipeline.status` still
+# exits 0.
+opentelemetry-sdk==1.39.0
+opentelemetry-exporter-otlp-proto-http==1.39.0
+
 # ---- Config -----------------------------------------------------------
 python-dotenv==1.2.2                    # loads infra/.env
 

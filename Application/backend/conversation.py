@@ -33,6 +33,7 @@ reply-in-kind rule stays in place as the fallback for mixed input.
 """
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 
 from Application.backend import intent as intent_module
@@ -52,6 +53,9 @@ from Application.backend.retrieval import search
 from Application.backend.session import Session
 from pipeline.chunker import count_tokens
 from pipeline.config import Settings, get_settings
+
+import observability
+from observability import tracing
 
 # Outcome slugs, distinct from intents: an intent is what the user asked
 # for, an outcome is what we did about it. They differ exactly where it
@@ -146,6 +150,8 @@ def handle_question(
     phrases=None,
     history: list[tuple[str, str]] | None = None,
     previous_question: str = "",
+    conversation_id: str = "",
+    turn_index: int = 0,
     **answer_kwargs,
 ) -> Reply:
     """Take one user turn and produce one reply.
@@ -155,12 +161,57 @@ def handle_question(
     thing that owns the conversation (`Conversation`) is the only thing that
     has to be right about what a turn remembers.
 
+    `conversation_id` and `turn_index` are for tracing only and change no
+    behaviour — they are what group a multi-turn conversation into one
+    session in Langfuse instead of a scatter of unrelated traces.
+
     `**answer_kwargs` passes straight through to `answer_question`, so the
     whole path — including the parts that cost money — stays injectable and
     testable without a paid call.
     """
     settings = settings or get_settings()
+    with observability.span(
+        "chat.turn",
+        **{
+            tracing.LF_TRACE_NAME: "chat.turn",
+            tracing.LF_SESSION_ID: conversation_id or session.project_code,
+            tracing.LF_USER_ID: session.username,
+            "enjaz.project": session.project_code,
+            "enjaz.turn_index": turn_index,
+        },
+    ) as turn_span:
+        reply = _handle(session, text, settings=settings,
+                        discriminator=discriminator, phrases=phrases,
+                        history=history, previous_question=previous_question,
+                        **answer_kwargs)
+        # Recorded after the fact, because the interesting attributes are
+        # outcomes rather than inputs: what a turn *did* is what makes a
+        # trace searchable.
+        turn_span.set_attributes({
+            "enjaz.outcome": reply.outcome,
+            "enjaz.intent": reply.intent or "",
+            "enjaz.language": reply.language,
+            "enjaz.reply_language": reply.reply_language,
+            "enjaz.grounded": reply.grounded,
+            "enjaz.citations": len(reply.citations),
+            "enjaz.used_model": reply.used_model,
+            "enjaz.total_ms": reply.timings.total_ms,
+        })
+        return reply
 
+
+def _handle(
+    session: Session,
+    text: str,
+    *,
+    settings: Settings,
+    discriminator=None,
+    phrases=None,
+    history: list[tuple[str, str]] | None = None,
+    previous_question: str = "",
+    **answer_kwargs,
+) -> Reply:
+    """The turn itself. Separated so the span wraps every exit path."""
     # ---- AC01 -------------------------------------------------------------
     verdict = language_module.detect(text, settings=settings,
                                      discriminator=discriminator)
@@ -279,10 +330,14 @@ class Conversation:
     Enjaz Platform assistant…` would crowd out the exchange that matters.
     """
 
-    def __init__(self, session: Session, *, settings: Settings | None = None):
+    def __init__(self, session: Session, *, settings: Settings | None = None,
+                 conversation_id: str = ""):
         self._session = session
         self._settings = settings or get_settings()
         self._turns: list[Turn] = []
+        # Tracing only. A stable id per conversation is what makes Langfuse
+        # show one session with N turns rather than N unrelated traces.
+        self._id = conversation_id or uuid.uuid4().hex
 
     # ---- state ------------------------------------------------------------
 
@@ -290,6 +345,11 @@ class Conversation:
     def session(self) -> Session:
         """Read-only on purpose — see the class docstring."""
         return self._session
+
+    @property
+    def id(self) -> str:
+        """Stable per conversation. Tracing only; carries no authority."""
+        return self._id
 
     @property
     def project_code(self) -> str:
@@ -354,6 +414,8 @@ class Conversation:
         kwargs.setdefault("settings", self._settings)
         kwargs.setdefault("history", self.history_for_prompt())
         kwargs.setdefault("previous_question", self._previous_question())
+        kwargs.setdefault("conversation_id", self._id)
+        kwargs.setdefault("turn_index", len(self._turns) + 1)
         reply = handle_question(self._session, text, **kwargs)
         self._turns.append(Turn(question=text, reply=reply))
         return reply

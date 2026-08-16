@@ -285,6 +285,53 @@ class LanguageSettings:
 
 
 @dataclass(frozen=True)
+class ObservabilitySettings:
+    """Tracing — one instrumentation, two backends.
+
+    **OpenTelemetry is the only instrumentation API used**, and both
+    backends receive the same spans. Langfuse v3 exposes an OTLP endpoint
+    (`/api/public/otel/v1/traces`, verified against this deployment before
+    anything was built on it), so LLM tracing needs no second SDK and no
+    second set of instrumentation calls that could drift apart. Grafana's
+    LGTM container accepts OTLP directly.
+
+    Each backend is separately switchable because they answer different
+    questions: Grafana shows *where the time went* across a request, and
+    Langfuse shows *what the model was actually asked and answered*.
+
+    ⚠️ **`capture_content` controls whether prompts and completions leave
+    the process.** A trace with content in it contains project document
+    passages, and a trace store has no notion of AC09 — anyone who can read
+    Langfuse can read every project's passages regardless of assignment.
+    That is acceptable here because Langfuse is a container on the same
+    machine holding the same corpus. **It would not be acceptable against a
+    shared or hosted trace store**, and turning this off leaves timing and
+    token counts intact, which is most of the operational value.
+
+    Tracing is **fail-open**, the opposite of every access rule in this
+    project, and deliberately: an unreachable collector must never stop a
+    project manager getting an answer.
+    """
+    enabled: bool = False
+    service_name: str = "enjaz-chat"
+    environment: str = "dev"
+    otlp_enabled: bool = True
+    otlp_endpoint: str = "http://localhost:4318/v1/traces"
+    langfuse_enabled: bool = True
+    langfuse_endpoint: str = "http://localhost:3001/api/public/otel/v1/traces"
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    capture_content: bool = True
+    export_timeout_seconds: float = 5.0
+
+    @property
+    def langfuse_ready(self) -> bool:
+        """Keys are required; a Langfuse OTLP post without them is a 401."""
+        return bool(self.langfuse_enabled and self.langfuse_public_key
+                    and self.langfuse_secret_key)
+
+
+@dataclass(frozen=True)
 class ConversationSettings:
     """AC03 — how much of the conversation is carried forward, and how.
 
@@ -401,6 +448,8 @@ class Settings:
     language: LanguageSettings = field(default_factory=LanguageSettings)
     conversation: ConversationSettings = field(
         default_factory=ConversationSettings)
+    observability: ObservabilitySettings = field(
+        default_factory=ObservabilitySettings)
     intent: IntentSettings = field(
         default_factory=lambda: IntentSettings(
             phrases_path=REPO_ROOT / "Application" / "backend" / "intent_phrases.json"
@@ -562,6 +611,36 @@ def _language_from_env() -> LanguageSettings:
     )
 
 
+def _flag(name: str, default: str) -> bool:
+    return _optional(name, default).lower() not in {"false", "0", "no", "off"}
+
+
+def _observability_from_env() -> ObservabilitySettings:
+    """Allow per-deployment tuning without touching code.
+
+    The Langfuse keys are read from the same variables the container stack
+    already defines, so enabling tracing is one flag rather than a second
+    copy of credentials that can drift from the ones Langfuse was given.
+    """
+    d = ObservabilitySettings
+    return ObservabilitySettings(
+        enabled=_flag("OBSERVABILITY_ENABLED", "false"),
+        service_name=_optional("OTEL_SERVICE_NAME", d.service_name),
+        environment=_optional("OTEL_ENVIRONMENT", d.environment),
+        otlp_enabled=_flag("OTLP_TRACING_ENABLED", "true"),
+        otlp_endpoint=_optional("OTLP_TRACES_ENDPOINT", d.otlp_endpoint),
+        langfuse_enabled=_flag("LANGFUSE_TRACING_ENABLED", "true"),
+        langfuse_endpoint=_optional("LANGFUSE_OTLP_ENDPOINT", d.langfuse_endpoint),
+        langfuse_public_key=_optional("LANGFUSE_PUBLIC_KEY", ""),
+        langfuse_secret_key=_optional("LANGFUSE_SECRET_KEY", ""),
+        capture_content=_flag("LANGFUSE_CAPTURE_CONTENT", "true"),
+        export_timeout_seconds=float(
+            _optional("OTEL_EXPORT_TIMEOUT_SECONDS",
+                      str(d.export_timeout_seconds))
+        ),
+    )
+
+
 def _conversation_from_env() -> ConversationSettings:
     """Allow per-deployment tuning without touching code."""
     d = ConversationSettings
@@ -676,5 +755,6 @@ def get_settings() -> Settings:
         answering=_answering_from_env(),
         language=_language_from_env(),
         conversation=_conversation_from_env(),
+        observability=_observability_from_env(),
         intent=_intent_from_env(),
     )

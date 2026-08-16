@@ -25,6 +25,8 @@ from Application.backend.errors import BackendUnavailable
 from Application.backend.session import Session
 from pipeline.config import Settings, get_settings
 
+import observability
+
 
 @dataclass(frozen=True)
 class Passage:
@@ -113,12 +115,16 @@ def search(
     qdrant = qdrant or _build_qdrant(settings)
 
     started = time.perf_counter()
-    try:
-        vector = embed_question(question.strip(), settings, embedder)
-    except BackendUnavailable:
-        raise
-    except Exception as exc:                                # noqa: BLE001
-        raise BackendUnavailable(f"could not embed the question: {exc}") from exc
+    with observability.span("retrieval.embed",
+                            **{"gen_ai.request.model":
+                               settings.models.embedding_deployment}):
+        try:
+            vector = embed_question(question.strip(), settings, embedder)
+        except BackendUnavailable:
+            raise
+        except Exception as exc:                            # noqa: BLE001
+            raise BackendUnavailable(
+                f"could not embed the question: {exc}") from exc
     embed_ms = int((time.perf_counter() - started) * 1000)
 
     # Derived from the session, never from an argument. This single line is
@@ -126,15 +132,18 @@ def search(
     collection = settings.qdrant.collection_for(session.project_code)
 
     started = time.perf_counter()
-    try:
-        response = qdrant.query_points(
-            collection_name=collection, query=vector,
-            limit=limit, with_payload=True,
-        )
-    except Exception as exc:                                # noqa: BLE001
-        raise BackendUnavailable(
-            f"could not search the knowledge base for {session.project_code}: {exc}"
-        ) from exc
+    with observability.span("retrieval.search", collection=collection,
+                            limit=limit):
+        try:
+            response = qdrant.query_points(
+                collection_name=collection, query=vector,
+                limit=limit, with_payload=True,
+            )
+        except Exception as exc:                            # noqa: BLE001
+            raise BackendUnavailable(
+                f"could not search the knowledge base for "
+                f"{session.project_code}: {exc}"
+            ) from exc
     search_ms = int((time.perf_counter() - started) * 1000)
 
     passages = []
