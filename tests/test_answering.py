@@ -24,12 +24,14 @@ Nothing here calls a paid API or touches the live vector store.
 from __future__ import annotations
 
 import dataclasses
+import datetime as dt
 import json
 
 import pytest
 
 from Application.backend import answer as ans
 from Application.backend import retrieval as ret
+from Application.backend import spm
 from Application.backend.errors import BackendUnavailable
 from Application.backend.session import Session
 from pipeline.config import get_settings
@@ -122,10 +124,27 @@ def settings():
 
 
 def run(question="what?", qdrant=None, llm=None, **kw):
+    """Defaults to RAG only. `project_record=` opts a test into the SPM source.
+
+    Passing None explicitly (rather than letting it default) is what keeps
+    this suite from opening a real connection pool — every path here is
+    stubbed, and a test that quietly reached the database would be testing
+    something other than what it claims.
+    """
+    kw.setdefault("project_record", None)
     return ans.answer_question(
         SESSION, question, settings=settings(),
         embedder=StubEmbedder(), qdrant=qdrant or StubQdrant(CORPUS),
         llm=llm or StubLLM(), **kw)
+
+
+RECORD = spm.ProjectRecord(
+    code="PRJ-TEST", name_ar="مشروع", name_en="Test Project",
+    description_ar=None, description_en="A project.", status="at-risk",
+    start_date=dt.date(2025, 1, 15), planned_end_date=dt.date(2026, 9, 30),
+    budget_sar=22900000.0, sponsor_ar=None, sponsor_en="General Budget Agency",
+    recorded_at=dt.datetime(2026, 8, 1, tzinfo=dt.timezone.utc),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +282,8 @@ def test_the_model_is_asked_for_a_strict_json_schema():
     fmt = llm.calls[0]["response_format"]
     assert fmt["type"] == "json_schema"
     assert fmt["json_schema"]["strict"] is True
-    assert set(fmt["json_schema"]["schema"]["required"]) == {"answer", "used_passages"}
+    assert set(fmt["json_schema"]["schema"]["required"]) == {
+        "answer", "used_passages", "used_project_record"}
 
 
 def test_the_schema_makes_a_fabricated_source_structurally_impossible():
@@ -278,9 +298,11 @@ def test_the_schema_makes_a_fabricated_source_structurally_impossible():
     in, so the shape is pinned here rather than left to review.
     """
     schema = ans.RESPONSE_SCHEMA["json_schema"]["schema"]
-    assert set(schema["properties"]) == {"answer", "used_passages"}, \
+    assert set(schema["properties"]) == {
+        "answer", "used_passages", "used_project_record"}, \
         "a new field could carry model-invented source metadata"
     assert schema["properties"]["used_passages"]["items"]["type"] == "integer"
+    assert schema["properties"]["used_project_record"]["type"] == "boolean"
     assert schema["additionalProperties"] is False
     assert ans.RESPONSE_SCHEMA["json_schema"]["strict"] is True
 
@@ -400,9 +422,189 @@ def test_timings_are_recorded_for_every_phase():
     answer = run()
     t = answer.timings
     assert t.embed_ms >= 0 and t.search_ms >= 0 and t.llm_ms >= 0
-    assert t.total_ms == t.embed_ms + t.search_ms + t.llm_ms
-    assert set(t.as_dict()) == {"embed_ms", "search_ms", "llm_ms", "total_ms"}
+    assert t.total_ms == t.embed_ms + t.search_ms + t.spm_ms + t.llm_ms
+    assert set(t.as_dict()) == {"embed_ms", "search_ms", "spm_ms",
+                                "llm_ms", "total_ms"}
 
 
 def test_the_answer_reports_which_project_it_came_from():
     assert run().project_code == "PRJ-TEST"
+
+
+# ---------------------------------------------------------------------------
+# The live SPM source — the second of §3.3's three
+# ---------------------------------------------------------------------------
+
+def test_the_project_record_appears_as_its_own_labelled_section():
+    """Merged into the passage list, it could not be attributed separately —
+    which is the entire requirement of §3.3."""
+    llm = StubLLM()
+    run(llm=llm, project_record=RECORD)
+    system = llm.calls[0]["messages"][0]["content"]
+    assert "PROJECT RECORD" in system and "SPM system of record" in system
+    assert system.index("PROJECT RECORD") < system.index("PASSAGES (extracts")
+    assert "22,900,000" in system and "at-risk" in system
+
+
+def test_the_record_section_carries_its_own_date():
+    """§3.3: attribution must carry dates, or presenting two sources is just
+    confusing."""
+    llm = StubLLM()
+    run(llm=llm, project_record=RECORD)
+    assert "record created 2026-08-01" in llm.calls[0]["messages"][0]["content"]
+
+
+def test_the_record_is_cited_when_the_model_says_it_used_it():
+    answer = run(project_record=RECORD, llm=StubLLM(
+        {"answer": "The budget is SAR 22,900,000.",
+         "used_passages": [], "used_project_record": True}))
+    assert answer.used_project_record is True
+    assert [c.source for c in answer.citations] == [ans.PROJECT_RECORD]
+    assert answer.citations[0].label == "SPM project record (record created 2026-08-01)"
+
+
+def test_claiming_to_use_a_record_that_was_never_fetched_cites_nothing():
+    """The mirror of a hallucinated passage index: the model can assert it
+    used the record, but it cannot conjure the record itself."""
+    answer = run(project_record=None, llm=StubLLM(
+        {"answer": "text", "used_passages": [], "used_project_record": True}))
+    assert answer.citations == [] and answer.used_project_record is False
+
+
+def test_both_sources_can_be_cited_together_and_stay_distinguishable():
+    answer = run(project_record=RECORD, llm=StubLLM(
+        {"answer": "SPM says at-risk; the weekly report says amber.",
+         "used_passages": [3], "used_project_record": True}))
+    sources = [c.source for c in answer.citations]
+    assert ans.PROJECT_RECORD in sources and ans.DOCUMENT in sources
+    document = next(c for c in answer.citations if c.source == ans.DOCUMENT)
+    assert document.filename == "Weekly.docx"
+
+
+def test_the_record_alone_is_enough_evidence_to_answer():
+    """The rule is "no evidence, nothing asked" — not "no passages".
+
+    "What is the budget?" is answerable from the system of record even when
+    no document passage clears the relevance floor, and refusing then would
+    hide the most authoritative source available.
+    """
+    weak = points((0.05, "X.docx", "Charter", 1, "", "unrelated"))
+    llm = StubLLM({"answer": "SAR 22,900,000.", "used_passages": [],
+                   "used_project_record": True})
+    answer = run(qdrant=StubQdrant(weak), llm=llm, project_record=RECORD)
+    assert answer.found is True and answer.passages_sent == 0
+    assert len(llm.calls) == 1
+
+
+def test_no_passages_and_no_record_means_no_call_at_all():
+    weak = points((0.05, "X.docx", "Charter", 1, "", "unrelated"))
+    answer = run(qdrant=StubQdrant(weak), llm=ExplodingLLM(), project_record=None)
+    assert answer.found is False
+
+
+def test_the_model_is_told_to_show_both_sides_rather_than_choose():
+    """§3.3's policy, as a prompting concern rather than a diff computed in
+    code. The assistant is informational and has no authority to adjudicate."""
+    llm = StubLLM()
+    run(llm=llm, project_record=RECORD)
+    system = llm.calls[0]["messages"][0]["content"]
+    assert "report BOTH" in system
+    assert "Never choose between them" in system
+    assert "worded differently" in system, "must not over-trigger on wording"
+
+
+def test_the_record_block_omits_fields_that_are_empty():
+    """A blank line invites the model to report an absence as a fact."""
+    sparse = dataclasses.replace(RECORD, budget_sar=None, planned_end_date=None,
+                                 sponsor_en=None, description_en=None)
+    block = sparse.as_prompt_block()
+    assert "Approved budget" not in block and "Planned end date" not in block
+    assert "None" not in block
+    assert "Status: at-risk" in block
+
+
+def test_a_record_without_a_timestamp_says_so_rather_than_guessing():
+    undated = dataclasses.replace(RECORD, recorded_at=None)
+    assert undated.as_of == "date unknown"
+    assert ans.Citation(source=ans.PROJECT_RECORD, as_of=undated.as_of).label \
+        == "SPM project record (date unknown)"
+
+
+class StubCursor:
+    def __init__(self, row):
+        self.row, self.executed = row, []
+
+    def execute(self, sql, params=None):
+        self.executed.append((" ".join(sql.split()), params))
+        return self
+
+    def fetchone(self):
+        return self.row
+
+
+class StubConn:
+    """Just enough of a psycopg connection for the scoped-transaction path."""
+
+    def __init__(self, row):
+        self.cur = StubCursor(row)
+
+    def cursor(self):
+        return self.cur
+
+    def transaction(self):
+        from contextlib import contextmanager
+
+        @contextmanager
+        def block():
+            yield
+        return block()
+
+
+ROW = ("PRJ-TEST", "مشروع", "Test Project", None, "A project.", "at-risk",
+       dt.date(2025, 1, 15), dt.date(2026, 9, 30), 22900000,
+       None, "General Budget Agency", dt.datetime(2026, 8, 1, tzinfo=dt.timezone.utc))
+
+
+def test_the_record_read_filters_by_the_session_s_project_explicitly():
+    """⚠️ This filter is load-bearing, not belt-and-braces.
+
+    Migration 014 deliberately widened `projects` so a user can see every
+    project they are assigned to — that is what lets the switcher show
+    names before a session exists. Permissive policies combine with OR, so
+    inside a scoped session `projects` returns the session's project PLUS
+    every other project the user is assigned to, and an unfiltered
+    `fetchone()` takes whichever comes first.
+
+    Found live: a session on PRJ-06 fetched PRJ-02's record, and the answer
+    then reported PRJ-02's budget as this project's. An earlier version of
+    this test asserted the *absence* of a WHERE clause, and so locked the
+    bug in rather than catching it.
+    """
+    conn = StubConn(ROW)
+    record = spm.fetch(SESSION, settings=settings(), connection=conn)
+    select, params = next((s, p) for s, p in conn.cur.executed
+                          if s.startswith("SELECT code"))
+    assert "WHERE code" in select, "an unfiltered read can return another project"
+    assert params == (SESSION.project_code,)
+    assert record.code == "PRJ-TEST" and record.budget_sar == 22900000.0
+
+
+def test_the_record_read_is_also_scoped_to_the_session():
+    """RLS is the second line here rather than the first, but it must still
+    be applied — a filter bug must not become a cross-project read."""
+    conn = StubConn(ROW)
+    spm.fetch(SESSION, settings=settings(), connection=conn)
+    scoped = [p for s, p in conn.cur.executed if "set_config" in s]
+    assert any(p and SESSION.project_code in p for p in scoped), \
+        "the transaction was not scoped to the session's project"
+
+
+def test_no_record_for_this_project_is_not_an_error():
+    """RLS returning nothing means there is no record to read — the caller
+    should carry on with documents alone."""
+    assert spm.fetch(SESSION, settings=settings(), connection=StubConn(None)) is None
+
+
+def test_spm_timing_is_recorded_separately():
+    answer = run(project_record=RECORD)
+    assert answer.timings.total_ms >= answer.timings.spm_ms >= 0

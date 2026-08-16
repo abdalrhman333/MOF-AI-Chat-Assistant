@@ -547,3 +547,47 @@ def test_an_unscoped_read_sees_nothing(app_ready):
         for table in ("projects", "document_links", "document_content",
                       "project_assignments"):
             assert cursor.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+
+
+# ---------------------------------------------------------------------------
+# The SPM record read — against the real database, where 014 actually bites
+# ---------------------------------------------------------------------------
+
+def test_the_spm_record_is_this_session_s_project_not_another_of_the_users(world):
+    """⚠️ The regression a stub could never reproduce.
+
+    Migration 014 lets a user read every project they are assigned to, so
+    inside a scoped session `projects` yields more than one row. An
+    unfiltered `fetchone()` therefore returned a DIFFERENT project of the
+    same user's — found live, where a session on one project reported
+    another's budget as its own.
+
+    This test needs the real database and a user with several projects,
+    which is exactly why the stubbed suite missed it.
+    """
+    from Application.backend import spm
+
+    if len(world["theirs"]) < 2:
+        pytest.skip("needs a user with two or more projects")
+
+    for code in world["theirs"]:
+        session = open_session(world["user"], code)
+        record = spm.fetch(session)
+        assert record is not None, f"no project record readable for {code}"
+        assert record.code == code, (
+            f"session on {code} read {record.code} — another of this user's "
+            f"projects leaked into the record read"
+        )
+
+
+def test_the_raw_projects_read_really_does_return_several_rows(world):
+    """Proves the hazard above is real rather than theoretical, so the
+    filter is not mistaken for redundant belt-and-braces later."""
+    if len(world["theirs"]) < 2:
+        pytest.skip("needs a user with two or more projects")
+    code = world["theirs"][0]
+    with db.scoped(project=code, username=world["user"]) as cursor:
+        visible = [r[0] for r in
+                   cursor.execute("SELECT code FROM projects ORDER BY code").fetchall()]
+    assert len(visible) > 1, "014 no longer widens `projects`; re-check spm.fetch"
+    assert code in visible
