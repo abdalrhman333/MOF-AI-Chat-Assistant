@@ -240,6 +240,63 @@ class AnswerSettings:
 
 
 @dataclass(frozen=True)
+class LanguageSettings:
+    """AC01 — which input languages are served, and how sure we must be.
+
+    Detection is **script-first**, because script is decisive and free: a
+    question written in Han, Cyrillic or Devanagari is unsupported no matter
+    what any statistical model thinks, and deciding that by counting
+    codepoints costs nothing against the AC08 budget.
+
+    `mixed_min_share` is the point at which a second script stops being
+    incidental and makes the question genuinely bilingual. It is a *share of
+    letters*, not a count, so it behaves the same on a five-word question
+    and a paragraph. Set it too low and every Arabic question containing a
+    project code becomes "mixed"; too high and a real code-switched question
+    is reported as monolingual, which degrades AC05's reply-in-kind.
+
+    `latin_discriminator_min_chars` is the honest part. Latin script alone
+    cannot separate English from French or Spanish, so a statistical
+    identifier runs on Latin-dominant text — but it is unreliable on very
+    short strings, where it tends to answer `en` regardless. Below this
+    length its verdict is **ignored and the text accepted**, because the
+    failure we must not make is rejecting a legitimate English question.
+    Rejection requires enough evidence to be confident; acceptance does not.
+    """
+    supported: tuple[str, ...] = ("ar", "en")
+    mixed_min_share: float = 0.20
+    latin_discriminator_enabled: bool = True
+    latin_discriminator_min_chars: int = 20
+
+
+@dataclass(frozen=True)
+class IntentSettings:
+    """AC02 — how a query needing special handling is told from a normal one.
+
+    **Two tiers, and the split is deliberate.** Tier 1 is an exact,
+    whole-utterance match against a phrase set held as *data*
+    (`phrases_path`), covering the openings that are unambiguous and
+    frequent: greetings, thanks, and explicit meta questions. Tier 2 is
+    everything else, which goes to general retrieval where the relevance
+    floor already produces an honest refusal for out-of-scope questions —
+    a mechanism that is built, measured and verified live (§15c).
+
+    **Why not classify every query with the LLM.** It would be accurate and
+    bilingual, and it would add a round-trip to *every* question against a
+    five-second budget, to re-decide something the retrieval floor already
+    decides for free. The cheap tier handles what it can prove; the rest is
+    measured before anything heavier is built.
+
+    `match_max_words` is what keeps tier 1 honest. "مرحبا" is a greeting;
+    "مرحبا، ما ميزانية المشروع؟" is a question with a greeting attached, and
+    routing it to a canned hello would lose the question. Tier 1 therefore
+    fires only on a *whole* short utterance, never on a substring.
+    """
+    phrases_path: pathlib.Path
+    match_max_words: int = 6
+
+
+@dataclass(frozen=True)
 class EvaluationSettings:
     """Retrieval evaluation parameters.
 
@@ -298,6 +355,12 @@ class Settings:
     )
     application: ApplicationSettings = field(default_factory=ApplicationSettings)
     answering: AnswerSettings = field(default_factory=AnswerSettings)
+    language: LanguageSettings = field(default_factory=LanguageSettings)
+    intent: IntentSettings = field(
+        default_factory=lambda: IntentSettings(
+            phrases_path=REPO_ROOT / "Application" / "backend" / "intent_phrases.json"
+        )
+    )
 
     def resolve_document(self, stored_path: str) -> pathlib.Path:
         """Turn a stored `document_links.file_path` into a real path.
@@ -434,6 +497,45 @@ def _answering_from_env() -> AnswerSettings:
     )
 
 
+def _language_from_env() -> LanguageSettings:
+    """Allow per-deployment tuning without touching code."""
+    d = LanguageSettings
+    raw = _optional("LANGUAGE_SUPPORTED", ",".join(d.supported))
+    codes = tuple(c.strip().lower() for c in raw.split(",") if c.strip())
+    return LanguageSettings(
+        supported=codes or d.supported,
+        mixed_min_share=float(
+            _optional("LANGUAGE_MIXED_MIN_SHARE", str(d.mixed_min_share))
+        ),
+        latin_discriminator_enabled=_optional(
+            "LANGUAGE_LATIN_DISCRIMINATOR", "true"
+        ).lower() not in {"false", "0", "no"},
+        latin_discriminator_min_chars=int(
+            _optional("LANGUAGE_LATIN_MIN_CHARS",
+                      str(d.latin_discriminator_min_chars))
+        ),
+    )
+
+
+def _intent_from_env() -> IntentSettings:
+    """Allow per-deployment tuning without touching code.
+
+    The phrase set is a path for the same reason the evaluation question set
+    is: a different deployment brings its own vocabulary, and a list baked
+    into a module would serve this demo forever.
+    """
+    return IntentSettings(
+        phrases_path=pathlib.Path(
+            _optional("INTENT_PHRASES_PATH",
+                      str(REPO_ROOT / "Application" / "backend"
+                          / "intent_phrases.json"))
+        ),
+        match_max_words=int(
+            _optional("INTENT_MATCH_MAX_WORDS", str(IntentSettings.match_max_words))
+        ),
+    )
+
+
 def _evaluation_from_env() -> EvaluationSettings:
     """Allow per-deployment tuning without touching code."""
     raw = _optional("EVAL_RECALL_AT", "1,3,5")
@@ -511,4 +613,6 @@ def get_settings() -> Settings:
         evaluation=_evaluation_from_env(),
         application=_application_from_env(),
         answering=_answering_from_env(),
+        language=_language_from_env(),
+        intent=_intent_from_env(),
     )

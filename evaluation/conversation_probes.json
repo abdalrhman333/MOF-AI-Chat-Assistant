@@ -1,0 +1,73 @@
+{
+  "_comment": [
+    "Probe set for AC01 (language) and AC02 (intent routing).",
+    "",
+    "DATA, not code, for the same reason evaluation/questions.json is: a",
+    "different deployment brings its own vocabulary and language mix.",
+    "",
+    "`language` is the expected verdict: ar | en | mixed | unsupported |",
+    "undetermined. `route` is the expected intent slug, where",
+    "'general_retrieval' means 'tier 2 decides' — for out-of-scope, write and",
+    "cross-project probes that is the CURRENT expectation, deliberately, and",
+    "the probe records how many of them land there rather than asserting they",
+    "should not. See NEXT_BUILD_CHAT_BACKEND.md 3 step 4.",
+    "",
+    "`note` is free text for the reader; nothing reads it."
+  ],
+  "probes": [
+    {"text": "ما هي الميزانية المعتمدة للمشروع؟", "language": "ar", "route": "general_retrieval", "note": "the commonest shape"},
+    {"text": "متى ينتهي المشروع حسب الخطة المعتمدة؟", "language": "ar", "route": "general_retrieval"},
+    {"text": "من هو مدير المشروع؟", "language": "ar", "route": "general_retrieval"},
+    {"text": "ما هي المخاطر الحالية وكيف يتم التعامل معها؟", "language": "ar", "route": "general_retrieval"},
+    {"text": "ما حالة PRJ-06؟", "language": "ar", "route": "general_retrieval", "note": "trap 2 — a Latin code is not a second language"},
+    {"text": "ما هي مخاطر المشروع PRJ-03 لعام 2026؟", "language": "ar", "route": "general_retrieval", "note": "trap 2 with a year as well"},
+    {"text": "اعطني ملخص التقرير الأسبوعي الأخير", "language": "ar", "route": "general_retrieval"},
+
+    {"text": "What is the approved budget for this project?", "language": "en", "route": "general_retrieval"},
+    {"text": "Who is the project manager and which department sponsors it?", "language": "en", "route": "general_retrieval"},
+    {"text": "When is the planned completion date?", "language": "en", "route": "general_retrieval"},
+    {"text": "Summarise the latest weekly status report", "language": "en", "route": "general_retrieval"},
+    {"text": "What are the top risks for PRJ-06 in 2026?", "language": "en", "route": "general_retrieval"},
+
+    {"text": "ما هي الميزانية approved budget للمشروع الحالي؟", "language": "mixed", "route": "general_retrieval"},
+    {"text": "What is the حالة المشروع right now?", "language": "mixed", "route": "general_retrieval"},
+
+    {"text": "مرحبا", "language": "ar", "route": "greeting"},
+    {"text": "السلام عليكم", "language": "ar", "route": "greeting"},
+    {"text": "أهلاً", "language": "ar", "route": "greeting", "note": "diacritics and hamza folding"},
+    {"text": "Hello", "language": "en", "route": "greeting"},
+    {"text": "Good morning", "language": "en", "route": "greeting"},
+    {"text": "شكرا جزيلا", "language": "ar", "route": "courtesy"},
+    {"text": "Thank you", "language": "en", "route": "courtesy"},
+    {"text": "ما هي قدراتك؟", "language": "ar", "route": "capability"},
+    {"text": "What can you do?", "language": "en", "route": "capability"},
+    {"text": "Which project am I in?", "language": "en", "route": "session_meta"},
+    {"text": "ما هو المشروع الحالي؟", "language": "ar", "route": "session_meta"},
+
+    {"text": "مرحبا، ما هي الميزانية المعتمدة للمشروع؟", "language": "ar", "route": "general_retrieval", "note": "greeting attached to a real question — must not be swallowed"},
+    {"text": "Hello, what is the approved budget for this project?", "language": "en", "route": "general_retrieval", "note": "same, in English"},
+    {"text": "شكرا، ومتى ينتهي المشروع؟", "language": "ar", "route": "general_retrieval"},
+
+    {"text": "Quel est le budget approuve pour ce projet cette annee?", "language": "unsupported", "route": null, "note": "Latin script — only the discriminator can catch this"},
+    {"text": "Cual es el presupuesto aprobado para este proyecto?", "language": "unsupported", "route": null},
+    {"text": "Wie hoch ist das genehmigte Budget fuer dieses Projekt?", "language": "unsupported", "route": null},
+    {"text": "这个项目的预算是多少", "language": "unsupported", "route": null, "note": "Han"},
+    {"text": "Каков бюджет этого проекта", "language": "unsupported", "route": null, "note": "Cyrillic"},
+    {"text": "מה תקציב הפרויקט הזה", "language": "unsupported", "route": null, "note": "Hebrew — RTL but not Arabic"},
+    {"text": "このプロジェクトの予算はいくらですか", "language": "unsupported", "route": null, "note": "Japanese"},
+    {"text": "इस परियोजना का बजट क्या है", "language": "unsupported", "route": null, "note": "Devanagari"},
+
+    {"text": "", "language": "undetermined", "route": null},
+    {"text": "?!?!", "language": "undetermined", "route": null},
+    {"text": "١٢٣٤٥", "language": "undetermined", "route": null, "note": "Arabic-Indic digits are digits"},
+    {"text": "😀😀😀", "language": "undetermined", "route": null},
+
+    {"text": "قم بتحديث حالة المشروع إلى مكتمل", "language": "ar", "route": "general_retrieval", "note": "write_action — tier 2 by design, measured not built"},
+    {"text": "Update the project status to completed", "language": "en", "route": "general_retrieval", "note": "write_action"},
+    {"text": "Send an email to the sponsor about the delay", "language": "en", "route": "general_retrieval", "note": "write_action"},
+    {"text": "قارن ميزانية هذا المشروع بميزانية PRJ-03", "language": "ar", "route": "general_retrieval", "note": "cross_project — tier 2 by design"},
+    {"text": "What is the budget of PRJ-03?", "language": "en", "route": "general_retrieval", "note": "cross_project"},
+    {"text": "ما هي عاصمة فرنسا؟", "language": "ar", "route": "general_retrieval", "note": "out_of_scope — the relevance floor catches this"},
+    {"text": "Write me a poem about budgets", "language": "en", "route": "general_retrieval", "note": "out_of_scope"}
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "_comment": [
+    "AC02 tier-1 phrases. DATA, not code — a different deployment brings its",
+    "own vocabulary and nothing in Application/backend/ changes.",
+    "",
+    "These match only a WHOLE short utterance, after normalisation (lowercased,",
+    "punctuation and Arabic diacritics stripped, alef/yaa/taa-marbuta folded).",
+    "So 'مرحبا' is a greeting and 'مرحبا، ما ميزانية المشروع؟' is not — it is a",
+    "question with a greeting attached, and must reach retrieval.",
+    "",
+    "Add a phrase here only when it is unambiguous on its own. Anything that",
+    "could plausibly begin a real question belongs in tier 2, where the",
+    "relevance floor decides."
+  ],
+  "greeting": [
+    "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
+    "مرحبا", "مرحبتين", "اهلا", "اهلا وسهلا", "السلام عليكم",
+    "السلام عليكم ورحمة الله", "هلا", "صباح الخير", "مساء الخير"
+  ],
+  "courtesy": [
+    "thanks", "thank you", "thanks a lot", "thank you very much", "cheers",
+    "bye", "goodbye", "see you", "ok", "okay", "great", "perfect",
+    "شكرا", "شكرا لك", "شكرا جزيلا", "مشكور", "جزاك الله خيرا",
+    "مع السلامة", "الى اللقاء", "تمام", "ممتاز", "طيب"
+  ],
+  "capability": [
+    "help", "what can you do", "what do you do", "what are your capabilities",
+    "how do you work", "what can you help me with", "who are you",
+    "مساعدة", "ماذا تستطيع ان تفعل", "ما الذي تستطيع فعله", "ما هي قدراتك",
+    "بماذا يمكنك مساعدتي", "ما هي وظيفتك", "من انت وماذا تفعل"
+  ],
+  "session_meta": [
+    "which project am i in", "what project is this", "current project",
+    "my projects", "list my projects", "what are my projects",
+    "ما هو المشروع الحالي", "المشروع الحالي", "ما هي مشاريعي",
+    "مشاريعي", "اعرض مشاريعي", "ما المشروع الحالي"
+  ]
+}

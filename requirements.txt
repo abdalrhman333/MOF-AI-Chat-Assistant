@@ -62,6 +62,22 @@ tiktoken==0.13.0                        # token counting. Swap for a HF
                                         # on-prem embedding model —
                                         # SOLUTION_ARCHITECTURE.md 4.6
 
+# ---- Language identification (AC01) -----------------------------------
+py3langid==0.3.0                        # Latin-script language ID only.
+                                        # Script detection (Arabic vs Han vs
+                                        # Cyrillic) is done by counting
+                                        # codepoints and needs nothing; this
+                                        # exists solely because Latin script
+                                        # cannot separate English from French
+                                        # or Spanish. Offline, deterministic,
+                                        # ~2MB embedded model, ~70ms on first
+                                        # call and negligible after. Chosen
+                                        # over lingua-py, which is far larger
+                                        # for accuracy this branch does not
+                                        # need. It is injectable at the one
+                                        # call site in Application/backend/
+                                        # language.py, so a swap stays there.
+
 # ---- Config -----------------------------------------------------------
 python-dotenv==1.2.2                    # loads infra/.env
 
