@@ -21,13 +21,13 @@ Straight from the BRD (`..\My_Prompts\SOLUTION_SCOPE.md`), not paraphrased:
 
 | AC | Requirement | Who satisfies it |
 |---|---|---|
-| **AC01** | Verify input language; reject unsupported ones with a clear apology | backend |
-| **AC02** | Distinguish "special handling" queries from general SPM-knowledge retrieval | backend |
-| **AC03** | Session continuity — multiple questions, no restart | backend |
-| **AC04** | Bilingual welcome message immediately on session start | backend + frontend |
-| **AC05** | Reply in the same language as the question | backend |
-| **AC06** | Answers grounded **only** in indexed documents, with the source cited | backend |
-| **AC07** | Clear, safe fallback for out-of-scope queries | backend |
+| **AC01** | Verify input language; reject unsupported ones with a clear apology | ✅ **done** — `language.py`, §17a |
+| **AC02** | Distinguish "special handling" queries from general SPM-knowledge retrieval | ✅ **done** — `intent.py`, §17b |
+| **AC03** | Session continuity — multiple questions, no restart | ⬜ next |
+| **AC04** | Bilingual welcome message immediately on session start | ⬜ next — `messages.py` is its home |
+| **AC05** | Reply in the same language as the question | ✅ **done** — told, not inferred, §17c |
+| **AC06** | Answers grounded **only** in indexed documents, with the source cited | ✅ **done** — §15, §16 |
+| **AC07** | Clear, safe fallback for out-of-scope queries | ✅ **done** — §17c |
 | **AC08** | Response time ≤ 5 seconds under normal conditions | backend |
 | **AC08** *(dup)* | Authorized user signs in via SSO/OTP | **deferred** — external dependency |
 | **AC09** | No user can view documents of a project not assigned to them | **partly done** — see §2 |
@@ -223,10 +223,46 @@ Citations come free: every payload already carries `filename`, `doc_type`,
 `page`, `section`, plus `char_start`/`char_end` for parent-document
 expansion if it turns out to be needed.
 
-### Step 4 — conversational layer (AC01–AC05, AC07)
+### Step 4 — conversational layer — **AC01/AC02/AC05/AC07 built** (2026-08-16)
 
-Language detection and rejection, intent routing, bilingual welcome,
-reply-in-kind, safe fallback, multi-turn loop.
+`Application/backend/conversation.py` is the entry point; `language.py`,
+`intent.py` and `messages.py` are what it composes. Full record in
+`STATUS_AND_ROADMAP.md` §17.
+
+```python
+reply = handle_question(session, user_text)
+reply.outcome   # answered | rejected_language | no_language_detected
+                # | handled_without_retrieval | out_of_scope
+```
+
+**Four properties worth not undoing:**
+
+- **AC01 runs before anything is spent.** A rejected language costs zero
+  embeddings, zero searches and zero completions — measured live, not
+  inferred from reading the code.
+- **A token containing a numeral is an identifier, not a language.**
+  `ما حالة PRJ-06؟` is 33% Latin letters; without this rule the commonest
+  shape of question in this system reports as bilingual. Do **not** "fix"
+  a mis-detection by raising `mixed_min_share` — that trades this bug for
+  the opposite one.
+- **Tier 1 matches a whole short utterance, never a substring.** Otherwise
+  `مرحبا، ما ميزانية المشروع؟` is answered "hello" and the question is lost.
+- **Only a *named* language reaches the prompt.** `reply_language` is
+  caller input; interpolating it unchecked puts caller text in the system
+  message.
+
+⚠️ **`write_action` and `cross_project` are deliberately unrouted.** Both
+are safe in tier 2 — verified live, no leak — but get a generic refusal
+rather than a specific one. That is a wording gap, measured and recorded
+(§17b), so a classifier can be justified by observed misrouting rather
+than by anticipation.
+
+**What remains in step 4: AC03 (continuity) and AC04 (welcome).** AC04 is
+small — bilingual text in `messages.py`, emitted on session start. AC03 is
+the real one, and it is not just a loop: a follow-up like *"and the end
+date?"* has no retrievable subject of its own, so multi-turn history
+interacts with both AC06 (what is being grounded) and AC08 (what it costs
+to carry context forward).
 
 ### Step 5 — latency (AC08) and observability
 
@@ -345,8 +381,9 @@ These cost real time to learn. All are recorded in full in
 ```bash
 docker compose ps                                            # 13 containers
 python infra/postgres-spm/apply_migrations.py --status        # 14 applied, 0 drifted
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 353 passed
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 470 passed
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status     # exit 0, HEALTHY
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.conversation_probe  # 47/47
 ```
 
 Expect: 58 documents, 678 chunks, 9 Qdrant collections, 0 failures, and the

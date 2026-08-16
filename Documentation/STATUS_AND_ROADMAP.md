@@ -315,24 +315,26 @@ being followed; steps 1 and 2 are done.
 | **3b** | **Live SPM source** — structured fields alongside the passages | ✅ 2026-08-12, §16 |
 | **3c** | **Both-sides presentation** when SPM and a document disagree | ✅ as prompting, §16 — over-triggering unobserved |
 | **3d** | **Mid-chat upload** (CAG) — session-scoped, never persisted | ⬜ open design question |
-| **4** | **Conversational layer** (AC01–AC05, AC07) | ⬜ |
+| **4a** | **Language check** (AC01) + **intent routing** (AC02) | ✅ 2026-08-16, §17 |
+| **4b** | **Reply-in-kind** (AC05) — now told, not inferred | ✅ 2026-08-16, §17c |
+| **4c** | **Out-of-scope fallback** (AC07) — a message, not a marker | ✅ 2026-08-16, §17c |
+| **4d** | **Session continuity** (AC03) + **bilingual welcome** (AC04) | ⬜ |
 | **5** | **Latency (AC08) + observability** — Langfuse, OTLP → Grafana | ⬜ |
 | — | **HTTP layer** (FastAPI) — `Application/backend/api/` | ⬜ not started |
 | — | **Frontend** — chat, switcher, KB page, RTL | ⬜ not started |
 | — | **Auth** — AD SSO + OTP | ⬜ deferred, external dependency |
 
-**Step 3b is next: the live SPM source.** The RAG half of composition is
-built and verified end to end (§15) — a question in, a cited answer out, in
-the question's own language, inside the AC08 budget. What remains is the
-second source: structured project fields read from Postgres through the
-same session, presented alongside the passages with its own attribution.
+**Step 4d is next: session continuity (AC03) and the bilingual welcome
+(AC04).** Both now have a home — `Application/backend/conversation.py` is
+the entry point, and `messages.py` is where the welcome text belongs. AC03
+is the larger of the two: it needs a decision about what a "turn" carries
+forward, and multi-turn history interacts with the AC08 budget and with
+AC06 (a follow-up like *"and the end date?"* has no retrievable subject of
+its own).
 
-Before 3c is built, two things want deciding (they are why 3c is not simply
-"next"): what genuinely counts as *disagreement* when a weekly report
-restates SPM's own status field in prose, and whether conflict detection
-should trigger at all on wording differences. §3.3 of
-`SOLUTION_ARCHITECTURE.md` decided the *policy* (show both, attribute both);
-it did not decide the *trigger*.
+After that, step 5 — latency and observability — and then the HTTP layer,
+which is also when AC08 should be measured properly: a long-lived process
+pays the cold start once rather than per question (§15c, §17d).
 
 What it walks into, flagged in advance:
 
@@ -742,6 +744,177 @@ What is real, and belongs to the chat backend: Arabic scores ~0.40 against
 English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
 That is **ranking**, not retrieval — the answer is in the results every
 time.
+
+---
+
+## 17. AC01 language verification and AC02 intent routing (2026-08-16)
+
+The conversational layer's first slice. `Application/backend/language.py`
+(detect), `intent.py` (route), `messages.py` (every string a user reads
+that the model did not write), and `conversation.py` (the composer where
+the two are actually applied). AC05 and AC07 improved as a consequence.
+
+**`answer_question` stays the engine; `handle_question` is the entry
+point.** Rejecting a language and routing a greeting are not the same job
+as grounding an answer, and folding them together would have put the AC01
+check inside the module whose one responsibility is AC06.
+
+⚠️ **It is an entry point, not a chokepoint.** `answer_question` remains
+directly callable — `START_HERE.md`'s own example does exactly that — so
+AC01 binds callers that come through `conversation.py`, not by
+construction the way `Session` binds project scope. Deliberate: the rule
+that must never be bypassable is already structural, and duplicating the
+language check would put one rule in two places. **Anything user-facing
+must enter through `handle_question`.**
+
+### 17a. AC01 — script first, statistics only where script runs out
+
+Script is decisive and free. Counting codepoints settles Arabic against
+Han, Cyrillic, Hebrew, Devanagari and Greek without a model, without a
+network call and without a millisecond that matters. The one thing it
+cannot do is separate English from French or Spanish, all Latin — so
+`py3langid` (offline, deterministic, ~2 MB, injectable at one call site)
+runs **only** on Latin-dominant text.
+
+**The dependency was measured, not assumed.**
+`evaluation/conversation_probe.py` scores 47 tagged probes and can run
+with the discriminator disabled:
+
+| | language accuracy | unsupported recall |
+|---|---|---|
+| script only (`--no-discriminator`) | 0.936 | **5/8 = 0.62** |
+| with the Latin discriminator | **1.000** | **8/8 = 1.00** |
+
+The three misses are exactly French, Spanish and German, all reported as
+English. If that gap ever closes on its own the dependency is buying
+nothing and should go — which is the point of measuring it.
+
+**Rejection needs evidence; acceptance does not.** The asymmetry appears
+twice and is deliberate. Text with no letters (`?!?!`, `١٢٣`, emoji) is
+`undetermined`, **not** unsupported — telling someone who typed `?!?!`
+that we do not support their language is simply wrong, and the two get
+different messages. And the discriminator's verdict is **ignored** below
+`latin_discriminator_min_chars`, because it answers `en` for almost any
+short string: the failure we must never make is turning away a legitimate
+English question.
+
+**Three traps, each of which looks right and is wrong:**
+
+| Trap | Why it bites |
+|---|---|
+| Arabic-Indic digits (`٠١٢`) are inside the Arabic Unicode block | A number typed on an Arabic keyboard would classify as an Arabic sentence |
+| A Latin project code is not a second language | `ما حالة PRJ-06؟` is **33% Latin letters** — over any sane mixed threshold |
+| Hebrew is not Arabic | Adjacent RTL scripts, different blocks; an "is it RTL" test accepts one as the other |
+
+Trap 2 was **found by the test, not by inspection**. The fix is not a
+higher threshold — that would trade this bug for the opposite one, missing
+genuine code-switching in short questions — but a rule that a
+whitespace token containing a numeral is an *identifier*, not language.
+A project code, a date, a version or a ticket number is not a language.
+
+### 17b. AC02 — two tiers, and what was deliberately not built
+
+The BRD does not define "special handling", so the intent set is named
+explicitly rather than invented silently: `greeting`, `courtesy`,
+`capability`, `session_meta`, `out_of_scope`, and `general_retrieval`.
+
+**Tier 1** matches a *whole short utterance* against a phrase set held as
+data (`Application/backend/intent_phrases.json`), normalised for Arabic
+orthography — diacritics, tatweel, and alef/yaa/taa-marbuta folding, so
+the file does not have to enumerate every spelling of every greeting.
+Its value is not classification accuracy; it is that `hello` should not
+cost an embedding, a search and a completion only to return
+`NOT_IN_DOCUMENTS`.
+
+**Whole-utterance matching is the load-bearing rule.** `مرحبا` is a
+greeting; `مرحبا، ما ميزانية المشروع؟` is a question with a greeting
+attached, and a substring matcher would answer the first and silently lose
+the second. A word cap guards the same failure independently.
+
+**Tier 2** is everything else, where the relevance floor already refuses
+out-of-scope questions without calling the model (§15b). An LLM
+classifier would add a round-trip to *every* question against a
+five-second budget, to re-decide what tier 2 decides for free.
+
+⚠️ **`write_action` and `cross_project` were left to tier 2 on purpose,
+and then measured.** Both are already *safe* there — `spm_app` is
+`SELECT`-only whatever the model is asked, and another project's documents
+are not in this collection. Four live probes confirmed it:
+
+| Probe | Outcome | Leak |
+|---|---|---|
+| *قم بتحديث حالة المشروع إلى مكتمل* | `out_of_scope` refusal | none |
+| *Update the project status and email the sponsor* | `out_of_scope` refusal | none |
+| *ما هي ميزانية مشروع PRJ-03؟* | `out_of_scope` refusal | none — PRJ-06's figure not substituted |
+| *Compare this project's budget with PRJ-03* | `out_of_scope` refusal | none |
+
+**So the gap is wording, not correctness**: they get a generic "not in
+this project's documents" instead of "I cannot change data" or "this
+session is locked to one project". Recorded as measured rather than
+fixed, so a classifier is justified by observed misrouting if it is ever
+built.
+
+### 17c. AC05 and AC07 improved as a consequence
+
+- **AC05** no longer depends on the model inferring the language. The
+  detected language is stated in the prompt. **Appended** to the system
+  prompt rather than replacing rule 4, so mixed input still falls back to
+  inference instead of being forced into a guess — and only a *named*
+  language is interpolated, so a caller-supplied code cannot reach the
+  system message. A test pins that.
+- **AC07** finally has a message. `NOT_IN_DOCUMENTS` is a marker for us,
+  not a sentence for a project manager, and `conversation.py` is where it
+  becomes one, in the question's language. A test asserts the marker never
+  reaches a user.
+
+### 17d. Verified live, not only against stubs (§16a's lesson)
+
+17 probes through a real `noura.alharbi` → `PRJ-06` session, counting real
+client calls:
+
+| Path | embed | search | LLM | latency |
+|---|---|---|---|---|
+| 4 × AC01 rejection | **0** | **0** | **0** | 0–51 ms |
+| 4 × AC02 tier 1 | **0** | **0** | **0** | 0 ms |
+| grounded answer, ar / en | 1 | 1 | 1 | 1.58 s / 1.63 s |
+| greeting **+** question | 1 | 1 | 1 | 3.63 s (cold embed) |
+| AC07 fallback, ar / en | 1 | 1 | 1 | 1.37 s / 1.36 s |
+
+The 51 ms is `py3langid` loading its model on first use; every call after
+is free. **Every warm path sits well inside the AC08 budget.**
+
+⚠️ **The AC07 fallback still costs a completion when a project record
+exists.** That is correct per §16 — a record alone *is* evidence, so the
+model is asked and honestly refuses — but it means "out of scope" is only
+free when nothing at all clears the floor. Worth knowing before AC08 is
+tuned.
+
+### 17e. Mutation testing — 18 mutations, all caught
+
+Covering: identifier tokens counted as language; the letter filter
+dropped; the unsupported-script check disabled; the discriminator's
+verdict ignored; the discriminator trusted on short text; Hebrew folded
+into the Arabic ranges; empty and letterless input treated as supported;
+substring matching; the word cap removed; Arabic normalisation dropped; a
+missing phrase file made fatal; a rejected language falling through to
+retrieval; intent routed before the language check; `NOT_IN_DOCUMENTS`
+shown to a user; a caller language code interpolated into the prompt; and
+the apology reduced to one language.
+
+**One survived the first round and found a real design flaw.** "Digits
+counted as letters" survived because the *token* rule already dropped
+digit-bearing tokens one level up — two rules quietly guarding the same
+thing, neither testable independently of the other. On inspection the
+token rule matched category `Nd` only, so fractions (`½`, `No`) and Roman
+numerals (`Ⅷ`, `Nl`) still fell through to the character filter. Each rule
+now has exactly one job. Re-run in the form that implements the actual
+threat — dropping the letter filter — it is caught.
+
+⚠️ **And the "commit before mutating" rule bit again.** The runner's
+`git checkout -- .` took two uncommitted fixes with it mid-session. No
+loss beyond re-typing, because the work was small — but this is the second
+time (§14e was the expensive one), and the rule is in
+`NEXT_BUILD_CHAT_BACKEND.md` §4.6 for a reason.
 
 ---
 

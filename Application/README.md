@@ -9,19 +9,56 @@ roles with deliberately different privileges.
 ```
 Application/
   backend/
-    errors.py     access/session failures, as types rather than strings
-    db.py         the spm_app connection pool + the scoped transaction
-    session.py    the AC09 session gate — the security boundary
-    api/          (not built yet) FastAPI routes and schemas
-  frontend/       (not built yet) chat UI, project switcher, KB page
+    errors.py       access/session failures, as types rather than strings
+    db.py           the spm_app connection pool + the scoped transaction
+    session.py      the AC09 session gate — the security boundary
+    retrieval.py    vector search, scoped by Session, never by project code
+    spm.py          the live project record — the second grounding source
+    answer.py       prompt, LLM call, citation resolution (AC06)
+    language.py     AC01 — verify the input language
+    intent.py       AC02 — special handling vs general retrieval
+    messages.py     every string a user reads that the model did not write
+    conversation.py THE ENTRY POINT — applies AC01/AC02, then delegates
+    intent_phrases.json   tier-1 phrases, as data
+    api/            (not built yet) FastAPI routes and schemas
+  frontend/         (not built yet) chat UI, project switcher, KB page
 ```
 
 ## What is built today
 
-**The session gate and the scoped data-access layer, and nothing else.**
-There is no HTTP layer, no retrieval composition, no LLM call and no UI.
-`api/` and `frontend/` are named above so it is clear where they go, not
-because they exist.
+**Everything except the HTTP layer and the UI.** A question can go in and a
+cited answer can come out, in the question's language, with unsupported
+languages rejected and greetings answered without touching the model. What
+does not exist is a way for a browser to reach it: `api/` and `frontend/`
+are named above so it is clear where they go, not because they exist.
+AC03 (multi-turn continuity) and AC04 (bilingual welcome) are also not
+built — `conversation.py` and `messages.py` are where they belong.
+
+## Call `handle_question`, not `answer_question`
+
+```python
+from Application.backend.session import open_session
+from Application.backend.conversation import handle_question
+
+session = open_session(username, project_code)   # AC09 — raises AccessDenied
+reply   = handle_question(session, user_text)    # AC01, AC02, AC06, AC07
+
+reply.text            # what to show, always populated
+reply.outcome         # answered | rejected_language | no_language_detected
+                      # | handled_without_retrieval | out_of_scope
+reply.citations       # resolved from retrieved payloads, never model-invented
+reply.reply_language  # ar | en — AC05
+reply.timings         # embed / search / spm / llm, in ms — AC08
+```
+
+⚠️ **`handle_question` is an entry point, not a chokepoint.**
+`answer_question` remains importable and skips the language check and the
+intent router. That is deliberate — it is the grounded-answering engine,
+and duplicating AC01 inside it would put one rule in two places — but it
+means **anything user-facing must enter through `conversation.py`**. The
+rule that must never be bypassable is project scope, and that one *is*
+structural: `retrieval.search` takes a `Session` and derives the collection
+from it, so it cannot be called with a project the gate did not grant.
 
 ## The one rule everything here depends on
 

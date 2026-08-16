@@ -5,14 +5,17 @@ file first.** It tells you what this project is, which documents to read in
 what order, and how to verify the real state of the system before changing
 anything.
 
-**Last verified:** 2026-08-12 — infra, full SPM schema (14 migrations,
+**Last verified:** 2026-08-16 — infra, full SPM schema (14 migrations,
 row-level security enabled), complete mock corpus, and **the entire
 ingestion pipeline built and run over all 58 documents**: discovery → OCR →
 chunk → embed → index, ending in **678 vectors across 9 per-project Qdrant
 collections**. Retrieval quality is measured, not guessed
-(`evaluation/`). The **AC09 session gate is built** — `Application/` is
-where all chat-application code lives. There is still no HTTP layer and no
-frontend; retrieval composition (AC06) is the next build.
+(`evaluation/`). `Application/` holds the AC09 session gate, grounded
+answering over RAG + live SPM, and — new on 2026-08-16 — **the
+conversational entry point: language verification (AC01), intent routing
+(AC02), reply-in-kind (AC05) and the out-of-scope fallback (AC07)**. There
+is still no HTTP layer and no frontend; session continuity (AC03) and the
+bilingual welcome (AC04) are the next build.
 
 ---
 
@@ -224,8 +227,8 @@ processes, and the one that faces users has the least access.
 | Package | Job | Database role |
 |---|---|---|
 | `pipeline/` | **Builds** the knowledge base — `config.py` (all settings), `chunker.py`, `db.py`, `scanner.py` (Stage 0), `ocr.py` + `native_extract.py` (Stage 1), `indexer.py` (Stages 2+3), plus `locking.py`, `tasks.py`, `status.py` to run it unattended | `spm_admin` — needs every project |
-| `evaluation/` | **Judges** it — the tagged question set, scoring, recorded baseline | read-only |
-| `Application/` | **Serves** it — `backend/session.py` (the AC09 gate), `backend/db.py` (pool + scope), `backend/retrieval.py`, `backend/answer.py`, `backend/spm.py` | `spm_app` — SELECT-only, one project per transaction |
+| `evaluation/` | **Judges** it — the tagged question set, scoring, recorded baseline, plus `conversation_probe.py` for AC01/AC02 | read-only |
+| `Application/` | **Serves** it — `backend/conversation.py` (**the entry point**), `backend/session.py` (the AC09 gate), `backend/db.py` (pool + scope), `backend/retrieval.py`, `backend/answer.py`, `backend/spm.py`, `backend/language.py`, `backend/intent.py`, `backend/messages.py` | `spm_app` — SELECT-only, one project per transaction |
 
 **The pipeline runs as a containerised Celery worker** —
 `mof-pipeline-worker` and `mof-pipeline-beat`.
@@ -235,11 +238,33 @@ importable Python, not a running service. `backend/api/` and `frontend/`
 are named in `Application/README.md` as their future home and do not exist.
 See `STATUS_AND_ROADMAP.md` §5 for the exact done/not-done line.
 
-Asking a real question end to end, today:
+Asking a real question end to end, today. **Use `handle_question`** — it is
+the entry point that applies AC01 and AC02 before spending anything;
+`answer_question` below it is the grounded-answering engine and skips both:
 
 ```bash
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -c "from Application.backend.session import open_session; from Application.backend.answer import answer_question; from Application.backend import db; s=open_session('noura.alharbi','PRJ-06'); a=answer_question(s,'ما الميزانية المعتمدة للمشروع؟'); print(a.text); [print(' -',c.label) for c in a.citations]; print(a.timings.as_dict()); db.close_pool()"
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -c "from Application.backend.session import open_session; from Application.backend.conversation import handle_question; from Application.backend import db; s=open_session('noura.alharbi','PRJ-06'); r=handle_question(s,'ما الميزانية المعتمدة للمشروع؟'); print(r.outcome, r.reply_language); print(r.text); [print(' -',c.label) for c in r.citations]; print(r.timings.as_dict()); db.close_pool()"
 ```
+
+⚠️ **`handle_question` is an entry point, not a chokepoint.**
+`answer_question` is still importable and bypasses the language check, so
+anything user-facing must come through `conversation.py`. The rule that
+must never be bypassable — project scope — is structural already
+(`Session`), which is why this one is not duplicated.
+
+**Checking AC01/AC02 without spending anything** — 47 tagged probes,
+offline, exit 0 when all pass:
+
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.conversation_probe
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.conversation_probe --no-discriminator
+```
+
+The second form disables the Latin language identifier and is what
+justifies the `py3langid` dependency: language accuracy drops 1.000 → 0.936
+and unsupported-language recall 1.00 → 0.62, missing French, Spanish and
+German exactly. If that ever stops being true the dependency is buying
+nothing.
 
 ⚠️ **Cold start blows the AC08 five-second budget; warm runs sit inside
 it.** Measured on the command above: the *first* call in a fresh process
@@ -254,14 +279,18 @@ yet — it belongs with the latency work (`STATUS_AND_ROADMAP.md` §5, step
 per question. Recorded so the first person to measure it does not think
 they have found a regression.
 
-The test suite is **353 tests** (answering 50, session_gate 42,
-retrieval_eval 39, scanner 38, tasks 27, chunker 26, ocr 23, indexer 23,
-rls 23, native_extract 22, status 15, config 13, locking 12). **Most need `mof-postgres-spm`
+The test suite is **470 tests** (answering 50, session_gate 42,
+conversation 41, retrieval_eval 39, intent 40, scanner 38, language 37,
+tasks 27, chunker 26, ocr 23, indexer 23, rls 23, native_extract 22,
+status 15, config 13, locking 12). **Most need `mof-postgres-spm`
 running, and the locking/tasks/status suites need Redis too** — they use the real schema inside a transaction they always roll
 back, and skip with a clear message if the container is down. The OCR tests
 stub Azure and the indexer tests stub both the embedding API and Qdrant, so
 both paid stages are covered without a paid call or a write to the live
-vector store.
+vector store. The language, intent and conversation suites are pure —
+no database, no network, no paid call — and the statistical language
+identifier is stubbed in all of them, so they test the logic rather than
+the model.
 
 ---
 
@@ -308,18 +337,21 @@ vector store.
 > **Where the build has reached:** the ingestion pipeline is finished and
 > runs unattended. Retrieval quality is measured, not guessed
 > (`evaluation/`). The AC09 session gate, the scoped data-access layer,
-> grounded answering over RAG, and the live SPM source are all built and
-> live in `Application/`. **There is still no HTTP layer and no frontend.**
-> Next up is AC01 (language check) and AC02 (intent routing) — see
-> `STATUS_AND_ROADMAP.md` §5.
+> grounded answering over RAG, the live SPM source, and the conversational
+> entry point (AC01 language check, AC02 intent routing, AC05 reply-in-kind,
+> AC07 fallback) are all built and live in `Application/`. **There is still
+> no HTTP layer and no frontend.** Next up is AC03 (session continuity) and
+> AC04 (bilingual welcome) — see `STATUS_AND_ROADMAP.md` §5 and §17.
 >
 > Then verify the live system rather than trusting the docs: 13 containers
-> up, 14 migrations applied and 0 drifted, 353 tests passing, all three
+> up, 14 migrations applied and 0 drifted, 470 tests passing, all three
 > pipeline stages reporting nothing to do (`--dry-run` on
 > `pipeline.scanner`, `pipeline.ocr` and `pipeline.indexer`), Qdrant
-> holding 9 collections / 678 points, and `python -m pipeline.status`
-> exiting 0. You can also ask a real question end to end:
-> `open_session(username, project_code)` then `answer_question(session, q)`.
+> holding 9 collections / 678 points, `python -m pipeline.status` exiting 0,
+> and `python -m evaluation.conversation_probe` scoring 47/47. You can also
+> ask a real question end to end: `open_session(username, project_code)`
+> then `handle_question(session, q)` — the entry point, not
+> `answer_question`, which skips AC01 and AC02.
 >
 > Five working rules: use `.venv/Scripts/python`, never system Python;
 > prefix commands that print with `PYTHONIOENCODING=utf-8`, since most of
@@ -335,11 +367,13 @@ vector store.
 >
 > Working method that has repeatedly paid for itself here: prove a safety
 > feature by deliberately breaking it and confirming the right test
-> catches it, and commit before doing so. Roughly 90 mutations have been
+> catches it, and commit before doing so. Roughly 108 mutations have been
 > run; the ones that *survived* found the real gaps, and none were visible
-> on inspection. Three cautions learned the hard way: a mutation that does
+> on inspection. Four cautions learned the hard way: a mutation that does
 > not compile proves nothing; a destructive test must not depend on the
 > thing it is testing to keep it safe (that one destroyed the corpus, §14e);
-> and a passing stubbed suite is not evidence — run it live (§16a).
+> a passing stubbed suite is not evidence — run it live (§16a); and
+> **commit before mutating really does mean before** — the runner's
+> `git checkout` has now eaten uncommitted work twice (§14e, §17e).
 >
 > My request: <what you want>

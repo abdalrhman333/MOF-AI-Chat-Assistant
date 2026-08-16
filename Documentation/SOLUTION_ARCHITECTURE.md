@@ -615,6 +615,58 @@ relative path is valid in both. Two consequences worth recording:
   treated as MODIFIED, containerising would have silently triggered a full
   corpus re-OCR.
 
+### 4.12 The conversational layer — where AC01 and AC02 are decided (2026-08-16)
+
+**A separate entry point, not a widened `answer_question`.** Deciding
+whether to answer at all is a different job from grounding an answer, and
+`answer.py` has exactly one responsibility (AC06). So
+`Application/backend/conversation.py` runs the language check and the
+intent router and *then* delegates. Full record in
+`STATUS_AND_ROADMAP.md` §17.
+
+**AC01 is script-first because script is decisive and free.** Counting
+Unicode codepoints settles Arabic against Han, Cyrillic, Hebrew,
+Devanagari and Greek with no model, no network call and no measurable
+latency — and it cannot be wrong, in the way a statistical classifier can.
+A language identifier is consulted **only** on Latin-dominant text, which
+is the one case script genuinely cannot resolve (English vs French vs
+Spanish).
+
+Three alternatives, and why not:
+
+1. **An LLM classification call.** Accurate and bilingual, and it adds a
+   round-trip to every question against a five-second budget, for a
+   decision that codepoint counting settles for free in the 95% case.
+2. **A language library for everything.** Buys nothing over script
+   detection for Arabic, and statistical identifiers are least reliable on
+   exactly the short strings a chat box receives.
+3. **Script detection alone.** Measurably insufficient: it accepts French,
+   Spanish and German as English, and AC01 asks for language verification,
+   not script verification.
+
+**The asymmetry is the design principle: rejection needs evidence,
+acceptance does not.** Turning away a legitimate Arabic or English question
+is a locked-out user; accepting a French one is a poor answer. So the
+statistical verdict is ignored on short text, and letterless input is
+`undetermined` rather than "unsupported".
+
+**AC02 is two tiers because the second one already existed.** Tier 1 is an
+exact whole-utterance match against a phrase set held as data, covering
+greetings, courtesy and meta questions — its purpose is that `hello` should
+not cost an embedding, a search and a completion. Tier 2 is everything
+else, where the relevance floor (§15b) already refuses out-of-scope
+questions without calling the model. Building a semantic classifier to
+re-decide what the floor decides for free would spend the AC08 budget
+twice.
+
+⚠️ **What "special handling" means is our definition, not the BRD's.** The
+source says only "queries needing special handling versus general
+SPM-knowledge retrieval". The intent set — `greeting`, `courtesy`,
+`capability`, `session_meta`, `out_of_scope`, `general_retrieval` — is
+derived from what this system can actually do, and the two categories that
+were considered and *not* built (`write_action`, `cross_project`) are named
+in `intent.py` with the measurement showing tier 2 handles them safely.
+
 ---
 
 ## 5. Relationship to the colleague's RiskIntel platform
