@@ -397,7 +397,11 @@ def answer_question(
     messages = build_messages(question.strip(), context, record, reply_language,
                               history)
 
-    llm = llm or build_llm(settings)
+    if llm is None:
+        # Cached per settings. Constructing this per question cost ~800 ms
+        # before the request was even sent — see `clients.py`.
+        from Application.backend import clients
+        llm = clients.llm(settings)
     started = time.perf_counter()
     try:
         response = llm.chat.completions.create(

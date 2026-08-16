@@ -153,10 +153,15 @@ def search(
 
 
 def _build_embedder(settings: Settings):
-    from pipeline.indexer import build_embedder
-    return build_embedder(settings)
+    """Cached per settings — see `clients.py` for why that is an AC08 fix.
+
+    Rebuilding these per question cost roughly 1.5 s before the connection
+    was even used, and a fresh HTTPS client cannot reuse a connection.
+    """
+    from Application.backend import clients
+    return clients.embedder(settings)
 
 
 def _build_qdrant(settings: Settings):
-    from pipeline.indexer import build_qdrant
-    return build_qdrant(settings)
+    from Application.backend import clients
+    return clients.vector_store(settings)
