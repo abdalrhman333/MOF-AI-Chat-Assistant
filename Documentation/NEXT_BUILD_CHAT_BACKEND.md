@@ -277,13 +277,48 @@ and a live conversation answered it in English. Do not reintroduce a length
 threshold, and do not lower the confidence one — 0.473 is how close the
 nearest false rejection of real English sits (§18d).
 
-### Step 5 — latency (AC08) and observability
+### Step 5 — latency (AC08) and observability ✅ **BUILT** (2026-08-16)
 
-Measure against the 5-second budget with real tracing. **This is also when
-the pipeline's deferred observability gets built** — Langfuse for LLM
-traces (prompts, completions, retrieved context, tokens) and OTLP into
-Grafana for cross-service timing. Both have been running unused since the
-infrastructure was built; `grafana-lgtm:4317` accepts OTLP gRPC.
+`observability/` (OpenTelemetry → Grafana **and** Langfuse from one
+instrumentation), `Application/backend/clients.py` (the AC08 fix), and
+`evaluation/latency_bench.py`. Full record in `STATUS_AND_ROADMAP.md` §19.
+
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.latency_bench
+```
+
+**Measured: p50 1845 ms, p95 2782 ms** against the 5 s budget, with the LLM
+call ~80% of a turn. The fix was setup, not the model: every question had
+been rebuilding all three clients, ~2.3 s of pure overhead.
+
+**Four properties worth not undoing:**
+
+- **`warmup()` at startup.** Without it the first turn is ~19 s, because
+  client construction happens inside it.
+- **Tracing is fail-open** — the only thing in this repo that is. An
+  unreachable collector must never stop an answer.
+- **Spans are exported in the background.** A synchronous processor puts
+  the collector's latency straight into the AC08 budget.
+- **`LANGFUSE_CAPTURE_CONTENT` is an AC09 decision.** A trace carries
+  document passages and a trace store has no notion of assignment.
+
+⚠️ **Judge AC08 on p95, not the mean or the max.** A mean hides the turns
+that break the budget; a max fails the run on one slow upstream response.
+"Under normal conditions" is a percentile statement.
+
+---
+
+### Next — the HTTP layer, then the frontend
+
+Not backend logic; exposure. What it walks into:
+
+- Call `clients.warmup()` and `observability.configure()` once at startup,
+  and `observability.shutdown()` on exit — batched spans are otherwise lost.
+- Routes must go through `Conversation` / `handle_question`, never
+  `answer_question`, which skips AC01–AC04.
+- **Never accept a username from a request body** (`Application/README.md`).
+- A `Conversation` is per session and per project, so a session store keys
+  on both; switching project means a new one.
 
 ---
 

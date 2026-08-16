@@ -14,10 +14,11 @@ collections**. Retrieval quality is measured, not guessed
 answering over RAG + live SPM, and — new on 2026-08-16 — **the whole
 conversational layer: language verification (AC01), intent routing (AC02),
 multi-turn continuity (AC03), the bilingual welcome (AC04), reply-in-kind
-(AC05) and the out-of-scope fallback (AC07)**. **Every acceptance criterion
-the backend owns is now built**, apart from AC08's response time, which is
-met warm but not yet instrumented. There is still no HTTP layer and no
-frontend; latency + observability (step 5) is the next build.
+(AC05) and the out-of-scope fallback (AC07)**. **AC08 is now measured, not
+asserted** — p50 1845 ms / p95 2782 ms against a 5 s budget — and tracing
+goes to Grafana and Langfuse from one instrumentation. **Every acceptance
+criterion the backend owns is built and measured.** There is still no HTTP
+layer and no frontend; those are the next build.
 
 ---
 
@@ -229,8 +230,9 @@ processes, and the one that faces users has the least access.
 | Package | Job | Database role |
 |---|---|---|
 | `pipeline/` | **Builds** the knowledge base — `config.py` (all settings), `chunker.py`, `db.py`, `scanner.py` (Stage 0), `ocr.py` + `native_extract.py` (Stage 1), `indexer.py` (Stages 2+3), plus `locking.py`, `tasks.py`, `status.py` to run it unattended | `spm_admin` — needs every project |
-| `evaluation/` | **Judges** it — the tagged question set, scoring, recorded baseline, plus `conversation_probe.py` for AC01/AC02 | read-only |
-| `Application/` | **Serves** it — `backend/conversation.py` (**the entry point**), `backend/session.py` (the AC09 gate), `backend/db.py` (pool + scope), `backend/retrieval.py`, `backend/answer.py`, `backend/spm.py`, `backend/language.py`, `backend/intent.py`, `backend/messages.py` | `spm_app` — SELECT-only, one project per transaction |
+| `evaluation/` | **Judges** it — the tagged question set, scoring, recorded baseline, `conversation_probe.py` for AC01/AC02, `latency_bench.py` for AC08 | read-only |
+| `Application/` | **Serves** it — `backend/conversation.py` (**the entry point**), `backend/session.py` (the AC09 gate), `backend/db.py` (pool + scope), `backend/retrieval.py`, `backend/answer.py`, `backend/spm.py`, `backend/language.py`, `backend/intent.py`, `backend/messages.py`, `backend/clients.py` (the AC08 client cache) | `spm_app` — SELECT-only, one project per transaction |
+| `observability/` | **Watches** them — one OpenTelemetry instrumentation, exported to Grafana *and* Langfuse. Belongs to none of the three, which is why it is its own package | none |
 
 **The pipeline runs as a containerised Celery worker** —
 `mof-pipeline-worker` and `mof-pipeline-beat`.
@@ -277,23 +279,55 @@ probe was originally a full sentence, so a live run — not the probe set —
 caught *"Quel est le budget?"* being answered in English (§18d). When
 adding a case, add the *awkward* shape too: short, fragmentary, mixed.
 
-⚠️ **Cold start blows the AC08 five-second budget; warm runs sit inside
-it.** Measured on the command above: the *first* call in a fresh process
-spends ~2.5 s just embedding the question, and lands around **5.1 s**
-total. A second call in the same process embeds in ~0.6 s and finishes in
-under 3 s. The LLM call itself is steady at ~1.2–2.5 s.
+**AC08 is measured, and it passes warm.** `evaluation/latency_bench.py`
+runs the real question set end to end and reports percentiles, because
+"does not exceed 5 seconds" is a claim about the tail:
 
-So AC08 is currently met **warm and missed cold**, and the cause is client
-or connection setup rather than the model. Nothing has been tuned for this
-yet — it belongs with the latency work (`STATUS_AND_ROADMAP.md` §5, step
-5), and a long-lived HTTP process would pay the cold start once rather than
-per question. Recorded so the first person to measure it does not think
-they have found a regression.
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.latency_bench
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.latency_bench --cold
+```
 
-The test suite is **508 tests** (answering 50, language 42, session_gate 42,
-conversation 40, intent 40, retrieval_eval 39, scanner 38, continuity 33,
-tasks 27, chunker 26, ocr 23, indexer 23, rls 23, native_extract 22,
-status 15, config 13, locking 12). **Most need `mof-postgres-spm`
+p50 **1845 ms**, p95 **2782 ms**, and the LLM call is ~80% of it — embed,
+search and SPM together are under 400 ms. Exit 0 inside the budget, 1
+outside, so it works as a regression check.
+
+⚠️ **Call `clients.warmup()` once at startup.** The result above depends on
+it. Every question used to rebuild the embedding, Qdrant and LLM clients —
+about **2.3 s of pure setup per question**, plus a repeated TLS handshake.
+They are now cached per `Settings`, and `warmup()` opens the connections up
+front, because constructing a client is not connecting one.
+
+⚠️ **`--cold` is still over budget, by design.** It resets the cache and
+puts the first turn near 19 s. Client construction happens *inside* that
+turn and is not attributed to any phase, so a cold total legitimately
+exceeds the sum of its parts. A long-lived HTTP process pays it once.
+Recorded so a cold number is not read as a regression.
+
+**Tracing — one instrumentation, two backends.** Off unless
+`OBSERVABILITY_ENABLED=true`:
+
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -c "import observability; print(observability.configure())"
+```
+
+Grafana (http://localhost:3000) answers *where did the time go*; Langfuse
+(http://localhost:3001) answers *what was the model actually asked*, with
+a conversation's turns grouped into one session. Langfuse v3 exposes an
+OTLP endpoint, so there is no second SDK. **Tracing is fail-open** — the
+only thing here that is — because an unreachable collector must never stop
+someone getting an answer.
+
+⚠️ **`LANGFUSE_CAPTURE_CONTENT=true` sends document passages into the trace
+store, and a trace store has no notion of AC09.** Anyone who can read
+Langfuse can read every project's passages. Fine here — same machine, same
+corpus — and **not** fine against anything shared. Turning it off keeps
+timing and token counts.
+
+The test suite is **542 tests** (answering 50, language 42, session_gate 42,
+conversation 40, intent 40, retrieval_eval 39, scanner 38, observability 34,
+continuity 33, tasks 27, chunker 26, ocr 23, indexer 23, rls 23,
+native_extract 22, status 15, config 13, locking 12). **Most need `mof-postgres-spm`
 running, and the locking/tasks/status suites need Redis too** — they use the real schema inside a transaction they always roll
 back, and skip with a clear message if the container is down. The OCR tests
 stub Azure and the indexer tests stub both the embedding API and Qdrant, so
@@ -349,23 +383,27 @@ the model.
 > runs unattended. Retrieval quality is measured, not guessed
 > (`evaluation/`). The AC09 session gate, the scoped data-access layer,
 > grounded answering over RAG, the live SPM source, and the conversational
-> layer (AC01–AC05, AC07) are all built and live in `Application/`. **Every
-> acceptance criterion the backend owns is built** except AC08's response
-> time, which is met warm but not yet instrumented. **There is still no HTTP
-> layer and no frontend.** Next up is step 5, latency and observability —
-> see `STATUS_AND_ROADMAP.md` §5, §17 and §18.
+> layer (AC01–AC05, AC07) are all built and live in `Application/`, and
+> AC08 is measured (p50 1845 ms / p95 2782 ms) with tracing going to both
+> Grafana and Langfuse. **Every acceptance criterion the backend owns is
+> built and measured. There is still no HTTP layer and no frontend** —
+> those are next. See `STATUS_AND_ROADMAP.md` §5 and §17–§19.
 >
 > Then verify the live system rather than trusting the docs: 13 containers
-> up, 14 migrations applied and 0 drifted, 508 tests passing, all three
+> up, 14 migrations applied and 0 drifted, 542 tests passing, all three
 > pipeline stages reporting nothing to do (`--dry-run` on
 > `pipeline.scanner`, `pipeline.ocr` and `pipeline.indexer`), Qdrant
 > holding 9 collections / 678 points, `python -m pipeline.status` exiting 0,
-> and `python -m evaluation.conversation_probe` scoring 54/54. You can also
-> hold a real conversation end to end: `open_conversation(session)`, then
-> `.welcome` and `.ask(q)` — the entry point, not `answer_question`, which
-> skips AC01–AC04.
+> `python -m evaluation.conversation_probe` scoring 54/54, and
+> `python -m evaluation.latency_bench` exiting 0. You can also hold a real
+> conversation end to end: `open_conversation(session)`, then `.welcome`
+> and `.ask(q)` — the entry point, not `answer_question`, which skips
+> AC01–AC04.
 >
-> Five working rules: use `.venv/Scripts/python`, never system Python;
+> Six working rules: call `clients.warmup()` and
+> `observability.configure()` once at startup, and `observability.shutdown()`
+> before exit — the AC08 result depends on the first and batched spans are
+> lost without the last; use `.venv/Scripts/python`, never system Python;
 > prefix commands that print with `PYTHONIOENCODING=utf-8`, since most of
 > the corpus is Arabic; `pipeline.ocr` spends money — always `--dry-run`
 > first; the application connects as `spm_app`, never `spm_admin`, and

@@ -319,32 +319,36 @@ being followed; steps 1 and 2 are done.
 | **4b** | **Reply-in-kind** (AC05) — now told, not inferred | ✅ 2026-08-16, §17c |
 | **4c** | **Out-of-scope fallback** (AC07) — a message, not a marker | ✅ 2026-08-16, §17c |
 | **4d** | **Session continuity** (AC03) + **bilingual welcome** (AC04) | ✅ 2026-08-16, §18 |
-| **5** | **Latency (AC08) + observability** — Langfuse, OTLP → Grafana | ⬜ |
+| **5** | **Latency (AC08) + observability** — Langfuse, OTLP → Grafana | ✅ 2026-08-16, §19 |
 | — | **HTTP layer** (FastAPI) — `Application/backend/api/` | ⬜ not started |
 | — | **Frontend** — chat, switcher, KB page, RTL | ⬜ not started |
 | — | **Auth** — AD SSO + OTP | ⬜ deferred, external dependency |
 
-**Step 4 is complete. Step 5 is next: latency (AC08) and observability.**
-Every acceptance criterion the backend owns is now built except AC08's
-response-time guarantee, which is *met* on warm turns and not yet
-*instrumented*. Langfuse and Grafana have been running unused since the
-infrastructure was built; `grafana-lgtm:4317` accepts OTLP gRPC.
+**All five steps of the build order are complete. The HTTP layer is next.**
+Every acceptance criterion the backend owns is built and measured. What
+remains is not backend logic — it is exposure: `Application/backend/api/`
+(FastAPI), then the frontend.
 
-Three measurements already waiting for that work:
+What the HTTP layer walks into, flagged in advance:
 
-- **Cold start still dominates.** The first question in a fresh process
-  spends ~1.3–2.5 s embedding alone. A long-lived HTTP process pays that
-  once rather than per question, which is why AC08 should be measured
-  *after* the HTTP layer rather than against a script (§15c, §18f).
-- **The follow-up retry doubles the embedding on the turns it fires.**
-  Worst observed turn was 5.9 s. It only fires where the alternative was a
-  refusal, so it buys an answer — but it is the current worst case.
-- **AC07 still costs a completion when a project record exists**, which is
-  correct (§16) but means "out of scope" is only free when nothing at all
-  clears the floor.
+- **Call `warmup()` once at startup.** The whole AC08 result depends on it
+  (§19a). A process that skips it pays ~19 s on its first question.
+- **Call `observability.configure()` once at startup, and `shutdown()` on
+  exit.** Spans are batched, so a process that exits without flushing drops
+  the traces it was run to produce.
+- **`handle_question` / `Conversation` are entry points, not chokepoints.**
+  A route must not call `answer_question` directly — that skips AC01–AC04.
+- **Nothing downstream may accept a username from a request body.** The
+  gate trusts the identity it is handed, and whatever supplies it becomes
+  part of the security boundary (`Application/README.md`).
+- **A `Conversation` is per session and per project.** Switching project
+  means a new one, so an HTTP session store must key on both.
+- **The AC07 fallback still costs a completion when a project record
+  exists** — correct per §16, but it means "out of scope" is only free when
+  nothing at all clears the floor.
 
-After step 5: the HTTP layer (`Application/backend/api/`), then the
-frontend — chat, switcher, KB page (AC10), RTL.
+Then the frontend: chat, project switcher, the KB page (AC10 — the data is
+ready and unused), and RTL.
 
 What it walks into, flagged in advance:
 
@@ -754,6 +758,134 @@ What is real, and belongs to the chat backend: Arabic scores ~0.40 against
 English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
 That is **ranking**, not retrieval — the answer is in the results every
 time.
+
+---
+
+## 19. AC08 latency and observability — step 5 (2026-08-16)
+
+Langfuse and Grafana had been running unused since the infrastructure was
+built. They are now wired, and AC08 is **measured rather than asserted**.
+
+New: `observability/` (a fourth top-level package — it instruments the
+other three and belongs to none of them), `Application/backend/clients.py`,
+and `evaluation/latency_bench.py`.
+
+### 19a. The AC08 fix was setup, not the model
+
+The cold-start story recorded in §15c and §18f was only half the problem.
+Measured directly:
+
+| | first call | steady state |
+|---|---|---|
+| construct the embedding client | 4196 ms | **515 ms** |
+| construct the Qdrant client | 4064 ms | **1035 ms** |
+| construct the LLM client | 847 ms | **800 ms** |
+| embed a question, fresh client each time | 3734 ms | **~1000 ms** |
+| embed a question, reusing one client | 628 ms | **~290 ms** |
+
+**Every question was rebuilding all three clients** — roughly 2.3 seconds
+of pure setup, plus ~700 ms more because a brand-new HTTPS client cannot
+reuse a connection and repeats the TLS handshake. None of it was retrieval
+or generation.
+
+Caching them on the `Settings` object (not globally — a global cache would
+make `dataclasses.replace` a no-op in exactly the tests that exist to prove
+settings are honoured) took a warm turn from 2.5–3.3 s to **1.8–2.45 s**.
+`warmup()` additionally *opens* the connections at startup, because
+constructing a client is not connecting one.
+
+### 19b. AC08, measured
+
+`evaluation/latency_bench.py`, over the real question set:
+
+| | result |
+|---|---|
+| turns measured | 18 (11 skipped — no assignment, so AC09 forbids a session) |
+| p50 / p95 | **1845 / 2782 ms** |
+| mean per phase | embed 328 · search 23 · SPM 8 · **LLM 2020** |
+
+**The LLM call is ~80% of a turn and is the irreducible part.** Embedding,
+search and SPM together are under 400 ms.
+
+**The verdict is p95, not the mean and not the max.** A mean hides exactly
+the turns that break the budget; AC08 says *under normal conditions*, which
+is a percentile statement, so one slow turn in twenty is not a failure.
+`max_ms` is reported alongside so the outlier stays visible rather than
+being averaged away — and on the final run that mattered: one turn hit
+10.9 s because Azure itself took 10.3 s to respond. p95 held at 2782 ms and
+the run passed, which is the intended reading rather than a lucky one.
+
+⚠️ **Azure connectivity was degraded throughout this session** — 15–18 s
+connects at times, and a 17 s warmup probe. The numbers above are therefore
+pessimistic, not optimistic.
+
+⚠️ **Cold is still over budget and that is expected.** `--cold` puts the
+first turn at ~19 s, because client construction happens *inside* it and is
+not attributed to any phase — the phase timings start after the client
+exists, so a cold turn's total legitimately exceeds the sum of its parts.
+A long-lived HTTP process calls `warmup()` once and never sees this. Worth
+knowing before anyone reads a cold number as a regression.
+
+### 19c. One instrumentation, two backends
+
+**Langfuse v3 exposes an OTLP endpoint.** Checked before anything was built
+on it — `POST /api/public/otel/v1/traces` with the project's Basic auth
+returns 200 — which settled the architecture: OpenTelemetry is the only
+instrumentation API, and the same spans go to both backends. Two SDKs would
+mean two sets of instrumentation calls that drift apart, and the first to
+drift is always the one nobody looks at.
+
+They answer different questions. Grafana: *where did the time go*.
+Langfuse: *what was the model actually asked*. Verified live — Tempo shows
+`enjaz-chat / chat.turn` with matching durations, and Langfuse groups the
+turns of one conversation into **one session** attributed to the user, with
+four observations per answered turn.
+
+**Tracing is fail-open — the only thing in this repository that is.** An
+unreachable collector, a bad endpoint or a missing package must never stop
+a project manager getting an answer. Proven by running a turn with a tracer
+that raises on every span and asserting the answer still arrives.
+
+⚠️ **`LANGFUSE_CAPTURE_CONTENT` is an AC09 decision, not a preference.** A
+trace carries the prompt, and the prompt carries document passages. **A
+trace store has no notion of project assignment**: anyone who can read
+Langfuse can read every project's passages. That is acceptable here only
+because Langfuse is a container on the same machine already holding the
+same corpus. Against a shared or hosted trace store it is not, and turning
+it off leaves timing and token counts — most of the operational value —
+intact.
+
+### 19d. Two defects the tests found
+
+- **Reading the tracer back from OpenTelemetry's global provider made
+  `configure()` un-repeatable.** OTel permits the global to be set once per
+  process and warns-and-ignores afterwards, so every test after the first
+  silently emitted into the first test's exporter. The module now owns its
+  provider and only *attempts* to set the global.
+- **My own p95 test was wrong, not the code.** It assumed one outlier in
+  twenty should fail the budget. On inspection that is not what "under
+  normal conditions" means, so the reading is now written down and tested
+  in both directions rather than left implicit.
+
+### 19e. Mutation testing — 21 mutations, all caught
+
+Three real test gaps and one real design gap surfaced:
+
+- **The content switch was only half-tested.** The assertion checked the
+  prompt but not the completion — and a completion quotes the passages
+  back, so a mutation capturing it regardless of the switch survived.
+- **Nothing pinned batched export.** A `SimpleSpanProcessor` would put the
+  collector's latency straight into the AC08 budget, which is the failure
+  mode of naive tracing. Now a structural test.
+- **The budget verdict and the skip accounting were unreachable except
+  through a run needing a database and paid calls**, so neither was tested
+  and both mutations survived. Extracted as pure functions — which is
+  better design independently — and tested.
+- **One no-op mutation.** Dropping `None` attributes turns out to be
+  redundant: OpenTelemetry drops them itself, so removing the filter
+  changes no exported span. What it actually prevents is a warning per
+  attribute per span per turn, so the test now asserts the log rather than
+  the export. Same species as §15d's `min()` mutation.
 
 ---
 

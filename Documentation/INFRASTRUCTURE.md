@@ -273,8 +273,22 @@ a blank value.
 | Postgres (SPM) | `localhost:5432` | SPM data — `projects`, `users`, `project_assignments`, `document_links` (see §8) | `POSTGRES_SPM_USER` / `POSTGRES_SPM_PASSWORD`, db `POSTGRES_SPM_DB` |
 | Qdrant | http://localhost:6333/dashboard | Vector DB, one collection per project | `QDRANT_API_KEY` |
 | Redis | `localhost:6379` | Celery broker + result backend for the ingestion worker, and the store behind the cross-process stage locks | `REDIS_PASSWORD` |
-| Langfuse | http://localhost:3001 | LLM execution tracing | Own account, created in-browser (unrelated to Enjaz/AD auth). API keys: `LANGFUSE_SECRET_KEY`/`LANGFUSE_PUBLIC_KEY`, not yet consumed by any app code |
-| Grafana (LGTM) | http://localhost:3000 | App workflow observability: metrics/logs/traces via OTLP on :4317/:4318 | `GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD` |
+| Langfuse | http://localhost:3001 | LLM execution tracing — **in use since 2026-08-16**. Turns of one conversation appear as a single **session**, attributed to the user, with a span per phase | Own account, created in-browser (unrelated to Enjaz/AD auth). API keys: `LANGFUSE_SECRET_KEY`/`LANGFUSE_PUBLIC_KEY` |
+| Grafana (LGTM) | http://localhost:3000 | App workflow observability — **in use since 2026-08-16**. Traces under service `enjaz-chat` in Tempo; OTLP on :4317/:4318 | `GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD` |
+
+**Both receive the same spans from one instrumentation.** Langfuse v3
+exposes an OTLP endpoint (`/api/public/otel/v1/traces`, Basic auth with the
+project keys), so there is no second SDK. Enable with
+`OBSERVABILITY_ENABLED=true` in `infra/.env`; see `observability/tracing.py`
+and `STATUS_AND_ROADMAP.md` §19.
+
+⚠️ **`LANGFUSE_CAPTURE_CONTENT=true` puts project document passages into
+the trace store, and a trace store has no notion of AC09** — anyone who can
+read Langfuse can read every project's passages, regardless of assignment.
+Acceptable here only because Langfuse is a container on this machine
+holding the same corpus. Set it `false` against anything shared or hosted;
+timing and token counts, which are most of the operational value, are
+unaffected.
 | Portainer | https://localhost:9443 | Docker/container management UI | Own admin account, created in-browser (see §4.3 if the 5-min setup window expires) |
 | MinIO console | http://localhost:9003 | Langfuse's internal blob storage (debugging only) | `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` |
 

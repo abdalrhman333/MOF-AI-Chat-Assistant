@@ -94,6 +94,8 @@ Credentials in `infra/.env` under `AZURE_OPENAI_LLM_*`, `AZURE_OPENAI_EMBEDDING_
 | `azure-ai-documentintelligence` | 1.0.2 | OCR API client |
 | `openai` | 2.53.0 | Azure OpenAI client (LLM + embeddings) |
 | `tiktoken` | 0.13.0 | Token counting for chunk sizing |
+| `opentelemetry-sdk` | 1.39.0 | Tracing. **One instrumentation, two backends** — the same spans go to Grafana (OTLP :4318) and Langfuse (its own OTLP endpoint, verified 200 before use), so LLM tracing needs no second SDK |
+| `opentelemetry-exporter-otlp-proto-http` | 1.39.0 | The exporter. HTTP rather than gRPC because Langfuse only speaks HTTP and grafana-lgtm speaks both — one package covers both backends. ⚠️ Pins protobuf to 6.x (was 7.35.1); verified afterwards that Qdrant reads and `pipeline.status` still work |
 | `py3langid` | 0.3.0 | **AC01, Latin script only.** Arabic vs Han vs Cyrillic is decided by counting codepoints and needs no library; this exists solely because Latin script cannot separate English from French or Spanish. Offline, deterministic, ~2 MB, ~70 ms on first call and free after. Injectable at one call site in `Application/backend/language.py`. Justified by measurement — without it, unsupported-language recall is 0.62 instead of 1.00 (`evaluation/conversation_probe.py --no-discriminator`) |
 | `python-dotenv` | 1.2.2 | Loads `infra/.env` |
 | `python-docx` | 1.2.0 | **Fallback only** — extracts `.docx` that Document Intelligence rejects. Never the primary path |

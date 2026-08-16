@@ -20,6 +20,9 @@ Application/
     messages.py     every string a user reads that the model did not write
     conversation.py THE ENTRY POINT — Conversation (AC03/AC04), the router
                     (AC01/AC02), then delegation to answer.py
+    clients.py      the embedding / vector / LLM clients, cached per
+                    Settings. An AC08 fix: rebuilding them cost ~2.3s a
+                    question. Call warmup() once at startup
     intent_phrases.json   tier-1 phrases, as data
     api/            (not built yet) FastAPI routes and schemas
   frontend/         (not built yet) chat UI, project switcher, KB page
@@ -58,6 +61,18 @@ reply.timings         # embed / search / spm / llm, in ms — AC08
 
 `handle_question(session, text, ...)` is the single-turn form underneath,
 for a caller that owns its own history.
+
+## What a long-lived process must do at startup
+
+```python
+from Application.backend import clients
+import observability
+
+clients.warmup()            # AC08 — without this the first turn is ~19s
+observability.configure()   # tracing, if OBSERVABILITY_ENABLED
+...
+observability.shutdown()    # on exit — spans are batched and lost otherwise
+```
 
 ⚠️ **These are entry points, not chokepoints.** `answer_question` remains
 importable and skips the language check, the intent router and history.

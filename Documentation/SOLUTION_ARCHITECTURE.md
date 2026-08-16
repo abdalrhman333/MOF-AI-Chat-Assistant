@@ -687,6 +687,41 @@ derived from what this system can actually do, and the two categories that
 were considered and *not* built (`write_action`, `cross_project`) are named
 in `intent.py` with the measurement showing tier 2 handles them safely.
 
+### 4.13 Observability — one instrumentation, two backends (2026-08-16)
+
+**OpenTelemetry is the only instrumentation API, and both backends receive
+the same spans.** Langfuse v3 exposes an OTLP endpoint, so LLM tracing
+needs no second SDK. The alternative — the Langfuse Python SDK alongside
+an OTel setup — means two sets of instrumentation calls over the same code
+path, and the one that drifts is always the one nobody looks at.
+
+They are kept because they answer different questions, not out of
+duplication: **Grafana** shows where the time went across a request;
+**Langfuse** shows what the model was actually asked and answered, with a
+conversation's turns grouped into one session.
+
+**Tracing is fail-open, which contradicts every other rule in this
+document, deliberately.** Access control fails closed because a wrong
+answer about permission is a breach. Tracing fails open because a wrong
+answer about *observability* is a blind spot, and a blind spot is cheaper
+than an outage. An unreachable collector must never stop a project manager
+getting an answer.
+
+⚠️ **A trace store is an AC09 surface.** The prompt carries retrieved
+passages, so a trace with content in it carries project documents — and
+Langfuse has no notion of project assignment. Anyone who can read it can
+read every project. `LANGFUSE_CAPTURE_CONTENT` exists for that reason and
+is a deployment decision, not a preference: acceptable against a container
+on the same machine holding the same corpus, not acceptable against a
+shared or hosted store. Disabling it keeps timing and token counts.
+
+**AC08 is a percentile claim.** "Does not exceed 5 seconds under normal
+conditions" is about the tail, so `evaluation/latency_bench.py` reports
+p50/p95/max and judges on p95 — a mean hides the turns that break it, and
+a max would fail a run on one slow upstream response. Measured, the LLM
+call is ~80% of a turn; retrieval and SPM together are under 400 ms. The
+remaining lever on latency is therefore the model, not our code.
+
 ---
 
 ## 5. Relationship to the colleague's RiskIntel platform
