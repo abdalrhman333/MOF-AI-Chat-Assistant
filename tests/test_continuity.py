@@ -336,6 +336,52 @@ def test_both_embeddings_are_reported_when_a_retry_happens(monkeypatch):
     assert reply.timings.search_ms == 30
 
 
+def test_a_failing_retry_does_not_overwrite_the_original_result(monkeypatch):
+    """Found by mutation testing, and invisible to a behavioural test.
+
+    When neither query clears the floor the outcome is `out_of_scope`
+    either way — so only the *reported* numbers differ. Returning the
+    composed query's result would attribute its score to a question the
+    user never asked. Assert the value, not just the behaviour (§6).
+    """
+    original = ret.RetrievalResult(passages=[passage(score=0.19)],
+                                   embed_ms=10, search_ms=1)
+    worse = ret.RetrievalResult(passages=[passage(score=0.04)],
+                                embed_ms=10, search_ms=1)
+    monkeypatch.setattr(conv, "search", ScriptedSearch({"A? B?": worse},
+                                                       original))
+
+    talk = conv.open_conversation(SESSION, settings=SETTINGS)
+    ask(talk, "A?")
+    reply = talk.ask("B?", discriminator=lambda _t: "en",
+                     project_record=None, llm=RecordingLLM())
+    assert reply.outcome == conv.OUTCOME_OUT_OF_SCOPE
+    assert reply.answer is not None
+    assert reply.answer.best_score == pytest.approx(0.19), \
+        "a failed retry must not report its own score as the question's"
+
+
+def test_a_topicless_turn_does_not_become_the_composition_anchor(monkeypatch):
+    """Found by mutation testing.
+
+    Budget question, then `thanks`, then `why?`. Composing against the most
+    recent turn would search for `thanks why?`, which retrieves nothing —
+    the anchor has to be the last turn that actually had a topic.
+    """
+    scripted = ScriptedSearch({}, result(passage(score=0.05)))
+    monkeypatch.setattr(conv, "search", scripted)
+
+    talk = conv.open_conversation(SESSION, settings=SETTINGS)
+    ask(talk, "What is the approved budget?")
+    ask(talk, "thanks")
+    assert talk.turns[-1].reply.outcome == conv.OUTCOME_HANDLED
+
+    talk.ask("Why?", discriminator=lambda _t: "en", project_record=None,
+             llm=RecordingLLM())
+    assert scripted.queries[-1] == "What is the approved budget? Why?", \
+        f"composed against the wrong turn: {scripted.queries[-1]!r}"
+
+
 def test_the_retry_can_be_disabled_by_configuration(monkeypatch):
     scripted = ScriptedSearch({}, result(passage(score=0.05)))
     monkeypatch.setattr(conv, "search", scripted)
