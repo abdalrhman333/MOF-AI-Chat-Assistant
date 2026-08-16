@@ -887,9 +887,20 @@ revisited with measurements rather than re-argued.
 | *What is the capital of France?* | `NOT_IN_DOCUMENTS` | none | no LLM call |
 | *مخاطر مشروع PRJ-03…?* (from a PRJ-06 session) | `NOT_IN_DOCUMENTS` | none | no leak |
 
-**The first real numbers against AC08.** Both answers land inside the
-five-second budget, and the split is recorded per phase — embed, search,
-LLM. The 2.0 s embed on the first call is cold start; the second was 0.6 s.
+**The first real numbers against AC08.** The split is recorded per phase —
+embed, search, SPM, LLM.
+
+⚠️ **Cold start misses the budget; warm runs meet it.** Re-measured
+2026-08-12 on a fresh process: the first question spends **~2.5 s embedding
+alone** and totals **~5.1 s**. A second question in the same process embeds
+in ~0.6 s and finishes under 3 s. The LLM call is steady at ~1.2–2.5 s
+throughout, so the variance is client or connection setup, not the model.
+
+Nothing has been tuned for this. It belongs with step 5, and a long-lived
+HTTP process would pay that cost once rather than per question — which is
+itself an argument for measuring AC08 *after* the HTTP layer exists rather
+than against a cold script. Recorded so the next person to measure it does
+not read it as a regression.
 
 ### 15d. Mutation testing — 18 mutations
 

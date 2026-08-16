@@ -217,16 +217,42 @@ PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.retrieval_eval
 Arabic wins at recall@5). See `STATUS_AND_ROADMAP.md` §13b before acting on
 the old claim.
 
-**The application code so far is seven modules in `pipeline/`** —
-`config.py` (all settings), `chunker.py` (markdown in, chunks out),
-`db.py` (the `spm_admin` connection), `scanner.py` (Stage 0, discovery),
-`ocr.py` (Stage 1, extraction), `native_extract.py` (a fallback for Office
-files Azure rejects — never the primary path), and `indexer.py` (Stages 2+3
-in one module: chunk → embed → index), `locking.py` (cross-process stage
-locks) and `tasks.py` (the Celery tasks and schedule). **The pipeline runs
-as a containerised Celery worker** — `mof-pipeline-worker` and
-`mof-pipeline-beat`. There is still no FastAPI app and no frontend. See
-`STATUS_AND_ROADMAP.md` for the exact done/not-done line.
+**The code is three packages, each with one job and its own database
+privileges.** The separation is not filing tidiness — they run as separate
+processes, and the one that faces users has the least access.
+
+| Package | Job | Database role |
+|---|---|---|
+| `pipeline/` | **Builds** the knowledge base — `config.py` (all settings), `chunker.py`, `db.py`, `scanner.py` (Stage 0), `ocr.py` + `native_extract.py` (Stage 1), `indexer.py` (Stages 2+3), plus `locking.py`, `tasks.py`, `status.py` to run it unattended | `spm_admin` — needs every project |
+| `evaluation/` | **Judges** it — the tagged question set, scoring, recorded baseline | read-only |
+| `Application/` | **Serves** it — `backend/session.py` (the AC09 gate), `backend/db.py` (pool + scope), `backend/retrieval.py`, `backend/answer.py`, `backend/spm.py` | `spm_app` — SELECT-only, one project per transaction |
+
+**The pipeline runs as a containerised Celery worker** —
+`mof-pipeline-worker` and `mof-pipeline-beat`.
+
+⚠️ **There is still no HTTP layer and no frontend.** `Application/` is
+importable Python, not a running service. `backend/api/` and `frontend/`
+are named in `Application/README.md` as their future home and do not exist.
+See `STATUS_AND_ROADMAP.md` §5 for the exact done/not-done line.
+
+Asking a real question end to end, today:
+
+```bash
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -c "from Application.backend.session import open_session; from Application.backend.answer import answer_question; from Application.backend import db; s=open_session('noura.alharbi','PRJ-06'); a=answer_question(s,'ما الميزانية المعتمدة للمشروع؟'); print(a.text); [print(' -',c.label) for c in a.citations]; print(a.timings.as_dict()); db.close_pool()"
+```
+
+⚠️ **Cold start blows the AC08 five-second budget; warm runs sit inside
+it.** Measured on the command above: the *first* call in a fresh process
+spends ~2.5 s just embedding the question, and lands around **5.1 s**
+total. A second call in the same process embeds in ~0.6 s and finishes in
+under 3 s. The LLM call itself is steady at ~1.2–2.5 s.
+
+So AC08 is currently met **warm and missed cold**, and the cause is client
+or connection setup rather than the model. Nothing has been tuned for this
+yet — it belongs with the latency work (`STATUS_AND_ROADMAP.md` §5, step
+5), and a long-lived HTTP process would pay the cold start once rather than
+per question. Recorded so the first person to measure it does not think
+they have found a regression.
 
 The test suite is **353 tests** (answering 50, session_gate 42,
 retrieval_eval 39, scanner 38, tasks 27, chunker 26, ocr 23, indexer 23,
@@ -272,23 +298,36 @@ vector store.
 > I'm continuing work on the MOF Enjaz Chatbot (AI assistant for منصة إنجاز),
 > at `D:\MOF Enjaz Chatbot`. Before doing anything, read
 > `Documentation\START_HERE.md`, then `Documentation\SOLUTION_ARCHITECTURE.md`,
-> `Documentation\INFRASTRUCTURE.md` and `Documentation\STATUS_AND_ROADMAP.md`
-> (the decisions log and lessons learned — don't skip it). The ingestion
-> pipeline is finished and running unattended; **the chat backend is the
-> next build**, so also read `Documentation\NEXT_BUILD_CHAT_BACKEND.md`.
+> `Documentation\INFRASTRUCTURE.md`, `Documentation\STATUS_AND_ROADMAP.md`
+> (the decisions log and lessons learned — don't skip it, and read §13–§16
+> for what the last sessions built and broke), and
+> `Documentation\NEXT_BUILD_CHAT_BACKEND.md` for the build order. If you
+> will touch anything user-facing, read `Application\README.md` too — it
+> holds the trust boundary.
+>
+> **Where the build has reached:** the ingestion pipeline is finished and
+> runs unattended. Retrieval quality is measured, not guessed
+> (`evaluation/`). The AC09 session gate, the scoped data-access layer,
+> grounded answering over RAG, and the live SPM source are all built and
+> live in `Application/`. **There is still no HTTP layer and no frontend.**
+> Next up is AC01 (language check) and AC02 (intent routing) — see
+> `STATUS_AND_ROADMAP.md` §5.
 >
 > Then verify the live system rather than trusting the docs: 13 containers
 > up, 14 migrations applied and 0 drifted, 353 tests passing, all three
 > pipeline stages reporting nothing to do (`--dry-run` on
 > `pipeline.scanner`, `pipeline.ocr` and `pipeline.indexer`), Qdrant
 > holding 9 collections / 678 points, and `python -m pipeline.status`
-> exiting 0.
+> exiting 0. You can also ask a real question end to end:
+> `open_session(username, project_code)` then `answer_question(session, q)`.
 >
-> Four working rules: use `.venv/Scripts/python`, never system Python;
+> Five working rules: use `.venv/Scripts/python`, never system Python;
 > prefix commands that print with `PYTHONIOENCODING=utf-8`, since most of
-> the corpus is Arabic; remember `pipeline.ocr` spends money — always
-> `--dry-run` first; and the chat backend must connect as `spm_app`, never
-> `spm_admin`, with `SET LOCAL app.current_project` on every transaction.
+> the corpus is Arabic; `pipeline.ocr` spends money — always `--dry-run`
+> first; the application connects as `spm_app`, never `spm_admin`, and
+> applies scope with `set_config(name, value, true)` because `SET LOCAL`
+> cannot take a bind parameter; and every retrieval goes through a
+> `Session` obtained from the gate, never a raw project code.
 >
 > Design principle to hold to: **everything must be dynamic, not hardcoded
 > to this specific demo case** — settings belong in `pipeline/config.py`,
@@ -296,7 +335,11 @@ vector store.
 >
 > Working method that has repeatedly paid for itself here: prove a safety
 > feature by deliberately breaking it and confirming the right test
-> catches it, and commit before doing so. Four real test gaps were found
-> that way; none were visible on inspection.
+> catches it, and commit before doing so. Roughly 90 mutations have been
+> run; the ones that *survived* found the real gaps, and none were visible
+> on inspection. Three cautions learned the hard way: a mutation that does
+> not compile proves nothing; a destructive test must not depend on the
+> thing it is testing to keep it safe (that one destroyed the corpus, §14e);
+> and a passing stubbed suite is not evidence — run it live (§16a).
 >
 > My request: <what you want>
