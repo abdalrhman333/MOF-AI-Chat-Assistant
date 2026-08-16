@@ -63,7 +63,8 @@ REASON_UNSUPPORTED_LANGUAGE = "unsupported_language"
 
 # The Unicode script blocks that carry Arabic *letters*. Arabic-Indic digits
 # (U+0660–0669, U+06F0–06F9) fall inside these ranges and are excluded by
-# the category check in `_classify_char`, not by these bounds.
+# category, not by these bounds — at token level by `_is_identifier`, and at
+# character level by `_classify_char`.
 _ARABIC_RANGES = (
     (0x0600, 0x06FF),   # Arabic
     (0x0750, 0x077F),   # Arabic Supplement
@@ -135,11 +136,19 @@ def _is_identifier(token: str) -> bool:
     opposite one, missing genuine code-switching in short questions.
 
     A project code, a date, a version or a ticket number is not a language.
-    Requiring a digit keeps the rule narrow: `budget` stays a word, `PRJ-06`,
-    `Q4` and `2026` do not. Dropped whole, because the letters in `PRJ-06`
-    are exactly the ones that mislead.
+    Requiring a numeral keeps the rule narrow: `budget` stays a word,
+    `PRJ-06`, `Q4` and `2026` do not. Dropped whole, because the letters in
+    `PRJ-06` are exactly the ones that mislead.
+
+    **Any numeric category, not just decimal digits.** Mutation testing
+    found `Nd` alone to be an arbitrary narrowing that left fractions (`½`,
+    category `No`) and Roman numerals (`Ⅷ`, category `Nl`) to be handled one
+    level down by `_classify_char` — two rules quietly guarding the same
+    thing, neither testable independently of the other. Each now has exactly
+    one job: this decides whether a *token* is a code, `_classify_char`
+    decides whether a *character* is a letter.
     """
-    return any(unicodedata.category(char) == "Nd" for char in token)
+    return any(unicodedata.category(char).startswith("N") for char in token)
 
 
 def _script_name(char: str) -> str:

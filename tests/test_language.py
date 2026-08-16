@@ -136,6 +136,18 @@ def test_a_token_containing_a_digit_contributes_no_language_signal():
     assert with_code.latin_share == without_code.latin_share == 0.0
 
 
+def test_every_numeric_category_is_an_identifier_not_just_decimal_digits():
+    """Found by mutation testing: `Nd` alone was an arbitrary narrowing.
+
+    Fractions are category `No` and Roman numerals are `Nl`. Left out of
+    this rule they fell through to `_classify_char`, so two rules guarded
+    the same thing and neither could be tested independently of the other.
+    """
+    assert lang._is_identifier("½"), "fraction, category No"
+    assert lang._is_identifier("Ⅷ"), "Roman numeral, category Nl"
+    assert detect("Budget ½ ⅓ ¼ ⅔").language == lang.ENGLISH
+
+
 def test_dropping_identifiers_does_not_hide_real_code_switching():
     """The narrow rule must not become a blanket 'ignore Latin' rule."""
     verdict = detect("ما هي الميزانية approved budget لمشروع PRJ-06؟")
