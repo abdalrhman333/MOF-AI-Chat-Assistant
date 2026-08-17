@@ -29,12 +29,14 @@ import logging
 import pathlib
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 import observability
 from Application.backend import clients, db
+from Application.backend.api import cookies as cookie_module
+from Application.backend.api import credentials
 from Application.backend.api import identity as identity_module
 from Application.backend.api import schemas
 from Application.backend.api.store import ConversationStore
@@ -116,7 +118,23 @@ async def _unavailable(request: Request, exc: BackendUnavailable):
 
 def caller(request: Request) -> identity_module.Identity:
     """The authenticated caller, or a refusal. Never reads the body."""
-    return identity_module.resolve(request.headers, SETTINGS.api)
+    return identity_module.resolve(request.headers, SETTINGS.api,
+                                   cookies=request.cookies)
+
+
+def account(who: identity_module.Identity = Depends(caller)) -> credentials.Account:
+    """The signed-in account, re-read rather than trusted from the cookie.
+
+    The cookie carries a username and is signed, so the name itself is not
+    forgeable — but an account can be removed or renamed after a session
+    starts, and a display name pulled from a token is a display name that
+    can go stale. Reading it back also means a deleted account stops working
+    at the next request rather than at the next expiry.
+    """
+    found = credentials.load_account(who.username)
+    if found is None:
+        raise AccessDenied("unknown_account", who.username, "")
+    return found
 
 
 def _reply_out(reply: Reply) -> schemas.ReplyOut:
@@ -168,6 +186,57 @@ def ui():
     return FileResponse(FRONTEND, media_type="text/html")
 
 
+@app.post("/api/auth/login", response_model=schemas.AccountOut, tags=["auth"])
+def login(body: schemas.LoginIn, response: Response):
+    """Verify a demo credential and set a signed session cookie.
+
+    ⚠️ **Simulated sign-in.** Real AD SSO and OTP replace this route and
+    `credentials.py`; nothing above them changes. See migration 015.
+
+    A wrong password and an unknown address produce the same refusal and
+    roughly the same timing — a login form that answers faster for an
+    unknown address is an account directory.
+    """
+    found = credentials.authenticate(body.email, body.password)
+    config = SETTINGS.api
+    try:
+        token = cookie_module.sign(found.username, config.session_secret,
+                                   max_age_seconds=config.session_hours * 3600)
+    except cookie_module.CookieError as exc:
+        # No signing secret configured. Refusing is the only safe answer:
+        # an unsigned cookie is a username the browser can edit.
+        log.error("cannot mint a session: %s", exc)
+        raise BackendUnavailable(str(exc)) from exc
+
+    response.set_cookie(
+        cookie_module.COOKIE_NAME, token,
+        max_age=config.session_hours * 3600,
+        httponly=True,          # a script must not be able to read it
+        samesite="lax",         # not sent on cross-site POSTs
+        secure=config.cookie_secure,
+        path="/",
+    )
+    log.info("signed in user=%s", found.username)
+    return schemas.AccountOut(username=found.username, email=found.email,
+                              full_name_ar=found.full_name_ar,
+                              full_name_en=found.full_name_en)
+
+
+@app.post("/api/auth/logout", status_code=204, tags=["auth"])
+def logout(response: Response):
+    """Clear the session cookie. Deliberately needs no valid session."""
+    response.delete_cookie(cookie_module.COOKIE_NAME, path="/")
+    return None
+
+
+@app.get("/api/auth/me", response_model=schemas.AccountOut, tags=["auth"])
+def me(found: credentials.Account = Depends(account)):
+    """Who is signed in — what the UI calls on load to decide the screen."""
+    return schemas.AccountOut(username=found.username, email=found.email,
+                              full_name_ar=found.full_name_ar,
+                              full_name_en=found.full_name_en)
+
+
 @app.get("/health", response_model=schemas.HealthOut, tags=["ops"])
 def health():
     """Liveness. Deliberately requires no identity and touches no project."""
@@ -200,20 +269,30 @@ def projects(who: identity_module.Identity = Depends(caller)):
 @app.post("/api/conversations", response_model=schemas.ConversationOut,
           status_code=201, tags=["chat"])
 def open_conversation(body: schemas.OpenConversationIn,
-                      who: identity_module.Identity = Depends(caller)):
+                      found: credentials.Account = Depends(account)):
     """Open a chat on one project. **This is the AC09 gate.**
 
     `open_session` raises `AccessDenied` for a project this user is not
     assigned to — and identically for one that does not exist.
+
+    Switching project means calling this again: a `Conversation` is bound to
+    one session for its lifetime, so a new project is a new conversation
+    rather than a mutation of the old one.
     """
-    session = open_session(who.username, body.project_code, settings=SETTINGS)
-    token, conversation = STORE.open(session, settings=SETTINGS)
-    log.info("conversation opened user=%s project=%s via=%s",
-             who.username, session.project_code, who.source)
+    session = open_session(found.username, body.project_code, settings=SETTINGS)
+    token, conversation = STORE.open(
+        session, settings=SETTINGS, user_name=found.names,
+        ui_language=body.ui_language)
+    log.info("conversation opened user=%s project=%s",
+             found.username, session.project_code)
+    name = next((p.display_name for p in
+                 list_assigned_projects(found.username, settings=SETTINGS)
+                 if p.code == session.project_code), "")
     return schemas.ConversationOut(
         conversation_id=token,
         project_code=conversation.project_code,
-        welcome=conversation.welcome,     # AC04 — bilingual, before any turn
+        project_name=name,
+        welcome=conversation.welcome,     # AC04 — before any turn exists
     )
 
 

@@ -307,9 +307,20 @@ class ApiSettings:
     """
     host: str = "127.0.0.1"
     port: int = 8000
-    auth_mode: str = "dev_fixed"
+    auth_mode: str = "session_login"
     auth_header: str = "X-Remote-User"
     dev_username: str = ""
+    # HMAC key for the session cookie. **No default on purpose**: a
+    # hard-coded fallback would mean every deployment of this source shares
+    # a signing key, and anyone with the code could mint a session for any
+    # username. Missing means sign-in refuses rather than signs with
+    # something convenient.
+    session_secret: str = ""
+    session_hours: int = 8
+    # `Secure` keeps the cookie off plain HTTP. False by default because the
+    # demo runs on http://127.0.0.1 and a Secure cookie would simply never
+    # be sent — a login that silently never works. Must be true behind TLS.
+    cookie_secure: bool = False
     conversation_idle_minutes: int = 60
     max_conversations: int = 500
     max_question_chars: int = 2000
@@ -658,6 +669,9 @@ def _api_from_env() -> ApiSettings:
         auth_mode=_optional("API_AUTH_MODE", d.auth_mode).strip().lower(),
         auth_header=_optional("API_AUTH_HEADER", d.auth_header),
         dev_username=_optional("API_DEV_USERNAME", ""),
+        session_secret=_optional("API_SESSION_SECRET", ""),
+        session_hours=int(_optional("API_SESSION_HOURS", str(d.session_hours))),
+        cookie_secure=_flag("API_COOKIE_SECURE", "false"),
         conversation_idle_minutes=int(
             _optional("API_CONVERSATION_IDLE_MINUTES",
                       str(d.conversation_idle_minutes))

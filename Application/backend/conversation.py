@@ -1,53 +1,48 @@
-"""The conversational entry point — where AC01 and AC02 are actually applied.
+"""The conversational entry point — one retrieval, one model call.
 
-`answer.answer_question` is the grounded-answering *engine*: given a session
-and a question, it produces a cited answer. This module decides whether that
-engine should be asked at all, and is where the rest of the conversational
-layer (AC03 continuity, AC04 welcome) will land.
+`answer.answer_question` is the grounded-answering engine. This module owns
+the conversation around it: who is speaking, what was said before, and what
+to do with the reply.
 
-The order is fixed and matters:
+**The model decides what each message is.** Language and intent are not
+determined here and are not determined by any table, phrase list or
+threshold — they come back from the model along with the answer, governed by
+the system prompt in `answer.py`. That is a deliberate reversal of the
+earlier design, which detected the language by counting scripts and routed
+greetings through a phrase file. The trade is explicit: a greeting now costs
+a model call instead of nothing, and in exchange there is exactly one place
+that decides how to treat a message, and it is a prompt rather than code.
 
-    1. AC01  verify the language     -> reject before spending anything
-    2. AC02  classify the intent     -> answer cheaply where possible
-    3. AC06  retrieve and ground     -> answer.answer_question
-    4. AC07  fallback                -> when the sources do not answer it
+    retrieve  ->  ask the model once  ->  render what it decided
 
-**Rejection happens before any paid call.** An unsupported language costs no
-embedding, no vector search and no completion — which is the point of doing
-AC01 here rather than inside the answering path, and is asserted by a test
-that counts calls against stubs rather than trusting the reading.
+**Retrieval runs first, for every message.** That ordering is what keeps a
+turn to a single completion: the model gets the passages it might need at
+the same moment it is asked what the message is, so a real question is
+answered in one round trip. Classifying first and answering second would be
+two, and roughly double the latency against the AC08 budget.
 
 ⚠️ **This is an entry point, not a chokepoint.** `answer_question` remains
-importable and callable directly — `START_HERE.md`'s own example does
-exactly that — so AC01 is enforced for callers that come through here, not
-by construction the way `Session` enforces AC09. That is a deliberate
-trade: duplicating the language check inside the answering path would put
-the same rule in two places, and the rule that must never be bypassable
-(the project scope) is already structural. Anything user-facing must enter
-here.
-
-**AC05 gets stronger as a side effect.** Once the language is known
-deterministically, the answering prompt is *told* which language to reply
-in instead of inferring it from the question text. The prompt's own
-reply-in-kind rule stays in place as the fallback for mixed input.
+importable and skips the conversation around it. Anything user-facing must
+enter here. The rule that must never be bypassable — the project scope — is
+structural already: retrieval derives its collection from the `Session`.
 """
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
 
-from Application.backend import intent as intent_module
-from Application.backend import language as language_module
 from Application.backend import messages
-from Application.backend.answer import NOT_FOUND, Answer, Citation, Timings
-from Application.backend.answer import answer_question
-from Application.backend.language import (
-    ARABIC,
-    ENGLISH,
-    MIXED,
-    REASON_EMPTY,
-    REASON_NO_LETTERS,
-    LanguageVerdict,
+from Application.backend.answer import (
+    INTENT_CAPABILITY,
+    INTENT_GREETING,
+    INTENT_OUT_OF_SCOPE,
+    INTENT_OVERVIEW,
+    INTENT_QUESTION,
+    INTENT_UNSUPPORTED_LANGUAGE,
+    Answer,
+    Citation,
+    Timings,
+    answer_question,
 )
 from Application.backend.retrieval import search
 from Application.backend.session import Session
@@ -61,10 +56,26 @@ from observability import tracing
 # for, an outcome is what we did about it. They differ exactly where it
 # matters — `general_retrieval` can end as `answered` or as `out_of_scope`.
 OUTCOME_ANSWERED = "answered"
-OUTCOME_REJECTED_LANGUAGE = "rejected_language"
-OUTCOME_NO_LANGUAGE = "no_language_detected"
-OUTCOME_HANDLED = "handled_without_retrieval"
+OUTCOME_CONVERSATIONAL = "conversational"
 OUTCOME_OUT_OF_SCOPE = "out_of_scope"
+OUTCOME_REJECTED_LANGUAGE = "rejected_language"
+
+# Intent is the model's word for what the message *was*; outcome is our word
+# for how a caller should render it. Kept as a table rather than a chain of
+# conditions so adding an intent without deciding how it renders is a
+# visible omission rather than a silent fall-through.
+OUTCOME_BY_INTENT = {
+    INTENT_GREETING: OUTCOME_CONVERSATIONAL,
+    INTENT_CAPABILITY: OUTCOME_CONVERSATIONAL,
+    INTENT_OVERVIEW: OUTCOME_ANSWERED,
+    INTENT_QUESTION: OUTCOME_ANSWERED,
+    INTENT_OUT_OF_SCOPE: OUTCOME_OUT_OF_SCOPE,
+    INTENT_UNSUPPORTED_LANGUAGE: OUTCOME_REJECTED_LANGUAGE,
+}
+
+# Which intents leave something a later follow-up could refer to. A greeting
+# does not: "why?" after "hello" must not anchor on "hello".
+TOPICAL_INTENTS = (INTENT_OVERVIEW, INTENT_QUESTION, INTENT_OUT_OF_SCOPE)
 
 
 @dataclass
@@ -94,11 +105,6 @@ class Reply:
     @property
     def used_model(self) -> bool:
         return self.timings.llm_ms > 0
-
-
-def _reply_language(verdict: LanguageVerdict) -> str:
-    """Which language to answer in. Mixed follows the dominant script."""
-    return verdict.primary or ENGLISH
 
 
 def _resolve_retrieval(session: Session, text: str, previous_question: str,
@@ -146,10 +152,9 @@ def handle_question(
     text: str,
     *,
     settings: Settings | None = None,
-    discriminator=None,
-    phrases=None,
     history: list[tuple[str, str]] | None = None,
     previous_question: str = "",
+    user_name: str = "",
     conversation_id: str = "",
     turn_index: int = 0,
     **answer_kwargs,
@@ -181,9 +186,8 @@ def handle_question(
         },
     ) as turn_span:
         reply = _handle(session, text, settings=settings,
-                        discriminator=discriminator, phrases=phrases,
                         history=history, previous_question=previous_question,
-                        **answer_kwargs)
+                        user_name=user_name, **answer_kwargs)
         # Recorded after the fact, because the interesting attributes are
         # outcomes rather than inputs: what a turn *did* is what makes a
         # trace searchable.
@@ -205,56 +209,25 @@ def _handle(
     text: str,
     *,
     settings: Settings,
-    discriminator=None,
-    phrases=None,
     history: list[tuple[str, str]] | None = None,
     previous_question: str = "",
+    user_name: str = "",
     **answer_kwargs,
 ) -> Reply:
-    """The turn itself. Separated so the span wraps every exit path."""
-    # ---- AC01 -------------------------------------------------------------
-    verdict = language_module.detect(text, settings=settings,
-                                     discriminator=discriminator)
-    if not verdict.supported:
-        # No language identified means no language to reply in, so the
-        # apology is bilingual. Distinguishing "unsupported language" from
-        # "no letters at all" is not pedantry: telling someone who typed
-        # `???` that we do not support their language is simply wrong.
-        key = ("no_language_detected"
-               if verdict.reason in (REASON_EMPTY, REASON_NO_LETTERS)
-               else "unsupported_language")
-        outcome = (OUTCOME_NO_LANGUAGE
-                   if key == "no_language_detected"
-                   else OUTCOME_REJECTED_LANGUAGE)
-        return Reply(
-            text=messages.bilingual(key),
-            outcome=outcome,
-            language=verdict.language,
-            reason=verdict.reason,
-        )
+    """One turn: retrieve, then ask the model once. No routing here.
 
-    reply_language = _reply_language(verdict)
-
-    # ---- AC02 -------------------------------------------------------------
-    routed = intent_module.classify(text, settings=settings, phrases=phrases)
-    if not routed.needs_retrieval:
-        # Handled from what we already know. No embedding, no search, no
-        # completion — the reason tier 1 exists.
-        fields = ({"project": session.project_code}
-                  if routed.intent == intent_module.SESSION_META else {})
-        return Reply(
-            text=messages.text(routed.intent, reply_language, **fields),
-            outcome=OUTCOME_HANDLED,
-            intent=routed.intent,
-            language=verdict.language,
-            reply_language=reply_language,
-            reason=routed.tier,
-        )
-
-    # ---- AC03 + AC06 ------------------------------------------------------
-    # The follow-up fallback needs the retrieval result in hand, so it is
-    # resolved here and passed down. Without a previous question this is the
-    # same single search `answer_question` would have run itself.
+    **Retrieval runs before the model, for every message.** That ordering is
+    what keeps this to a single completion: the model receives the passages
+    it might need at the same time as it is asked to decide what the message
+    even is, so a question is answered in one round trip rather than two.
+    The cost of running it on a greeting is one embedding — a few hundred
+    milliseconds and a fraction of a cent — against the second model call it
+    saves on every real question.
+    """
+    # A follow-up whose own words retrieve nothing gets a second search with
+    # the previous question in front of it. This is retrieval quality, not
+    # intent classification: it changes what evidence the model sees, never
+    # what the model is allowed to decide.
     if previous_question and "retrieval" not in answer_kwargs:
         answer_kwargs["retrieval"] = _resolve_retrieval(
             session, text, previous_question, settings,
@@ -262,31 +235,17 @@ def _handle(
         )
 
     answer = answer_question(session, text, settings=settings,
-                             reply_language=reply_language, history=history,
+                             user_name=user_name, history=history,
                              **answer_kwargs)
 
-    # ---- AC07 -------------------------------------------------------------
-    if not answer.found:
-        # The sources genuinely do not answer it. `NOT_IN_DOCUMENTS` is a
-        # marker for us, not a sentence for a project manager — this is
-        # where it becomes one, in their language.
-        return Reply(
-            text=messages.text("out_of_scope", reply_language),
-            outcome=OUTCOME_OUT_OF_SCOPE,
-            intent=intent_module.OUT_OF_SCOPE,
-            language=verdict.language,
-            reply_language=reply_language,
-            reason=NOT_FOUND,
-            timings=answer.timings,
-            answer=answer,
-        )
-
+    # The model classified; we only translate its category into the one word
+    # a caller renders on. Nothing here re-decides what the message was.
     return Reply(
         text=answer.text,
-        outcome=OUTCOME_ANSWERED,
-        intent=intent_module.GENERAL_RETRIEVAL,
-        language=verdict.language,
-        reply_language=reply_language,
+        outcome=OUTCOME_BY_INTENT.get(answer.intent, OUTCOME_ANSWERED),
+        intent=answer.intent,
+        language=answer.language,
+        reply_language=answer.language,
         citations=answer.citations,
         timings=answer.timings,
         answer=answer,
@@ -300,9 +259,14 @@ class Turn:
     reply: Reply
 
     @property
-    def reached_retrieval(self) -> bool:
-        """Did this turn have a topic? A greeting or a rejection did not."""
-        return self.reply.outcome in (OUTCOME_ANSWERED, OUTCOME_OUT_OF_SCOPE)
+    def carries_topic(self) -> bool:
+        """Is there something here a later follow-up could refer to?
+
+        Every turn now reaches retrieval, so the old name lied. What still
+        matters is whether the turn had a *subject*: a greeting or a
+        language refusal leaves nothing for "why?" to attach to.
+        """
+        return self.reply.intent in TOPICAL_INTENTS
 
 
 class Conversation:
@@ -331,10 +295,17 @@ class Conversation:
     """
 
     def __init__(self, session: Session, *, settings: Settings | None = None,
-                 conversation_id: str = ""):
+                 conversation_id: str = "",
+                 user_name: str | tuple[str, str] = "",
+                 ui_language: str = "ar"):
         self._session = session
         self._settings = settings or get_settings()
         self._turns: list[Turn] = []
+        # The signed-in user's display name, from their authenticated
+        # account. It reaches the model so it can greet by name, and it never
+        # comes from anything the user typed.
+        self._user_name = user_name
+        self._ui_language = ui_language
         # Tracing only. A stable id per conversation is what makes Langfuse
         # show one session with N turns rather than N unrelated traces.
         self._id = conversation_id or uuid.uuid4().hex
@@ -345,6 +316,16 @@ class Conversation:
     def session(self) -> Session:
         """Read-only on purpose — see the class docstring."""
         return self._session
+
+    @property
+    def _names(self) -> tuple[str, str]:
+        """(Arabic, English) display names, each falling back to the other."""
+        if isinstance(self._user_name, tuple):
+            ar, en = self._user_name
+        else:
+            ar = en = self._user_name
+        fallback = self._session.username
+        return (ar or en or fallback, en or ar or fallback)
 
     @property
     def id(self) -> str:
@@ -372,7 +353,16 @@ class Conversation:
         there is no language to reply in. A property rather than something
         pushed on construction, so a caller decides when it is shown.
         """
-        return messages.bilingual("welcome", project=self.project_code)
+        # Built half by half rather than through `bilingual()`, because
+        # each half needs its *own* language's name — "Welcome, نورة" reads
+        # as a bug, not as bilingual.
+        ar, en = self._names
+        return "\n\n".join([
+            messages.text("welcome", messages.ARABIC,
+                          project=self.project_code, name=ar),
+            messages.text("welcome", messages.ENGLISH,
+                          project=self.project_code, name=en),
+        ])
 
     # ---- AC03 -------------------------------------------------------------
 
@@ -386,7 +376,7 @@ class Conversation:
         chosen: list[tuple[str, str]] = []
         used = 0
         for turn in reversed(self._turns):
-            if not turn.reached_retrieval:
+            if not turn.carries_topic:
                 continue
             if len(chosen) >= config.max_history_turns:
                 break
@@ -400,7 +390,7 @@ class Conversation:
     def _previous_question(self) -> str:
         """The last question that had a topic, for the retrieval fallback."""
         for turn in reversed(self._turns):
-            if turn.reached_retrieval:
+            if turn.carries_topic:
                 return turn.question
         return ""
 
@@ -414,6 +404,7 @@ class Conversation:
         kwargs.setdefault("settings", self._settings)
         kwargs.setdefault("history", self.history_for_prompt())
         kwargs.setdefault("previous_question", self._previous_question())
+        kwargs.setdefault("user_name", self._user_name)
         kwargs.setdefault("conversation_id", self._id)
         kwargs.setdefault("turn_index", len(self._turns) + 1)
         reply = handle_question(self._session, text, **kwargs)
@@ -422,7 +413,9 @@ class Conversation:
 
 
 def open_conversation(session: Session, *,
-                      settings: Settings | None = None) -> Conversation:
+                      settings: Settings | None = None,
+                      user_name: str | tuple[str, str] = "",
+                      ui_language: str = "ar") -> Conversation:
     """Start a conversation on an already-authorised session.
 
     Takes a `Session` rather than a username and a project code, for the
@@ -430,12 +423,12 @@ def open_conversation(session: Session, *,
     project is authorised, and a function that requires its output cannot be
     handed an unvalidated code.
     """
-    return Conversation(session, settings=settings)
+    return Conversation(session, settings=settings, user_name=user_name,
+                        ui_language=ui_language)
 
 
 __all__ = [
     "Reply", "Turn", "Conversation", "handle_question", "open_conversation",
-    "OUTCOME_ANSWERED", "OUTCOME_REJECTED_LANGUAGE", "OUTCOME_NO_LANGUAGE",
-    "OUTCOME_HANDLED", "OUTCOME_OUT_OF_SCOPE",
-    "ARABIC", "ENGLISH", "MIXED",
+    "OUTCOME_ANSWERED", "OUTCOME_CONVERSATIONAL", "OUTCOME_OUT_OF_SCOPE",
+    "OUTCOME_REJECTED_LANGUAGE", "OUTCOME_BY_INTENT", "TOPICAL_INTENTS",
 ]

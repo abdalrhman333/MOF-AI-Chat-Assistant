@@ -10,19 +10,25 @@ request body, the query string, or a client-settable field.** If it did,
 AC09 would be one `curl` away from meaningless — the gate would faithfully
 check an assignment for whoever the caller claimed to be.
 
-Two modes, and the default is the one that cannot be spoofed.
+Three modes, none of which reads a name the client can choose.
 
 | Mode | Identity from | Safe when |
 |---|---|---|
-| `dev_fixed` *(default)* | `AUTH_DEV_USERNAME` in config | always — a browser cannot change it |
-| `trusted_header` | a request header | **only** behind a proxy that strips client copies |
+| `session_login` *(default)* | a **signed** session cookie, minted after a password check | the signing secret is set and private |
+| `dev_fixed` | `API_DEV_USERNAME` in config | always — a browser cannot change it |
+| `trusted_header` | a request header | **only** behind a proxy that overwrites client copies |
 
-`dev_fixed` is the honest default for this build. Real AD SSO and OTP are
-external dependencies that do not exist here, and the BRD's own note says
-to simulate what can be simulated honestly and flag the rest. A fixed
-identity does exactly that: every request is the same signed-in user, the
-project switcher still works because that user has several projects, and
-nothing pretends to be authentication.
+`session_login` is what the demo runs: the user types their own address and
+password, we verify against the seeded accounts, and the reply sets a cookie
+signed with HMAC-SHA256. **The signature is the whole point** — an unsigned
+cookie is a text field the user controls, and editing it would hand them
+somebody else's projects through a gate that would check them faithfully.
+
+It is still a *simulation* of sign-in. Real AD SSO and OTP replace
+`credentials.py` and this branch; nothing above them changes.
+
+`dev_fixed` remains for development and for the tests, where standing up a
+login flow to assert something unrelated is noise.
 
 ⚠️ **`trusted_header` is production-*shaped*, not production-*safe*.** It
 is correct only if a reverse proxy authenticates the user and **overwrites**
@@ -35,12 +41,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from Application.backend.api import cookies as cookie_module
 from Application.backend.errors import AccessDenied
 from pipeline.config import ApiSettings
 
+MODE_SESSION_LOGIN = "session_login"
 MODE_DEV_FIXED = "dev_fixed"
 MODE_TRUSTED_HEADER = "trusted_header"
-MODES = (MODE_DEV_FIXED, MODE_TRUSTED_HEADER)
+MODES = (MODE_SESSION_LOGIN, MODE_DEV_FIXED, MODE_TRUSTED_HEADER)
 
 
 @dataclass(frozen=True)
@@ -55,13 +63,26 @@ class Identity:
     source: str
 
 
-def resolve(headers, config: ApiSettings) -> Identity:
+def resolve(headers, config: ApiSettings, *, cookies=None) -> Identity:
     """Establish the caller's identity, or refuse.
 
     Raises `AccessDenied` rather than returning an anonymous identity,
     because "we could not tell who you are" must never continue as a
     request that the gate then evaluates against *somebody*.
     """
+    if config.auth_mode == MODE_SESSION_LOGIN:
+        raw = (cookies or {}).get(cookie_module.COOKIE_NAME)
+        if not raw:
+            raise AccessDenied("no_session")
+        try:
+            username = cookie_module.unsign(raw, config.session_secret)
+        except cookie_module.CookieError as exc:
+            # Forged, edited, expired or unsigned — all the same answer. A
+            # client that can tell "expired" from "bad signature" learns
+            # whether it guessed a real username.
+            raise AccessDenied("invalid_session") from exc
+        return Identity(username=username, source=MODE_SESSION_LOGIN)
+
     if config.auth_mode == MODE_DEV_FIXED:
         username = (config.dev_username or "").strip()
         if not username:
@@ -87,6 +108,12 @@ def resolve(headers, config: ApiSettings) -> Identity:
 
 def describe(config: ApiSettings) -> str:
     """A startup line that makes the deferral impossible to miss."""
+    if config.auth_mode == MODE_SESSION_LOGIN:
+        state = "SET" if config.session_secret else "MISSING — sign-in will fail"
+        return (f"AUTH: session_login — email + password against the seeded "
+                f"demo accounts, then a signed cookie. Signing secret: "
+                f"{state}. This SIMULATES sign-in; real AD SSO/OTP is "
+                f"deferred and replaces credentials.py.")
     if config.auth_mode == MODE_DEV_FIXED:
         return (f"AUTH: dev_fixed — every request is '{config.dev_username}'. "
                 f"Real AD SSO/OTP is deferred; this is a simulated identity, "

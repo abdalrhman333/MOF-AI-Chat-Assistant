@@ -16,6 +16,20 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class LoginIn(BaseModel):
+    """Email and password. No username field — the account IS the identity."""
+    email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=256)
+
+
+class AccountOut(BaseModel):
+    """Who is signed in. Never accepted as input, only ever returned."""
+    username: str
+    email: str
+    full_name_ar: str
+    full_name_en: str
+
+
 class ProjectOut(BaseModel):
     code: str
     name_ar: str | None = None
@@ -25,8 +39,14 @@ class ProjectOut(BaseModel):
 
 
 class OpenConversationIn(BaseModel):
-    """Only a project code. The identity comes from the request context."""
+    """Only a project code. The identity comes from the request context.
+
+    `ui_language` picks the language of the pre-input welcome, which is the
+    one reply with no message to detect a language from. It cannot influence
+    any later reply — those follow the language the model detects.
+    """
     project_code: str = Field(min_length=1, max_length=128)
+    ui_language: str = Field(default="ar", pattern="^(ar|en)$")
 
 
 class CitationOut(BaseModel):
@@ -49,6 +69,7 @@ class TimingsOut(BaseModel):
 class ConversationOut(BaseModel):
     conversation_id: str
     project_code: str
+    project_name: str = ""
     welcome: str
     turns: int = 0
 

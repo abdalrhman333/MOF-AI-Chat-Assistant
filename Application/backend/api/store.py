@@ -50,7 +50,9 @@ class ConversationStore:
 
     # ---- lifecycle ---------------------------------------------------------
 
-    def open(self, session: Session, *, settings: Settings | None = None) -> tuple[str, Conversation]:
+    def open(self, session: Session, *, settings: Settings | None = None,
+             user_name: str | tuple[str, str] = "",
+             ui_language: str = "ar") -> tuple[str, Conversation]:
         """Store a conversation for an already-authorised session.
 
         Takes a `Session`, never a username and project code, for the same
@@ -59,7 +61,9 @@ class ConversationStore:
         """
         token = secrets.token_urlsafe(24)
         conversation = Conversation(session, settings=settings,
-                                    conversation_id=token)
+                                    conversation_id=token,
+                                    user_name=user_name,
+                                    ui_language=ui_language)
         with self._lock:
             self._evict_locked()
             self._entries[token] = Entry(conversation=conversation,

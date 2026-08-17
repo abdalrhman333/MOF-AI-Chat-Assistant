@@ -52,7 +52,9 @@ from pipeline.config import Settings
 _SELECT = """
     SELECT code, name_ar, name_en, description_ar, description_en, status,
            start_date, planned_end_date, budget_sar,
-           sponsoring_department_ar, sponsoring_department_en, created_at
+           sponsoring_department_ar, sponsoring_department_en, created_at,
+           owner_ar, owner_en, manager_ar, manager_en, completion_percent,
+           phase_ar, phase_en, stage_ar, stage_en
     FROM projects
     WHERE code = %s
 """
@@ -73,6 +75,18 @@ class ProjectRecord:
     sponsor_ar: str | None
     sponsor_en: str | None
     recorded_at: dt.datetime | None
+    # The five fields migration 016 added, so the overview request (QA1.1)
+    # can be answered from the system of record rather than assembled out of
+    # whatever the documents happen to mention.
+    owner_ar: str | None = None
+    owner_en: str | None = None
+    manager_ar: str | None = None
+    manager_en: str | None = None
+    completion_percent: int | None = None
+    phase_ar: str | None = None
+    phase_en: str | None = None
+    stage_ar: str | None = None
+    stage_en: str | None = None
 
     @property
     def as_of(self) -> str:
@@ -99,13 +113,43 @@ class ProjectRecord:
             rows.append(("Planned end date", f"{self.planned_end_date:%Y-%m-%d}"))
         if self.budget_sar is not None:
             rows.append(("Approved budget (SAR)", f"{self.budget_sar:,.0f}"))
-        if self.sponsor_en:
-            rows.append(("Sponsoring department", self.sponsor_en))
-        if self.sponsor_ar:
-            rows.append(("Sponsoring department (Arabic)", self.sponsor_ar))
-        if self.description_en:
-            rows.append(("Description", self.description_en))
+        if self.completion_percent is not None:
+            rows.append(("Completion", f"{self.completion_percent}%"))
+        for label, value in (
+            ("Project owner", self.owner_en), ("Project owner (Arabic)", self.owner_ar),
+            ("Project manager", self.manager_en),
+            ("Project manager (Arabic)", self.manager_ar),
+            ("Phase", self.phase_en), ("Phase (Arabic)", self.phase_ar),
+            ("Stage", self.stage_en), ("Stage (Arabic)", self.stage_ar),
+            ("Sponsoring department", self.sponsor_en),
+            ("Sponsoring department (Arabic)", self.sponsor_ar),
+            ("Description", self.description_en),
+        ):
+            if value:
+                rows.append((label, value))
         return "\n".join(f"{label}: {value}" for label, value in rows)
+
+    def missing_overview_fields(self) -> list[str]:
+        """Which of the ten overview fields this record cannot supply.
+
+        Returned so the model can say *which* are unrecorded rather than
+        quietly producing a nine-field answer to a ten-field question. An
+        absence stated is information; an absence omitted looks like an
+        oversight.
+        """
+        present = {
+            "name": bool(self.name_ar or self.name_en),
+            "status": bool(self.status),
+            "owner": bool(self.owner_ar or self.owner_en),
+            "manager": bool(self.manager_ar or self.manager_en),
+            "completion": self.completion_percent is not None,
+            "budget": self.budget_sar is not None,
+            "start date": self.start_date is not None,
+            "end date": self.planned_end_date is not None,
+            "phase": bool(self.phase_ar or self.phase_en),
+            "stage": bool(self.stage_ar or self.stage_en),
+        }
+        return [field for field, ok in present.items() if not ok]
 
 
 def fetch(session: Session, *, settings: Settings | None = None,
@@ -132,11 +176,18 @@ def fetch(session: Session, *, settings: Settings | None = None,
     if row is None:
         return None
     (code, name_ar, name_en, desc_ar, desc_en, status, start, end,
-     budget, sponsor_ar, sponsor_en, created) = row
+     budget, sponsor_ar, sponsor_en, created,
+     owner_ar, owner_en, manager_ar, manager_en, completion,
+     phase_ar, phase_en, stage_ar, stage_en) = row
     return ProjectRecord(
         code=code, name_ar=name_ar, name_en=name_en,
         description_ar=desc_ar, description_en=desc_en, status=status,
         start_date=start, planned_end_date=end,
         budget_sar=float(budget) if budget is not None else None,
         sponsor_ar=sponsor_ar, sponsor_en=sponsor_en, recorded_at=created,
+        owner_ar=owner_ar, owner_en=owner_en,
+        manager_ar=manager_ar, manager_en=manager_en,
+        completion_percent=completion,
+        phase_ar=phase_ar, phase_en=phase_en,
+        stage_ar=stage_ar, stage_en=stage_en,
     )
