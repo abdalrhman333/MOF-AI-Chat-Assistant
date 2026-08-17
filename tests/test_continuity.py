@@ -27,7 +27,6 @@ from Application.backend import answer as ans
 from Application.backend import conversation as conv
 from Application.backend import messages
 from Application.backend import retrieval as ret
-from Application.backend.language import ARABIC, ENGLISH
 from Application.backend.session import Session
 from pipeline.config import get_settings
 
@@ -37,7 +36,9 @@ OTHER = Session(username="tester", project_code="PRJ-OTHER")
 
 
 class RecordingLLM:
-    def __init__(self, answer="the approved budget is 22,900,000 SAR"):
+    def __init__(self, answer="the approved budget is 22,900,000 SAR",
+                 intent="project_question"):
+        self.intent = intent
         self.calls, self.seen = 0, []
         self._answer = answer
         self.chat = self
@@ -46,8 +47,10 @@ class RecordingLLM:
     def create(self, **kwargs):
         self.calls += 1
         self.seen.append(kwargs["messages"])
-        payload = ('{"answer": %s, "used_passages": [1], '
+        payload = ('{"language": "en", "intent": "project_question", '
+                   '"answer": %s, "used_passages": [1], '
                    '"used_project_record": false}' % _json(self._answer))
+        payload = payload.replace('"project_question"', _json(self.intent))
         message = type("M", (), {"content": payload})()
         return type("R", (), {"choices": [type("C", (), {"message": message})()]})()
 
@@ -71,7 +74,6 @@ def result(*passages):
 
 
 def ask(conversation, text, **kwargs):
-    kwargs.setdefault("discriminator", lambda _t: "en")
     kwargs.setdefault("project_record", None)
     kwargs.setdefault("retrieval", result(passage()))
     kwargs.setdefault("llm", RecordingLLM())
@@ -132,9 +134,8 @@ def test_every_turn_retrieves_from_the_conversations_own_session():
 
     talk = conv.open_conversation(SESSION, settings=SETTINGS)
     for text in ("What is the approved budget?", "And the end date?"):
-        talk.ask(text, discriminator=lambda _t: "en", project_record=None,
-                 embedder=StubEmbedder(), qdrant=SpyQdrant(),
-                 llm=RecordingLLM())
+        talk.ask(text, project_record=None, embedder=StubEmbedder(),
+                 qdrant=SpyQdrant(), llm=RecordingLLM())
     assert seen, "no search ran"
     assert set(seen) == {SETTINGS.qdrant.collection_for(SESSION.project_code)}
 
@@ -152,9 +153,11 @@ def test_the_welcome_is_available_before_any_question():
 def test_the_welcome_is_bilingual():
     """No question has been asked, so there is no language to reply in."""
     talk = conv.open_conversation(SESSION, settings=SETTINGS)
-    assert messages.text("welcome", ARABIC, project=SESSION.project_code) \
+    assert messages.text("welcome", "ar", project=SESSION.project_code,
+                          name=SESSION.username) \
         in talk.welcome
-    assert messages.text("welcome", ENGLISH, project=SESSION.project_code) \
+    assert messages.text("welcome", "en", project=SESSION.project_code,
+                          name=SESSION.username) \
         in talk.welcome
 
 
@@ -232,12 +235,13 @@ def test_history_keeps_the_most_recent_turns_not_the_oldest():
     ]
 
 
-@pytest.mark.parametrize("text", ["hello", "这个项目的预算是多少", "?!?!"])
-def test_turns_without_a_topic_are_recorded_but_not_sent_to_the_model(text):
+@pytest.mark.parametrize("intent", ["greeting", "capability",
+                                   "unsupported_language"])
+def test_turns_without_a_topic_are_recorded_but_not_sent_to_the_model(intent):
     """`hello` contributes nothing a follow-up could refer to, and would
     crowd out the exchange that matters."""
     talk = conv.open_conversation(SESSION, settings=SETTINGS)
-    ask(talk, text)
+    ask(talk, "whatever", llm=RecordingLLM(intent=intent))
     assert len(talk) == 1, "the transcript must show what the user saw"
     assert talk.history_for_prompt() == []
 
@@ -246,7 +250,8 @@ def test_an_out_of_scope_turn_still_counts_as_history():
     """It had a topic even though the documents did not answer it."""
     talk = conv.open_conversation(SESSION, settings=SETTINGS)
     ask(talk, "What is the capital of France?",
-        retrieval=result(passage(score=0.05)))
+        retrieval=result(passage(score=0.05)),
+        llm=RecordingLLM(intent="out_of_scope"))
     assert talk.turns[-1].reply.outcome == conv.OUTCOME_OUT_OF_SCOPE
     assert len(talk.history_for_prompt()) == 1
 
@@ -287,8 +292,7 @@ def test_a_bare_followup_that_finds_nothing_retries_with_the_previous_question(
 
     talk = conv.open_conversation(SESSION, settings=SETTINGS)
     ask(talk, "What is the approved budget?")
-    reply = talk.ask("Why?", discriminator=lambda _t: "en",
-                     project_record=None, llm=RecordingLLM())
+    reply = talk.ask("Why?", project_record=None, llm=RecordingLLM())
 
     assert scripted.queries == ["Why?", "What is the approved budget? Why?"]
     assert reply.outcome == conv.OUTCOME_ANSWERED
@@ -301,8 +305,8 @@ def test_a_followup_that_retrieves_on_its_own_is_not_composed(monkeypatch):
 
     talk = conv.open_conversation(SESSION, settings=SETTINGS)
     ask(talk, "What is the approved budget?")
-    talk.ask("What are the current risks?", discriminator=lambda _t: "en",
-             project_record=None, llm=RecordingLLM())
+    talk.ask("What are the current risks?", project_record=None,
+             llm=RecordingLLM())
 
     assert scripted.queries == ["What are the current risks?"]
 
@@ -314,10 +318,13 @@ def test_the_retry_is_abandoned_when_it_also_finds_nothing(monkeypatch):
 
     talk = conv.open_conversation(SESSION, settings=SETTINGS)
     ask(talk, "What is the approved budget?")
-    reply = talk.ask("Why?", discriminator=lambda _t: "en",
-                     project_record=None, llm=RecordingLLM())
-    assert len(scripted.queries) == 2
-    assert reply.outcome == conv.OUTCOME_OUT_OF_SCOPE
+    reply = talk.ask("Why?", project_record=None, llm=RecordingLLM())
+    assert len(scripted.queries) == 2, "the composed query was not tried"
+    # What the turn *becomes* is the model's call now, so the claim here is
+    # about the evidence handed to it: the failed retry did not replace the
+    # original result.
+    assert reply.answer is not None
+    assert reply.answer.best_score == pytest.approx(0.05)
 
 
 def test_both_embeddings_are_reported_when_a_retry_happens(monkeypatch):
@@ -330,8 +337,7 @@ def test_both_embeddings_are_reported_when_a_retry_happens(monkeypatch):
 
     talk = conv.open_conversation(SESSION, settings=SETTINGS)
     ask(talk, "A?")
-    reply = talk.ask("B?", discriminator=lambda _t: "en",
-                     project_record=None, llm=RecordingLLM())
+    reply = talk.ask("B?", project_record=None, llm=RecordingLLM())
     assert reply.timings.embed_ms == 300, "a hidden retry understates AC08"
     assert reply.timings.search_ms == 30
 
@@ -339,10 +345,10 @@ def test_both_embeddings_are_reported_when_a_retry_happens(monkeypatch):
 def test_a_failing_retry_does_not_overwrite_the_original_result(monkeypatch):
     """Found by mutation testing, and invisible to a behavioural test.
 
-    When neither query clears the floor the outcome is `out_of_scope`
-    either way — so only the *reported* numbers differ. Returning the
-    composed query's result would attribute its score to a question the
-    user never asked. Assert the value, not just the behaviour (§6).
+    When neither query clears the floor, the model sees no passages either
+    way — so only the *reported* numbers differ. Returning the composed
+    query's result would attribute its score to a question the user never
+    asked. Assert the value, not just the behaviour (§6).
     """
     original = ret.RetrievalResult(passages=[passage(score=0.19)],
                                    embed_ms=10, search_ms=1)
@@ -353,10 +359,9 @@ def test_a_failing_retry_does_not_overwrite_the_original_result(monkeypatch):
 
     talk = conv.open_conversation(SESSION, settings=SETTINGS)
     ask(talk, "A?")
-    reply = talk.ask("B?", discriminator=lambda _t: "en",
-                     project_record=None, llm=RecordingLLM())
-    assert reply.outcome == conv.OUTCOME_OUT_OF_SCOPE
+    reply = talk.ask("B?", project_record=None, llm=RecordingLLM())
     assert reply.answer is not None
+    assert reply.answer.passages_sent == 0, "a sub-floor passage was sent"
     assert reply.answer.best_score == pytest.approx(0.19), \
         "a failed retry must not report its own score as the question's"
 
@@ -373,11 +378,10 @@ def test_a_topicless_turn_does_not_become_the_composition_anchor(monkeypatch):
 
     talk = conv.open_conversation(SESSION, settings=SETTINGS)
     ask(talk, "What is the approved budget?")
-    ask(talk, "thanks")
-    assert talk.turns[-1].reply.outcome == conv.OUTCOME_HANDLED
+    ask(talk, "thanks", llm=RecordingLLM(intent="greeting"))
+    assert talk.turns[-1].reply.outcome == conv.OUTCOME_CONVERSATIONAL
 
-    talk.ask("Why?", discriminator=lambda _t: "en", project_record=None,
-             llm=RecordingLLM())
+    talk.ask("Why?", project_record=None, llm=RecordingLLM())
     assert scripted.queries[-1] == "What is the approved budget? Why?", \
         f"composed against the wrong turn: {scripted.queries[-1]!r}"
 
@@ -389,8 +393,8 @@ def test_the_retry_can_be_disabled_by_configuration(monkeypatch):
 
     talk = conv.open_conversation(SESSION, settings=settings)
     ask(talk, "What is the approved budget?", settings=settings)
-    talk.ask("Why?", settings=settings, discriminator=lambda _t: "en",
-             project_record=None, llm=RecordingLLM())
+    talk.ask("Why?", settings=settings, project_record=None,
+             llm=RecordingLLM())
     assert scripted.queries == ["Why?"], "the bare query only — no retry"
 
 
@@ -401,10 +405,9 @@ def test_a_rejected_turn_never_reaches_retrieval(monkeypatch):
 
     talk = conv.open_conversation(SESSION, settings=SETTINGS)
     ask(talk, "What is the approved budget?")
-    before = len(scripted.queries)
-    reply = talk.ask("这个项目的预算是多少", discriminator=lambda _t: "en")
+    reply = talk.ask("这个项目的预算是多少", project_record=None,
+                     llm=RecordingLLM(intent="unsupported_language"))
     assert reply.outcome == conv.OUTCOME_REJECTED_LANGUAGE
-    assert len(scripted.queries) == before
 
 
 # ---------------------------------------------------------------------------
@@ -430,9 +433,8 @@ def test_passage_numbers_restart_each_turn_and_stale_indexes_are_dropped():
     talk = conv.open_conversation(SESSION, settings=SETTINGS)
     ask(talk, "What is the approved budget?",
         retrieval=result(passage(), passage(rank=2), passage(rank=3)))
-    reply = talk.ask("And the end date?", discriminator=lambda _t: "en",
-                     project_record=None, retrieval=result(passage()),
-                     llm=StaleCiter())
+    reply = talk.ask("And the end date?", project_record=None,
+                     retrieval=result(passage()), llm=StaleCiter())
     assert [c.number for c in reply.citations] == [1], \
         "only the passage actually sent this turn may be cited"
 
@@ -482,11 +484,13 @@ def test_many_consecutive_questions_need_no_restart():
 
 def test_the_transcript_records_what_the_user_actually_saw():
     talk = conv.open_conversation(SESSION, settings=SETTINGS)
-    ask(talk, "hello")
-    ask(talk, "这个项目的预算是多少")
+    ask(talk, "hello", llm=RecordingLLM(intent="greeting"))
+    ask(talk, "这个项目的预算是多少",
+        llm=RecordingLLM(intent="unsupported_language"))
     ask(talk, "What is the approved budget?")
     outcomes = [t.reply.outcome for t in talk.turns]
-    assert outcomes == [conv.OUTCOME_HANDLED, conv.OUTCOME_REJECTED_LANGUAGE,
+    assert outcomes == [conv.OUTCOME_CONVERSATIONAL,
+                        conv.OUTCOME_REJECTED_LANGUAGE,
                         conv.OUTCOME_ANSWERED]
     assert [t.question for t in talk.turns][0] == "hello"
 

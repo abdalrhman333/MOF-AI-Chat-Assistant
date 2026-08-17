@@ -247,7 +247,10 @@ def test_opening_a_conversation_returns_the_bilingual_welcome(client):
                        json={"project_code": "PRJ-06"}).json()
     assert body["project_code"] == "PRJ-06"
     assert "PRJ-06" in body["welcome"]
-    assert "إنجاز" in body["welcome"] and "Enjaz" in body["welcome"]
+    # Bilingual, because no message has been sent yet and so there is no
+    # language to reply in.
+    assert "المساعد الذكي" in body["welcome"]
+    assert "Smart Assistant" in body["welcome"]
 
 
 def test_the_transcript_accumulates_across_turns(client):

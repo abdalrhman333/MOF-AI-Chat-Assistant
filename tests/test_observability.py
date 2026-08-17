@@ -214,7 +214,8 @@ def test_a_turn_is_still_answered_when_the_tracer_explodes(monkeypatch):
             self.completions = self
 
         def create(self, **_kwargs):
-            payload = ('{"answer": "22,900,000", "used_passages": [1], '
+            payload = ('{"language": "ar", "intent": "project_question", '
+                       '"answer": "22,900,000", "used_passages": [1], '
                        '"used_project_record": false}')
             message = type("M", (), {"content": payload})()
             return type("R", (), {
@@ -224,8 +225,7 @@ def test_a_turn_is_still_answered_when_the_tracer_explodes(monkeypatch):
                           doc_type="Project Charter", page=1, section="",
                           text="budget 22,900,000")
     reply = conv.handle_question(
-        SESSION, "ما الميزانية؟", settings=traced(),
-        discriminator=lambda _t: ("ar", 1.0), project_record=None,
+        SESSION, "ما الميزانية؟", settings=traced(), project_record=None,
         retrieval=ret.RetrievalResult(passages=[passage]), llm=StubLLM())
     assert reply.outcome == conv.OUTCOME_ANSWERED
     assert "22,900,000" in reply.text
@@ -316,7 +316,8 @@ def _answer_once(settings, spans_sink):
             self.completions = self
 
         def create(self, **_kwargs):
-            payload = ('{"answer": "22,900,000", "used_passages": [1], '
+            payload = ('{"language": "ar", "intent": "project_question", '
+                       '"answer": "22,900,000", "used_passages": [1], '
                        '"used_project_record": false}')
             message = type("M", (), {"content": payload})()
             return type("R", (), {

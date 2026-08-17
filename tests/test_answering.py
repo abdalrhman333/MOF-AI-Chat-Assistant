@@ -92,7 +92,8 @@ class StubLLM:
             raise ConnectionError("llm down")
         self.calls.append({"messages": messages, **kwargs})
         body = self._raw if self._raw is not None else json.dumps(
-            self._payload or {"answer": "An answer.", "used_passages": [1]}
+            self._payload or {"answer": "An answer.", "used_passages": [1],
+                              "language": "en", "intent": "project_question"}
         )
         msg = type("M", (), {"content": body})()
         return type("R", (), {"choices": [type("Ch", (), {"message": msg})()]})()
@@ -209,17 +210,30 @@ def test_the_question_is_embedded_with_the_corpus_model():
 # Grounding — no evidence, no call
 # ---------------------------------------------------------------------------
 
-def test_nothing_above_the_floor_means_the_model_is_never_called():
+def test_nothing_above_the_floor_sends_no_passages_but_still_asks():
+    """The floor decides what is SENT, not whether to call at all.
+
+    It used to short-circuit the call entirely. That cannot survive a design
+    where the model also detects the language and answers a greeting —
+    "مرحبا" retrieves nothing and must still get a reply. What the floor
+    still guarantees is that noise never reaches the prompt.
+    """
     weak = points((0.05, "X.docx", "Charter", 1, "", "unrelated"))
-    answer = run(qdrant=StubQdrant(weak), llm=ExplodingLLM())
-    assert answer.text == ans.NOT_FOUND
+    llm = StubLLM({"answer": "Not in the documents.", "used_passages": [],
+                   "language": "en", "intent": "out_of_scope"})
+    answer = run(qdrant=StubQdrant(weak), llm=llm)
+    assert answer.passages_sent == 0, "a passage below the floor was sent"
+    assert answer.passages_retrieved == 1
+    assert llm.calls, "the model must still see the message"
     assert answer.found is False
-    assert answer.citations == [] and answer.passages_sent == 0
 
 
-def test_an_empty_collection_means_the_model_is_never_called():
-    answer = run(qdrant=StubQdrant([]), llm=ExplodingLLM())
-    assert answer.found is False and answer.passages_retrieved == 0
+def test_an_empty_collection_still_produces_a_reply():
+    llm = StubLLM({"answer": "Nothing indexed yet.", "used_passages": [],
+                   "language": "en", "intent": "out_of_scope"})
+    answer = run(qdrant=StubQdrant([]), llm=llm)
+    assert answer.passages_retrieved == 0
+    assert answer.found is False and answer.citations == []
 
 
 def test_a_blank_question_is_refused_without_any_call():
@@ -229,10 +243,26 @@ def test_a_blank_question_is_refused_without_any_call():
     assert answer.found is False
 
 
-def test_the_model_saying_not_found_is_reported_as_not_found():
-    llm = StubLLM({"answer": ans.NOT_FOUND, "used_passages": []})
+def test_a_refusal_is_recognised_from_the_intent_not_from_a_marker_string():
+    """`found` used to mean "the text is not the sentinel". It cannot now:
+    the model writes greetings and apologies too, and a text match would
+    have to guess which was which."""
+    llm = StubLLM({"answer": "That is not in this project's documents.",
+                   "used_passages": [], "language": "en",
+                   "intent": "out_of_scope"})
     answer = run(llm=llm)
     assert answer.found is False and answer.citations == []
+    assert answer.intent == "out_of_scope"
+
+
+def test_a_refusal_carrying_citations_has_them_dropped():
+    """An answer that says the sources did not cover it, and then names
+    sources, is a contradiction. Do not render one."""
+    llm = StubLLM({"answer": "Not covered.", "used_passages": [1, 2],
+                   "used_project_record": True, "language": "en",
+                   "intent": "out_of_scope"})
+    answer = run(llm=llm, project_record=RECORD)
+    assert answer.citations == []
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +313,9 @@ def test_the_model_is_asked_for_a_strict_json_schema():
     assert fmt["type"] == "json_schema"
     assert fmt["json_schema"]["strict"] is True
     assert set(fmt["json_schema"]["schema"]["required"]) == {
-        "answer", "used_passages", "used_project_record"}
+        "answer", "used_passages", "used_project_record",
+        "language", "intent"}, \
+        "every field must be required, or the model can omit its own verdict"
 
 
 def test_the_schema_makes_a_fabricated_source_structurally_impossible():
@@ -299,7 +331,8 @@ def test_the_schema_makes_a_fabricated_source_structurally_impossible():
     """
     schema = ans.RESPONSE_SCHEMA["json_schema"]["schema"]
     assert set(schema["properties"]) == {
-        "answer", "used_passages", "used_project_record"}, \
+        "answer", "used_passages", "used_project_record",
+        "language", "intent"}, \
         "a new field could carry model-invented source metadata"
     assert schema["properties"]["used_passages"]["items"]["type"] == "integer"
     assert schema["properties"]["used_project_record"]["type"] == "boolean"
@@ -361,10 +394,12 @@ def test_the_question_is_a_user_message_not_part_of_the_rules():
     assert messages[1]["content"] == "ما هي أعلى المخاطر؟"
 
 
-def test_the_model_is_instructed_to_reply_in_the_question_s_language():
+def test_the_model_is_told_to_detect_and_match_the_language():
     llm = StubLLM()
     run(llm=llm)
-    assert "SAME language" in llm.calls[0]["messages"][0]["content"]
+    system = llm.calls[0]["messages"][0]["content"]
+    assert "DETECT THE LANGUAGE" in system
+    assert "ALWAYS reply in the language you put in" in system
 
 
 def test_the_call_is_deterministic_and_bounded():
@@ -496,9 +531,12 @@ def test_the_record_alone_is_enough_evidence_to_answer():
     assert len(llm.calls) == 1
 
 
-def test_no_passages_and_no_record_means_no_call_at_all():
+def test_no_passages_and_no_record_still_reaches_the_model():
     weak = points((0.05, "X.docx", "Charter", 1, "", "unrelated"))
-    answer = run(qdrant=StubQdrant(weak), llm=ExplodingLLM(), project_record=None)
+    llm = StubLLM({"answer": "Nothing to go on.", "used_passages": [],
+                   "language": "en", "intent": "out_of_scope"})
+    answer = run(qdrant=StubQdrant(weak), llm=llm, project_record=None)
+    assert llm.calls, "the model decides the intent, so it must be asked"
     assert answer.found is False
 
 
@@ -562,7 +600,9 @@ class StubConn:
 
 ROW = ("PRJ-TEST", "مشروع", "Test Project", None, "A project.", "at-risk",
        dt.date(2025, 1, 15), dt.date(2026, 9, 30), 22900000,
-       None, "General Budget Agency", dt.datetime(2026, 8, 1, tzinfo=dt.timezone.utc))
+       None, "General Budget Agency", dt.datetime(2026, 8, 1, tzinfo=dt.timezone.utc),
+       None, None, "م. سلطان", "Eng. Sultan", 74,
+       "التنفيذ", "Execution", "اختبار القبول", "UAT")
 
 
 def test_the_record_read_filters_by_the_session_s_project_explicitly():
