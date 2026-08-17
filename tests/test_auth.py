@@ -98,6 +98,24 @@ def test_the_hash_never_contains_the_password():
     assert PASSWORD not in make_hash(PASSWORD)
 
 
+def test_both_secret_comparisons_are_constant_time():
+    """Structural, because nothing behavioural can see this.
+
+    `==` and `compare_digest` return the same answer for every input — the
+    only difference is how long `==` takes to say no, which leaks how much
+    of the secret was right. Two mutations swapping them survived every
+    functional test, so the guarantee is pinned at the source level, the
+    same way the response schema's shape is pinned rather than only its
+    runtime effect.
+    """
+    import inspect
+
+    for function in (credentials.verify_password, cookies.unsign):
+        source = inspect.getsource(function)
+        assert "compare_digest" in source, \
+            f"{function.__qualname__} must not compare secrets with =="
+
+
 # ---------------------------------------------------------------------------
 # 2. Authentication refuses identically
 # ---------------------------------------------------------------------------
