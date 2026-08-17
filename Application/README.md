@@ -14,21 +14,21 @@ Application/
     session.py      the AC09 session gate — the security boundary
     retrieval.py    vector search, scoped by Session, never by project code
     spm.py          the live project record — the second grounding source
-    answer.py       prompt, LLM call, citation resolution (AC06)
-    language.py     AC01 — verify the input language
-    intent.py       AC02 — special handling vs general retrieval
-    messages.py     every string a user reads that the model did not write
-    conversation.py THE ENTRY POINT — Conversation (AC03/AC04), the router
-                    (AC01/AC02), then delegation to answer.py
+    answer.py       THE SYSTEM PROMPT — the whole router — plus the LLM
+                    call and citation resolution (AC01, AC02, AC05-AC07)
+    messages.py     the only two strings the model does not write
+    conversation.py THE ENTRY POINT — Conversation (AC03/AC04), history,
+                    the follow-up retry, then delegation to answer.py
     clients.py      the embedding / vector / LLM clients, cached per
                     Settings. An AC08 fix: rebuilding them cost ~2.3s a
                     question. Call warmup() once at startup
-    intent_phrases.json   tier-1 phrases, as data
     api/
-      identity.py   WHERE THE USERNAME COMES FROM — the AC09 boundary
-      store.py      server-side conversations; an id is not a credential
-      schemas.py    request/response shapes — no field holds a username
-      app.py        the routes, deliberately thin
+      identity.py    WHERE THE USERNAME COMES FROM — the AC09 boundary
+      credentials.py demo sign-in: PBKDF2, uniform refusals
+      cookies.py     the SIGNED session cookie
+      store.py       server-side conversations; an id is not a credential
+      schemas.py     request/response shapes — no field holds a username
+      app.py         the routes, deliberately thin
   frontend/
     index.html      the whole UI: chat, switcher, KB page, RTL
 ```
@@ -37,9 +37,9 @@ Application/
 
 **All of it, except SSO/OTP.** A project manager can open the page, pick an
 assigned project, and hold a bilingual multi-turn conversation whose
-answers are grounded and cited — with unsupported languages refused,
-greetings answered without touching the model, and a knowledge-base page
-showing what is indexed.
+answers are grounded and cited — with unsupported languages refused, and a
+knowledge-base page showing what is indexed. Sign-in is simulated: email and
+password against seeded accounts, then a signed session cookie.
 
 ```bash
 .venv/Scripts/python -m Application.backend.api    # http://127.0.0.1:8000
@@ -82,10 +82,10 @@ observability.shutdown()    # on exit — spans are batched and lost otherwise
 ```
 
 ⚠️ **These are entry points, not chokepoints.** `answer_question` remains
-importable and skips the language check, the intent router and history.
-That is deliberate — it is the grounded-answering engine, and duplicating
-AC01 inside it would put one rule in two places — but it means **anything
-user-facing must enter through `conversation.py`**. The rule that must
+importable and skips the conversation around it — history, the follow-up
+retry, the transcript. It does *not* skip the language or intent decision,
+because since 2026-08-17 those live in its own system prompt. Anything
+user-facing must still enter through `conversation.py`. The rule that must
 never be bypassable is project scope, and that one *is* structural:
 `retrieval.search` takes a `Session` and derives the collection from it, so
 it cannot be called with a project the gate did not grant.
@@ -127,11 +127,16 @@ Two rules it holds, both mutation-tested:
   owner-checked; the gate validated the *owner's* assignment, so a leaked
   id would otherwise bypass AC09 completely.
 
-`dev_fixed` (the default) takes the identity from configuration —
-unspoofable, and honestly not authentication. `trusted_header` is
-production-*shaped*, not production-*safe*: correct only behind a proxy
-that authenticates the user and overwrites the header on every inbound
-request. **Real AD SSO + OTP replaces `identity.py` and nothing else.**
+`session_login` (the default) verifies an email and password against the
+seeded accounts and mints an **HMAC-signed** cookie — an unsigned one would
+be a username the browser can edit. `dev_fixed` takes the identity from
+configuration, for development and tests. `trusted_header` is
+production-*shaped*, not production-*safe*: correct only behind a proxy that
+overwrites the header on every inbound request.
+
+**Real AD SSO + OTP replaces `credentials.py` and one branch of
+`identity.py`, and nothing above them changes.** That seam is the whole
+reason the AC09 gate never had to know how identity was established.
 
 `open_session()` **trusts the username it is given.** Real Active Directory
 SSO and OTP are external dependencies that do not exist in this

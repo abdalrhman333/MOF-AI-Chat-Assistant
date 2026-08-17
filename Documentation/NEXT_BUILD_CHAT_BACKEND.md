@@ -23,15 +23,15 @@ Straight from the BRD (`..\My_Prompts\SOLUTION_SCOPE.md`), not paraphrased:
 
 | AC | Requirement | Who satisfies it |
 |---|---|---|
-| **AC01** | Verify input language; reject unsupported ones with a clear apology | ✅ **done** — `language.py`, §17a |
-| **AC02** | Distinguish "special handling" queries from general SPM-knowledge retrieval | ✅ **done** — `intent.py`, §17b |
+| **AC01** | Verify input language; reject unsupported ones with a clear apology | ✅ **done** — the model, §21 |
+| **AC02** | Distinguish "special handling" queries from general SPM-knowledge retrieval | ✅ **done** — the model, §21 |
 | **AC03** | Session continuity — multiple questions, no restart | ✅ **done** — `Conversation`, §18 |
 | **AC04** | Bilingual welcome message immediately on session start | ✅ **done** — §18a |
 | **AC05** | Reply in the same language as the question | ✅ **done** — told, not inferred, §17c |
 | **AC06** | Answers grounded **only** in indexed documents, with the source cited | ✅ **done** — §15, §16 |
 | **AC07** | Clear, safe fallback for out-of-scope queries | ✅ **done** — §17c |
 | **AC08** | Response time ≤ 5 seconds under normal conditions | ✅ **measured** — p50 1845 / p95 2782 ms, §19 |
-| **AC08** *(dup)* | Authorized user signs in via SSO/OTP | **deferred** — external dependency |
+| **AC08** *(dup)* | Authorized user signs in via SSO/OTP | ⚠️ **simulated** — email + password + signed cookie, §21c. Real SSO/OTP still deferred |
 | **AC09** | No user can view documents of a project not assigned to them | ✅ **done** — four layers, §2, §14, §20a–b |
 | **AC10** | Knowledge-base page shows document type + indexing status | ✅ **done** — §20 |
 | **AC11** | Documents linked to projects | ✅ **done** — `document_links` |
@@ -444,10 +444,9 @@ These cost real time to learn. All are recorded in full in
 
 ```bash
 docker compose ps                                            # 13 containers
-python infra/postgres-spm/apply_migrations.py --status        # 14 applied, 0 drifted
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 569 passed
+python infra/postgres-spm/apply_migrations.py --status        # 16 applied, 0 drifted
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 532 passed
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status     # exit 0, HEALTHY
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.conversation_probe  # 54/54
 ```
 
 Expect: 58 documents, 678 chunks, 9 Qdrant collections, 0 failures, and the

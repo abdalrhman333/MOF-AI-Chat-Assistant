@@ -62,21 +62,17 @@ tiktoken==0.13.0                        # token counting. Swap for a HF
                                         # on-prem embedding model —
                                         # SOLUTION_ARCHITECTURE.md 4.6
 
-# ---- Language identification (AC01) -----------------------------------
-py3langid==0.3.0                        # Latin-script language ID only.
-                                        # Script detection (Arabic vs Han vs
-                                        # Cyrillic) is done by counting
-                                        # codepoints and needs nothing; this
-                                        # exists solely because Latin script
-                                        # cannot separate English from French
-                                        # or Spanish. Offline, deterministic,
-                                        # ~2MB embedded model, ~70ms on first
-                                        # call and negligible after. Chosen
-                                        # over lingua-py, which is far larger
-                                        # for accuracy this branch does not
-                                        # need. It is injectable at the one
-                                        # call site in Application/backend/
-                                        # language.py, so a swap stays there.
+# ---- HTTP layer (Application/backend/api) -----------------------------
+fastapi==0.121.2
+uvicorn[standard]==0.40.0               # run SINGLE-process: conversations
+                                        # are held in memory, so a second
+                                        # worker would not see the first's.
+
+# py3langid was here until 2026-08-17, for AC01's Latin-script language
+# check. The requirement changed to "every input goes to the LLM, nothing
+# hard-coded", so the deterministic detector and its dependency both went.
+# See STATUS_AND_ROADMAP.md 21 before adding anything back that decides a
+# message's meaning outside the system prompt.
 
 # ---- Tracing (observability/tracing.py) -------------------------------
 # ONE instrumentation, TWO backends. Langfuse v3 exposes an OTLP endpoint

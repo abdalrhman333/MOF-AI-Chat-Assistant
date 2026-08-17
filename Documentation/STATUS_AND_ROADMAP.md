@@ -770,6 +770,165 @@ time.
 
 ---
 
+## 21. The LLM becomes the router, and sign-in arrives (2026-08-17)
+
+A requirements change, not a refinement: **every input goes to the model,
+which decides the language and the intent, and nothing is hard-coded.**
+That reverses §17's design, so the reversal is recorded rather than
+quietly applied.
+
+### 21a. What was traded, explicitly
+
+| | Before (§17) | Now |
+|---|---|---|
+| Language | script counting + confidence gate — **0 ms, free** | the model |
+| Intent | whole-utterance phrase table — **0 ms, free** | the model |
+| `مرحبا` | 0 embeddings, 0 completions | 1 embedding, 1 completion, ~2 s |
+| Where the rules live | Python | one system prompt |
+
+The cost is real and was stated before the work started: a greeting now
+costs a model call, and language rejection stops being structural. What is
+bought is that **exactly one thing decides how a message is treated, and it
+is legible to someone who does not read Python** — which is what the
+requirement asked for.
+
+**One call, not two.** Retrieval runs *first*, for every message, so the
+model receives the passages at the same moment it is asked what the message
+is. Classifying first and answering second would have been two round trips
+and roughly doubled the latency against AC08. The cost of retrieving on a
+greeting is one embedding (~330 ms, a fraction of a cent) against the
+second completion it saves on every real question. Measured live: **1.5–2.9
+s** per turn.
+
+**Deleted:** `intent.py`, `intent_phrases.json`, `language.py` and their
+tests. `messages.py` keeps two strings — the pre-input welcome, which has no
+message to detect a language from, and the outage message, for when the
+model is precisely what cannot be called.
+
+**AC06 survived untouched**, because it never depended on routing: the
+response schema still has no field for a filename, citations are still
+rebuilt from retrieved payloads, and the relevance floor still decides what
+is *sent*. What it no longer does is decide whether to call at all — it
+cannot, now that a greeting must also be answered.
+
+⚠️ **`found` is no longer a marker string.** `NOT_IN_DOCUMENTS` could not
+survive a design where the model also writes greetings and apologies: those
+are legitimate replies with no citations, and a text match would have to
+guess which was which. It is now derived from the returned intent.
+
+⚠️ **A refusal that arrives carrying citations has them dropped.** Saying
+the sources did not cover it and then naming sources is a contradiction.
+
+### 21b. Migrations 015 and 016
+
+**015 — demo credentials.** PBKDF2-HMAC-SHA256, 240,000 iterations,
+per-user salt, self-describing so the verifier assumes no parameters. The
+demo password is shared across the four mock users and recorded in
+`INFRASTRUCTURE.md`, deliberately: these are fictional users in a mock
+dataset on one machine, and a demo nobody can sign in to is not a demo.
+
+**016 — the five Project Overview fields** QA1.1 asks for that SPM did not
+carry: owner, manager, completion %, phase, stage.
+
+⚠️ **Seeded to agree with the corpus, not invented alongside it.** Manager
+and owner were read out of each project's charter *first*, then verified
+back against the whole corpus — every seeded name is corroborated. That
+matters because the assistant is instructed to surface disagreement between
+SPM and a document (§3.3): a name typed carelessly here would make it
+report a conflict that only this file created.
+
+`TEST-PROJECT` is left NULL throughout. It is thirteen unrelated real
+documents filed as one "project" (§13b), not a project with a manager and a
+completion percentage — giving it any would make the overview confidently
+wrong. PRJ-03, PRJ-07 and PRJ-08 keep NULL managers for the same reason:
+their charters do not name one, and *"not recorded"* is a true answer where
+a plausible one is not. Verified live — the overview reports
+`المالك: غير مسجل` rather than omitting the line.
+
+### 21c. Sign-in, simulated honestly
+
+`api/credentials.py` verifies an email and password; `api/cookies.py` mints
+an HMAC-SHA256-signed session cookie; `identity.py` gains a
+`session_login` mode and now defaults to it.
+
+Four properties, each mutation-tested, because getting them wrong teaches
+the wrong shape to whoever replaces this with real AD SSO:
+
+- **No plaintext anywhere**, and the iteration count and salt are read from
+  the stored value, so raising the cost is a data change.
+- **A wrong password and an unknown address are indistinguishable** — same
+  reason, same message, and the same hashing work is done for both, because
+  timing must not answer what the message refuses to.
+- **An account with no password cannot be signed in to.** NULL means "not
+  provisioned", never "any password will do".
+- **The cookie signature is verified before the payload is parsed.**
+  Parsing first means acting on attacker-controlled JSON — a type, a
+  length, an expiry — before knowing we wrote it.
+
+⚠️ **The signing secret has no default.** A hard-coded fallback would mean
+every deployment of this source shares a key, and anyone with the code
+could mint a session for any username. Missing means sign-in refuses.
+
+Real AD SSO and OTP replace `credentials.py` and one branch of
+`identity.py`. **Nothing above them changes** — that seam is why the AC09
+gate never had to know how identity was established.
+
+### 21d. The frontend, rebuilt to the supplied screens
+
+Sign-in, dashboard, project picker, assistant chat, knowledge base. Indigo
+platform chrome, MOF green footer, EN/AR toggle, RTL by default with
+per-message direction.
+
+The other two agents (رادار المخاطر, محرك الدروس) appear in the nav and are
+inert. The knowledge base's upload button is rendered **disabled**: CAG is
+not built, and a button that looks live but does nothing is worse than one
+that says so.
+
+**Switching project asks first**, then opens a *new* conversation — a
+`Conversation` is bound to one session for its lifetime, so a switch cannot
+be a mutation of the old one.
+
+### 21e. Verified live, and two defects found by running it
+
+Seven probes through the real UI and the real API on PRJ-06: a greeting
+answered by name; the ten-field overview with `غير مسجل` for the unrecorded
+owner; a bare `لماذا؟` correctly resolved against the previous risks
+question; German refused with a trilingual apology; a PRJ-03 question
+refused with "switch project first"; and *"what is the manager's phone
+number?"* answered with **case 3 exactly** — not present in the indexed
+documents, check the knowledge base.
+
+Two defects the browser found that the tests could not:
+
+- **A heredoc silently ate an escape** and updated the *caller* of a prompt
+  template without updating the template, producing a 500 on every message.
+  Third occurrence of that tooling trap (§15d); the fix is to edit files
+  directly rather than through shell-quoted Python.
+- **The bilingual welcome used the Arabic name in its English half.** Each
+  half now uses its own language's name.
+
+### 21f. Mutation testing — 20 mutations, and two that no test could catch
+
+18 caught immediately. The two survivors were both **`hmac.compare_digest`
+replaced with `==`** — and they survived correctly: both return the same
+answer for every input, and the only difference is how long `==` takes to
+say no, which leaks how much of the secret was right.
+
+Nothing behavioural can see that, and a timing assertion would be flaky
+without proving anything. So the guarantee is pinned **structurally**, by
+asserting the source uses `compare_digest` — the same move as pinning the
+response schema's shape rather than only its runtime effect (§15b). 20/20
+after that.
+
+⚠️ **~115 tests were deleted**, because they asserted the behaviour of code
+that no longer exists. Replacing them with tests that still passed would
+have left a suite asserting nothing. What replaced them tests what is still
+testable without paying for a completion — including that the rules AC06
+and AC09 depend on are **still present in the prompt text**, since moving
+them out of code made them easy to delete by accident.
+
+---
+
 ## 20. The HTTP layer and the frontend (2026-08-16)
 
 `Application/backend/api/` (FastAPI) and `Application/frontend/index.html`.

@@ -615,77 +615,49 @@ relative path is valid in both. Two consequences worth recording:
   treated as MODIFIED, containerising would have silently triggered a full
   corpus re-OCR.
 
-### 4.12 The conversational layer — where AC01 and AC02 are decided (2026-08-16)
+### 4.12 The conversational layer — the model is the router (2026-08-17)
 
-**A separate entry point, not a widened `answer_question`.** Deciding
-whether to answer at all is a different job from grounding an answer, and
-`answer.py` has exactly one responsibility (AC06). So
-`Application/backend/conversation.py` runs the language check and the
-intent router and *then* delegates. Full record in
-`STATUS_AND_ROADMAP.md` §17.
+**Every user message goes to the model, which detects the language,
+classifies the intent, and answers — in one call.** There is no phrase
+table, no script counter and no threshold deciding what a message is.
 
-**AC01 is script-first because script is decisive and free.** Counting
-Unicode codepoints settles Arabic against Han, Cyrillic, Hebrew,
-Devanagari and Greek with no model, no network call and no measurable
-latency — and it cannot be wrong, in the way a statistical classifier can.
-A language identifier is consulted **only** on Latin-dominant text, which
-is the one case script genuinely cannot resolve (English vs French vs
-Spanish).
+⚠️ **This reverses an earlier design, deliberately, and the trade is
+recorded rather than buried.** Until 2026-08-17 language was decided by
+counting Unicode scripts and intent by matching a phrase file: both free,
+both instant, both structural. The requirement changed to "everything goes
+to the LLM, nothing hard-coded", and the consequences were stated before
+the work began: a greeting now costs a completion (~2 s and a fraction of a
+cent) and language rejection stops being a guarantee and becomes a
+behaviour. What is bought is that exactly one artefact decides how a
+message is treated, and it is prose a non-programmer can read and amend.
 
-Three alternatives, and why not:
+**One call, not two — and that is a latency decision, not a style one.**
+Retrieval runs first for every message, so the model receives the passages
+at the same moment it is asked what the message is. Classify-then-answer
+would be two round trips and would roughly double a turn against the AC08
+five-second budget. Retrieving on a greeting costs one embedding; that is
+cheaper than the second completion it avoids on every real question.
 
-1. **An LLM classification call.** Accurate and bilingual, and it adds a
-   round-trip to every question against a five-second budget, for a
-   decision that codepoint counting settles for free in the 95% case.
-2. **A language library for everything.** Buys nothing over script
-   detection for Arabic, and statistical identifiers are least reliable on
-   exactly the short strings a chat box receives.
-3. **Script detection alone.** Measurably insufficient: it accepts French,
-   Spanish and German as English, and AC01 asks for language verification,
-   not script verification.
+**What did NOT move into the prompt, and why.** AC06's guarantees are
+structural and stayed structural: the response schema still has no field
+for a filename, so a fabricated source cannot be expressed; citations are
+still rebuilt from the retrieved payloads; and the relevance floor still
+decides which passages are *sent*. The floor no longer decides whether to
+call the model at all — it cannot, once a greeting must also be answered.
 
-**The asymmetry is the design principle: rejection needs evidence,
-acceptance does not.** Turning away a legitimate Arabic or English question
-is a locked-out user; accepting a French one is a poor answer. So the
-statistical verdict is ignored on short text, and letterless input is
-`undetermined` rather than "unsupported".
+⚠️ **Rules that live in a prompt are easy to delete by accident.** The
+grounding rule, the both-sides rule, the injection fence, the
+no-other-project rule and the read-only rule are therefore pinned by tests
+that fail if the text goes missing. That is the compensating control for
+moving policy out of code.
 
-**AC02 is two tiers because the second one already existed.** Tier 1 is an
-exact whole-utterance match against a phrase set held as data, covering
-greetings, courtesy and meta questions — its purpose is that `hello` should
-not cost an embedding, a search and a completion. Tier 2 is everything
-else, where the relevance floor (§15b) already refuses out-of-scope
-questions without calling the model. Building a semantic classifier to
-re-decide what the floor decides for free would spend the AC08 budget
-twice.
-
-**AC03 carries history to the model, but composes queries only on
-failure.** Two separate decisions, because they cost different things.
-Prior turns as chat messages cost tokens, not a round-trip, and fix
-reference resolution at answer time. Retrieval is different: a follow-up
-carrying any topical noun already retrieves well, because the collection is
-one project and the project record is always present — only *purely*
-referential follow-ups (`لماذا؟`, `tell me more`) retrieve nothing at all.
-So the previous question is prepended **only when the bare question found
-no evidence**, which converts a refusal into an answer rather than
-refining one that already worked. An LLM query-rewrite — the standard
-approach — would cost a round-trip on every turn against the AC08 budget
-to do what one extra embedding does on the minority of turns that need it.
-
-**A `Conversation` is bound to one `Session` for its lifetime.** This is
-§4.2's isolation guarantee extended through time: a transcript cannot come
-to hold two projects, and a follow-up cannot resolve against a project the
-user has left. Switching project produces a new session from the gate and
-therefore a new conversation, which is the honest model of what a switch
-is.
-
-⚠️ **What "special handling" means is our definition, not the BRD's.** The
-source says only "queries needing special handling versus general
-SPM-knowledge retrieval". The intent set — `greeting`, `courtesy`,
-`capability`, `session_meta`, `out_of_scope`, `general_retrieval` — is
-derived from what this system can actually do, and the two categories that
-were considered and *not* built (`write_action`, `cross_project`) are named
-in `intent.py` with the measurement showing tier 2 handles them safely.
+**Identity is the other half of AC09, and it now exists.** The gate always
+answered *"may this user open this project?"* and never *"is this really
+that user?"*. `api/credentials.py` and `api/cookies.py` answer the second
+question for the demo — email and password against seeded accounts, then an
+HMAC-signed session cookie. It is a *simulation* of sign-in: real AD SSO
+and OTP replace those two modules and one branch of `identity.py`, and
+nothing above them changes.
 
 ### 4.13 Observability — one instrumentation, two backends (2026-08-16)
 

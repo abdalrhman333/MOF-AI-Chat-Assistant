@@ -5,24 +5,34 @@ file first.** It tells you what this project is, which documents to read in
 what order, and how to verify the real state of the system before changing
 anything.
 
-**Last verified:** 2026-08-16 — infra, full SPM schema (14 migrations,
+**Last verified:** 2026-08-17 — infra, full SPM schema (16 migrations,
 row-level security enabled), complete mock corpus, and **the entire
 ingestion pipeline built and run over all 58 documents**: discovery → OCR →
 chunk → embed → index, ending in **678 vectors across 9 per-project Qdrant
 collections**. Retrieval quality is measured, not guessed
 (`evaluation/`). `Application/` holds the AC09 session gate, grounded
 answering over RAG + live SPM, the whole conversational layer (AC01–AC05,
-AC07), **an HTTP layer and a chat UI** — so the system now runs in a
-browser. AC08 is measured, not asserted (p50 1845 ms / p95 2782 ms against
+AC07), **an HTTP layer, demo sign-in and the full UI** — so the system runs
+in a browser. AC08 is measured, not asserted (p50 1845 ms / p95 2782 ms against
 a 5 s budget), and tracing goes to Grafana and Langfuse from one
 instrumentation.
 
-**Every acceptance criterion in the BRD is implemented except SSO/OTP,
-which is a deferred external dependency.** Start it with:
+**Every acceptance criterion in the BRD is implemented.** Sign-in is
+*simulated* — email and password against seeded accounts, then a signed
+session cookie — because real AD SSO and OTP are external dependencies that
+do not exist here.
 
 ```bash
 .venv/Scripts/python -m Application.backend.api      # http://127.0.0.1:8000
+# sign in as noura.alharbi@enjaz.gov.sa / Enjaz@2026  (she holds 3 projects)
 ```
+
+⚠️ **The model is the router.** Since 2026-08-17 the language check and the
+intent classifier are gone from the code: every message goes to the model,
+which detects the language, decides the intent and answers in one call,
+governed by the system prompt in `answer.py`. That reverses the earlier
+deterministic design — read `STATUS_AND_ROADMAP.md` §21 before reinstating
+anything that decides a message's meaning outside that prompt.
 
 ---
 
@@ -106,7 +116,7 @@ find "/d/MOF_DataSample" -maxdepth 1 -type d
 ```
 
 ```bash
-python infra/postgres-spm/apply_migrations.py --status   # read-only; expect 14 applied, 0 pending, 0 drifted
+python infra/postgres-spm/apply_migrations.py --status   # read-only; expect 16 applied, 0 pending, 0 drifted
 ```
 
 Stages 0 and 1 have run: every `document_links` row carries a real SHA-256
@@ -234,8 +244,8 @@ processes, and the one that faces users has the least access.
 | Package | Job | Database role |
 |---|---|---|
 | `pipeline/` | **Builds** the knowledge base — `config.py` (all settings), `chunker.py`, `db.py`, `scanner.py` (Stage 0), `ocr.py` + `native_extract.py` (Stage 1), `indexer.py` (Stages 2+3), plus `locking.py`, `tasks.py`, `status.py` to run it unattended | `spm_admin` — needs every project |
-| `evaluation/` | **Judges** it — the tagged question set, scoring, recorded baseline, `conversation_probe.py` for AC01/AC02, `latency_bench.py` for AC08 | read-only |
-| `Application/` | **Serves** it — `backend/api/` (**FastAPI + the identity boundary**), `backend/conversation.py` (the entry point), `backend/session.py` (the AC09 gate), `backend/db.py` (pool + scope), `backend/retrieval.py`, `backend/answer.py`, `backend/spm.py`, `backend/language.py`, `backend/intent.py`, `backend/messages.py`, `backend/clients.py` (the AC08 client cache), `frontend/index.html` (the UI) | `spm_app` — SELECT-only, one project per transaction |
+| `evaluation/` | **Judges** it — the tagged question set, scoring, recorded baseline, `latency_bench.py` for AC08 | read-only |
+| `Application/` | **Serves** it — `backend/api/` (FastAPI, sign-in, **the identity boundary**), `backend/answer.py` (**the system prompt — the whole router**), `backend/conversation.py` (the entry point), `backend/session.py` (the AC09 gate), `backend/db.py` (pool + scope), `backend/retrieval.py`, `backend/spm.py`, `backend/messages.py`, `backend/clients.py` (the AC08 client cache), `frontend/index.html` (the UI) | `spm_app` — SELECT-only, one project per transaction |
 | `observability/` | **Watches** them — one OpenTelemetry instrumentation, exported to Grafana *and* Langfuse. Belongs to none of the three, which is why it is its own package | none |
 
 **The pipeline runs as a containerised Celery worker** —
@@ -244,14 +254,19 @@ processes, and the one that faces users has the least access.
 **The HTTP layer and the UI exist** (`backend/api/`, `frontend/index.html`,
 §20). One process serves both, on the same origin.
 
-⚠️ **`api/identity.py` is the second most security-sensitive file here,
-after `session.py`.** The gate answers *"may this user open this project?"*
-and never *"is this really that user?"* — this is where the second question
-gets answered. A username never comes from a request body or query string,
-and there is deliberately no field to put one in. The default `dev_fixed`
-mode takes the identity from config: unspoofable, and not pretending to be
-authentication. `trusted_header` is production-*shaped*, not
+⚠️ **`api/identity.py`, `api/credentials.py` and `api/cookies.py` are the
+second most security-sensitive files here, after `session.py`.** The gate
+answers *"may this user open this project?"* and never *"is this really
+that user?"* — these answer the second question. A username never comes
+from a request body or query string, and there is deliberately no field to
+put one in. The default `session_login` mode verifies a password and mints
+an **HMAC-signed** cookie; an unsigned cookie would be a username the
+browser can edit. `trusted_header` is production-*shaped*, not
 production-*safe* — correct only behind a proxy that overwrites the header.
+
+⚠️ **The signing secret (`API_SESSION_SECRET`) has no default.** A
+hard-coded fallback would let anyone with the source mint a session for any
+username. Missing means sign-in refuses.
 
 ⚠️ **A conversation id is a handle, not a credential.** Every lookup is
 owner-checked; without that, a leaked id bypasses AC09 entirely, because
@@ -277,170 +292,11 @@ project scope — is structural already (`Session`), which is why this one is
 not duplicated. A `Conversation` extends that through time: its session is
 fixed at construction, so switching project means a new one.
 
-**Checking AC01/AC02 without spending anything** — 47 tagged probes,
-offline, exit 0 when all pass:
+⚠️ **`evaluation/conversation_probe.py` was deleted on 2026-08-17.** It
+scored a deterministic language detector against 54 tagged probes, offline
+and free. The model decides now, so the equivalent measurement costs a
+completion per probe — worth rebuilding as a paid eval, and named here so
+its absence is a decision rather than an oversight (`STATUS_AND_ROADMAP.md`
+§21).
 
-```bash
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.conversation_probe
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.conversation_probe --no-discriminator
-```
 
-The second form disables the Latin language identifier and is what
-justifies the `py3langid` dependency: unsupported-language recall collapses,
-missing French, Spanish and German exactly. If that ever stops being true
-the dependency is buying nothing.
-
-⚠️ **A probe set inherits its author's blind spots.** Every non-English
-probe was originally a full sentence, so a live run — not the probe set —
-caught *"Quel est le budget?"* being answered in English (§18d). When
-adding a case, add the *awkward* shape too: short, fragmentary, mixed.
-
-**AC08 is measured, and it passes warm.** `evaluation/latency_bench.py`
-runs the real question set end to end and reports percentiles, because
-"does not exceed 5 seconds" is a claim about the tail:
-
-```bash
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.latency_bench
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.latency_bench --cold
-```
-
-p50 **1845 ms**, p95 **2782 ms**, and the LLM call is ~80% of it — embed,
-search and SPM together are under 400 ms. Exit 0 inside the budget, 1
-outside, so it works as a regression check.
-
-⚠️ **Call `clients.warmup()` once at startup.** The result above depends on
-it. Every question used to rebuild the embedding, Qdrant and LLM clients —
-about **2.3 s of pure setup per question**, plus a repeated TLS handshake.
-They are now cached per `Settings`, and `warmup()` opens the connections up
-front, because constructing a client is not connecting one.
-
-⚠️ **`--cold` is still over budget, by design.** It resets the cache and
-puts the first turn near 19 s. Client construction happens *inside* that
-turn and is not attributed to any phase, so a cold total legitimately
-exceeds the sum of its parts. A long-lived HTTP process pays it once.
-Recorded so a cold number is not read as a regression.
-
-**Tracing — one instrumentation, two backends.** Off unless
-`OBSERVABILITY_ENABLED=true`:
-
-```bash
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -c "import observability; print(observability.configure())"
-```
-
-Grafana (http://localhost:3000) answers *where did the time go*; Langfuse
-(http://localhost:3001) answers *what was the model actually asked*, with
-a conversation's turns grouped into one session. Langfuse v3 exposes an
-OTLP endpoint, so there is no second SDK. **Tracing is fail-open** — the
-only thing here that is — because an unreachable collector must never stop
-someone getting an answer.
-
-⚠️ **`LANGFUSE_CAPTURE_CONTENT=true` sends document passages into the trace
-store, and a trace store has no notion of AC09.** Anyone who can read
-Langfuse can read every project's passages. Fine here — same machine, same
-corpus — and **not** fine against anything shared. Turning it off keeps
-timing and token counts.
-
-The test suite is **569 tests** (answering 50, session_gate 42, language 42,
-intent 40, conversation 40, retrieval_eval 39, scanner 38, observability 34,
-continuity 33, tasks 27, api 27, chunker 26, rls 23, ocr 23, indexer 23,
-native_extract 22, status 15, config 13, locking 12). **Most need `mof-postgres-spm`
-running, and the locking/tasks/status suites need Redis too** — they use the real schema inside a transaction they always roll
-back, and skip with a clear message if the container is down. The OCR tests
-stub Azure and the indexer tests stub both the embedding API and Qdrant, so
-both paid stages are covered without a paid call or a write to the live
-vector store. The language, intent and conversation suites are pure —
-no database, no network, no paid call — and the statistical language
-identifier is stubbed in all of them, so they test the logic rather than
-the model.
-
----
-
-## 4. Hard constraints — do not violate these
-
-1. **Nothing Docker-related touches C:.** Docker Desktop's own engine disk
-   was relocated to `D:\MOF_Installations\docker-data`; every service's
-   persistent data bind-mounts to `D:\MOF_Installations\volumes\<service>`.
-   Any new service must follow the same pattern.
-2. **No cross-project data access, ever** (BRD AC09, worded as absolute).
-   This is why the vector KB uses one separate Qdrant collection per
-   project rather than a shared collection with a filter — see
-   `SOLUTION_ARCHITECTURE.md` §4.2 for the full reasoning.
-3. **Cloud models for LLM/OCR/embeddings this phase** — not on-prem, despite
-   the RTX 3070 being available. This was decided explicitly, twice,
-   including after reviewing a colleague's on-prem approach. Don't revisit
-   without checking `SOLUTION_ARCHITECTURE.md` §5 first.
-4. **Real secrets live only in `infra/.env`** (gitignored). `infra/.env.example`
-   is the template with blanks. Never write real secret values into
-   documentation or into `.env.example`.
-5. **The chat app connects as `spm_app`, never `spm_admin`** — and every
-   transaction must `SET LOCAL app.current_project`. A plain `SET` persists
-   on a pooled connection and leaks that scope into the next request. Only
-   the ingestion pipeline uses `spm_admin`, because it needs cross-project
-   access. See `INFRASTRUCTURE.md` §7c.
-6. **Never apply migrations by hand** — use
-   `infra/postgres-spm/apply_migrations.py`, or `schema_migrations` stops
-   reflecting reality. See `INFRASTRUCTURE.md` §7b.
-
----
-
-## 5. Starter prompt for a new AI session
-
-> I'm continuing work on the MOF Enjaz Chatbot (AI assistant for منصة إنجاز),
-> at `D:\MOF Enjaz Chatbot`. Before doing anything, read
-> `Documentation\START_HERE.md`, then `Documentation\SOLUTION_ARCHITECTURE.md`,
-> `Documentation\INFRASTRUCTURE.md`, `Documentation\STATUS_AND_ROADMAP.md`
-> (the decisions log and lessons learned — don't skip it, and read §13–§16
-> for what the last sessions built and broke), and
-> `Documentation\NEXT_BUILD_CHAT_BACKEND.md` for the build order. If you
-> will touch anything user-facing, read `Application\README.md` too — it
-> holds the trust boundary.
->
-> **Where the build has reached:** the ingestion pipeline is finished and
-> runs unattended. Retrieval quality is measured, not guessed
-> (`evaluation/`). The AC09 session gate, the scoped data-access layer,
-> grounded answering over RAG, the live SPM source, and the conversational
-> layer (AC01–AC05, AC07), the HTTP layer and the chat UI are all built.
-> AC08 is measured (p50 1845 ms / p95 2782 ms), tracing goes to Grafana and
-> Langfuse, and **the system runs in a browser**. Every acceptance
-> criterion in the BRD is implemented except SSO/OTP, a deferred external
-> dependency. See `STATUS_AND_ROADMAP.md` §5 and §17–§20.
->
-> Then verify the live system rather than trusting the docs: 13 containers
-> up, 14 migrations applied and 0 drifted, 569 tests passing, all three
-> pipeline stages reporting nothing to do (`--dry-run` on
-> `pipeline.scanner`, `pipeline.ocr` and `pipeline.indexer`), Qdrant
-> holding 9 collections / 678 points, `python -m pipeline.status` exiting 0,
-> `python -m evaluation.conversation_probe` scoring 54/54, and
-> `python -m evaluation.latency_bench` exiting 0. Then run it —
-> `python -m Application.backend.api` and open http://127.0.0.1:8000.
->
-> Six working rules: call `clients.warmup()` and
-> `observability.configure()` once at startup, and `observability.shutdown()`
-> before exit — the AC08 result depends on the first and batched spans are
-> lost without the last; use `.venv/Scripts/python`, never system Python;
-> prefix commands that print with `PYTHONIOENCODING=utf-8`, since most of
-> the corpus is Arabic; `pipeline.ocr` spends money — always `--dry-run`
-> first; the application connects as `spm_app`, never `spm_admin`, and
-> applies scope with `set_config(name, value, true)` because `SET LOCAL`
-> cannot take a bind parameter; and every retrieval goes through a
-> `Session` obtained from the gate, never a raw project code.
->
-> Design principle to hold to: **everything must be dynamic, not hardcoded
-> to this specific demo case** — settings belong in `pipeline/config.py`,
-> not as literals in code.
->
-> Working method that has repeatedly paid for itself here: prove a safety
-> feature by deliberately breaking it and confirming the right test
-> catches it, and commit before doing so. Roughly 127 mutations have been
-> run; the ones that *survived* found the real gaps, and none were visible
-> on inspection. Five cautions learned the hard way: a mutation that does
-> not compile proves nothing; a destructive test must not depend on the
-> thing it is testing to keep it safe (that one destroyed the corpus, §14e);
-> a passing stubbed suite is not evidence — run it live (§16a, and §18d,
-> where a live run caught what the probe set structurally could not);
-> **commit before mutating really does mean before** — the runner's
-> `git checkout` has now eaten uncommitted work twice (§14e, §17e); and a
-> guard whose effect is only *diagnostic* is invisible to a behavioural
-> test, so assert the value (§6, and §18e for the third occurrence).
->
-> My request: <what you want>
