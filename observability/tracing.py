@@ -37,6 +37,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import logging
+import sys
 import threading
 from typing import Any
 
@@ -221,17 +222,39 @@ def span(name: str, **attributes):
     # being read. Filtering here is therefore about the log, not the export;
     # mutation testing showed that removing it changes no exported span.
     clean = {k: v for k, v in attributes.items() if v is not None}
+
+    # Starting the span is the only part that may fail softly. Everything
+    # after it must let the block's own exceptions through untouched.
     try:
-        with _tracer.start_as_current_span(name) as current:
-            try:
-                current.set_attributes(clean)
-            except Exception:                                 # noqa: BLE001
-                pass
-            yield current
+        manager = _tracer.start_as_current_span(name)
+        current = manager.__enter__()
     except Exception:                                         # noqa: BLE001
-        # A failure in the tracing machinery itself, not in the block --
-        # the block's own exceptions propagate from inside the `with`.
+        log.debug("tracing: could not start span %r", name, exc_info=True)
         yield _NoopSpan()
+        return
+
+    # ⚠️ **The block's exceptions must propagate unchanged.** An earlier
+    # version wrapped the whole `with` in `except Exception: yield
+    # _NoopSpan()`, which meant a generator that yielded a SECOND time after
+    # contextlib threw the block's exception into it — so every real error
+    # inside a traced block surfaced as
+    # `RuntimeError: generator didn't stop after throw()`. Fail-open tracing
+    # means never *causing* a failure; it never means hiding the caller's.
+    try:
+        try:
+            current.set_attributes(clean)
+        except Exception:                                     # noqa: BLE001
+            pass
+        yield current
+    except BaseException:
+        # Let the span record the failure, then re-raise it as it was.
+        if not manager.__exit__(*sys.exc_info()):
+            raise
+    else:
+        try:
+            manager.__exit__(None, None, None)
+        except Exception:                                     # noqa: BLE001
+            log.debug("tracing: could not close span %r", name, exc_info=True)
 
 
 def record_exception(current, exc: BaseException) -> None:

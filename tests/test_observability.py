@@ -231,6 +231,49 @@ def test_a_turn_is_still_answered_when_the_tracer_explodes(monkeypatch):
     assert "22,900,000" in reply.text
 
 
+def test_an_exception_inside_a_traced_block_propagates_unchanged(spans):
+    """Found by running the app, not by the suite. ⚠️ Fail-open tracing
+    means never *causing* a failure — never hiding the caller's.
+
+    An earlier version wrapped the whole span in
+    `except Exception: yield _NoopSpan()`. When the block raised,
+    contextlib threw that exception into the generator, the handler caught
+    it and yielded a SECOND time — so every real error inside a traced
+    block surfaced as `RuntimeError: generator didn't stop after throw()`.
+    In the API that turned a clean 503 into a confusing 500 and hid the
+    actual cause.
+    """
+    class Boom(RuntimeError):
+        pass
+
+    with pytest.raises(Boom):
+        with tracing.span("chat.turn", project="PRJ-06"):
+            raise Boom("the real failure")
+
+
+def test_a_failed_block_still_produces_a_span(spans):
+    """The span is what makes the failure visible in a trace, so recording
+    it is the whole point of not swallowing the exception."""
+    with pytest.raises(ValueError):
+        with tracing.span("chat.turn"):
+            raise ValueError("nope")
+    tracing.shutdown()
+    recorded = spans.get_finished_spans()
+    assert [s.name for s in recorded] == ["chat.turn"]
+
+
+def test_a_nested_traced_block_also_propagates(spans):
+    """The real path is a turn wrapping a model call, so the nesting that
+    actually failed in production is the nesting under test."""
+    class Boom(RuntimeError):
+        pass
+
+    with pytest.raises(Boom):
+        with tracing.span("chat.turn"):
+            with tracing.span("chat gpt"):
+                raise Boom("the model call failed")
+
+
 def test_span_swallows_a_tracer_failure_and_still_runs_the_block(monkeypatch):
     class ExplodingTracer:
         def start_as_current_span(self, *_a, **_kw):
