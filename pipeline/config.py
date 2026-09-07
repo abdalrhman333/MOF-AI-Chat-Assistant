@@ -140,6 +140,11 @@ class OcrSettings:
     # truncate anything; it only makes unusual growth visible in the run
     # summary instead of being discovered as a disk-space surprise.
     raw_response_warn_bytes: int = 5_000_000
+    # A transient failure is retried before the native fallback is allowed
+    # to run. Without this a network blip silently downgrades a document to
+    # the weaker extraction path and the run still reports "RECOVERED".
+    transient_retries: int = 2
+    transient_backoff_seconds: float = 2.0
 
 
 @dataclass(frozen=True)
@@ -435,6 +440,19 @@ class IntentSettings:
 
 
 @dataclass(frozen=True)
+class ClassificationSettings:
+    """Stage 1b — deciding a document's type from its text.
+
+    The label list is a **path**, for the same reason the evaluation
+    question set and the document root are: a different corpus brings its
+    own vocabulary, and a list baked into a module would describe this demo
+    forever. The labels are rendered verbatim to project managers, in the
+    knowledge-base page and in every citation.
+    """
+    labels_path: pathlib.Path
+
+
+@dataclass(frozen=True)
 class EvaluationSettings:
     """Retrieval evaluation parameters.
 
@@ -499,6 +517,9 @@ class Settings:
     observability: ObservabilitySettings = field(
         default_factory=ObservabilitySettings)
     api: ApiSettings = field(default_factory=ApiSettings)
+    classification: ClassificationSettings = field(
+        default_factory=lambda: ClassificationSettings(
+            labels_path=REPO_ROOT / "pipeline" / "doc_type_labels.json"))
     intent: IntentSettings = field(
         default_factory=lambda: IntentSettings(
             phrases_path=REPO_ROOT / "Application" / "backend" / "intent_phrases.json"
@@ -555,6 +576,13 @@ def _ocr_from_env() -> OcrSettings:
         raw_response_warn_bytes=int(
             _optional("OCR_RAW_RESPONSE_WARN_BYTES",
                       str(OcrSettings.raw_response_warn_bytes))
+        ),
+        transient_retries=int(
+            _optional("OCR_TRANSIENT_RETRIES", str(OcrSettings.transient_retries))
+        ),
+        transient_backoff_seconds=float(
+            _optional("OCR_TRANSIENT_BACKOFF_SECONDS",
+                      str(OcrSettings.transient_backoff_seconds))
         ),
     )
 
@@ -835,5 +863,9 @@ def get_settings() -> Settings:
         conversation=_conversation_from_env(),
         observability=_observability_from_env(),
         api=_api_from_env(),
+        classification=ClassificationSettings(
+            labels_path=pathlib.Path(_optional(
+                "DOC_TYPE_LABELS_PATH",
+                str(REPO_ROOT / "pipeline" / "doc_type_labels.json")))),
         intent=_intent_from_env(),
     )

@@ -1,0 +1,33 @@
+{
+  "_comment": [
+    "Allowed document types for pipeline/classify.py.",
+    "",
+    "DATA, not code: a different corpus brings its own vocabulary and",
+    "nothing in Application/ or pipeline/ changes -- the same reasoning",
+    "as evaluation/questions.json and DOCUMENT_ROOT.",
+    "",
+    "Seeded from the types the corpus already uses, so the classifier",
+    "agrees with the labels already shown on the knowledge-base page and",
+    "attached to citations. Adding a type here is enough; the model is",
+    "constrained to this list plus 'Unclassified' and cannot invent one.",
+    "",
+    "Keep the labels as they should APPEAR to a project manager -- they",
+    "are rendered verbatim in the KB page and in every citation."
+  ],
+  "labels": [
+    "Budget/Financial Report",
+    "Business Requirements Document",
+    "Handover Document",
+    "Lessons Learned",
+    "Meeting Minutes",
+    "Project Charter",
+    "Project Charter Template (Generic)",
+    "Risk Management Plan Template (Generic)",
+    "Risk Register",
+    "Software Design Document",
+    "Status Dashboard Export",
+    "Technical Methodology",
+    "Technical Proposal",
+    "Weekly Status Report"
+  ]
+}

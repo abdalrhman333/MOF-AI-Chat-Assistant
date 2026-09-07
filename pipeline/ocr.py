@@ -36,6 +36,7 @@ Two rules this stage lives by, both because **OCR is billed per page**:
 from __future__ import annotations
 
 import argparse
+import logging
 import pathlib
 import sys
 import time
@@ -44,6 +45,8 @@ from dataclasses import dataclass, field
 from pipeline.config import Settings, get_settings
 from pipeline.db import admin_connection
 from pipeline.locking import AlreadyRunning, optional_stage_lock
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,9 @@ class OcrReport:
     failed: list[tuple[str, str]] = field(default_factory=list)
     thin: list[tuple[str, int]] = field(default_factory=list)
     recovered: list[tuple[str, str]] = field(default_factory=list)
+    # Retries that succeeded. Reported so a run that looked clean
+    # but fought the network is visibly different from a quiet one.
+    transient_retries: int = 0
     oversized: list[tuple[str, int]] = field(default_factory=list)
     pages_billed: int = 0
     raw_bytes: int = 0
@@ -221,6 +227,56 @@ def _store(cursor, doc: PendingDocument, extraction: Extraction) -> None:
     )
 
 
+def is_transient(error: BaseException) -> bool:
+    """Is this a blip worth retrying, or a refusal worth falling back from?
+
+    ⚠️ **The distinction was missing, and it silently cost quality.** During
+    the corpus rebuild (§14e) one `.docx` fell back after a
+    `ServiceResponseError` — a service blip, not the permanent rejection the
+    fallback exists for. The run reported "RECOVERED", the document was
+    extracted by the weaker native path, and nothing anywhere said the
+    result was worse than it should have been.
+
+    Transient means: the request never got a verdict (connection, timeout),
+    or the service said "not now" (429, 5xx). A rejection is the service
+    looking at the file and refusing it — a 4xx, which for an Office format
+    is exactly what the native fallback is for.
+
+    Anything unrecognised is treated as **not** transient, so an unknown
+    error still reaches the fallback rather than being retried forever.
+    """
+    name = type(error).__name__
+    if name in ("ServiceResponseError", "ServiceRequestError",
+                "ConnectionError", "TimeoutError", "ReadTimeout"):
+        return True
+    status = getattr(error, "status_code", None)
+    if isinstance(status, int):
+        return status == 429 or status >= 500
+    return False
+
+
+def _extract_with_retry(path: pathlib.Path, settings, client, report=None):
+    """Extract, retrying a transient failure before giving up on the service.
+
+    The fallback is for a file the service *rejects*, not for a service that
+    was briefly unreachable. Retrying first is what keeps a network blip
+    from quietly downgrading a document to the weaker native path.
+    """
+    attempts = max(1, settings.ocr.transient_retries + 1)
+    for attempt in range(1, attempts + 1):
+        try:
+            return extract(path, settings, client)
+        except Exception as error:                   # noqa: BLE001
+            if attempt >= attempts or not is_transient(error):
+                raise
+            log.warning("transient OCR failure on %s (%s), retry %d/%d",
+                        path.name, type(error).__name__, attempt, attempts - 1)
+            if report is not None:
+                report.transient_retries += 1
+            time.sleep(settings.ocr.transient_backoff_seconds * attempt)
+    raise RuntimeError("unreachable")
+
+
 def _try_fallback(path: pathlib.Path, primary_error: Exception) -> Extraction:
     """Rescue an Office file, or re-raise so the failure stays honest.
 
@@ -328,13 +384,13 @@ def _run_with(conn, settings: Settings, project: str | None, dry_run: bool,
                 # fail, and paying to discover it would be silly.
                 raise FileNotFoundError(f"file not on disk: {path}")
             try:
-                extraction = extract(path, settings, client)
+                extraction = _extract_with_retry(path, settings, client, report)
             except Exception as primary_error:       # noqa: BLE001
-                # Document Intelligence refused the file. For an Office
-                # format that is recoverable — a valid .docx repackaged by
-                # something other than Word is rejected as "corrupted"
-                # while being perfectly readable. Anything else, including
-                # every PDF, fails honestly.
+                # Document Intelligence *refused* the file — it looked at it
+                # and said no. For an Office format that is recoverable: a
+                # valid .docx repackaged by something other than Word is
+                # rejected as "corrupted" while being perfectly readable.
+                # Anything else, including every PDF, fails honestly.
                 extraction = _try_fallback(path, primary_error)
                 report.recovered.append((doc.label, f"{type(primary_error).__name__}"))
             _store(cursor, doc, extraction)

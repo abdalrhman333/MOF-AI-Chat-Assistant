@@ -19,6 +19,7 @@ import pathlib
 import pytest
 
 from pipeline.config import get_settings
+from pipeline import ocr
 from pipeline.ocr import run, select_pending
 
 TEST_CODE = "ZZ-OCR-TEST"
@@ -498,3 +499,95 @@ def test_a_normal_response_is_not_flagged_oversized(db, tmp_path):
     add_document(db, tmp_path)
     report = go(db, StubClient(), tmp_path)
     assert report.oversized == []
+
+
+# ---------------------------------------------------------------------------
+# Transient failure vs rejection — §14e's silent quality loss
+# ---------------------------------------------------------------------------
+
+class _Status(Exception):
+    def __init__(self, status_code):
+        super().__init__(f"HTTP {status_code}")
+        self.status_code = status_code
+
+
+class _Named(Exception):
+    """An exception whose *type name* is what identifies it, as the Azure
+    SDK's transport errors are."""
+
+
+def _as(name):
+    return type(name, (_Named,), {})()
+
+
+@pytest.mark.parametrize("error", [
+    _as("ServiceResponseError"), _as("ServiceRequestError"),
+    ConnectionError("reset"), TimeoutError("slow"),
+    _Status(429), _Status(500), _Status(503),
+])
+def test_a_blip_is_transient(error):
+    assert ocr.is_transient(error)
+
+
+@pytest.mark.parametrize("error", [
+    _Status(400), _Status(403), _Status(404), _Status(415),
+    ValueError("corrupted"), _as("HttpResponseError"),
+])
+def test_a_refusal_is_not_transient(error):
+    """A 4xx is the service looking at the file and saying no — which is
+    exactly what the native fallback exists for."""
+    assert not ocr.is_transient(error)
+
+
+def test_an_unrecognised_error_is_not_retried_forever():
+    """Unknown means fall back, not loop."""
+    assert not ocr.is_transient(Exception("something new"))
+
+
+def test_a_transient_failure_is_retried_before_the_fallback(monkeypatch):
+    """⚠️ The §14e failure: a service blip silently downgraded a document to
+    the weaker native path while the run reported RECOVERED."""
+    attempts = []
+
+    def flaky(path, settings, client):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise _as("ServiceResponseError")
+        return "extracted"
+
+    monkeypatch.setattr(ocr, "extract", flaky)
+    monkeypatch.setattr(ocr.time, "sleep", lambda _s: None)
+    report = ocr.OcrReport(dry_run=False)
+    out = ocr._extract_with_retry(pathlib.Path("x.docx"), get_settings(), None, report)
+    assert out == "extracted"
+    assert len(attempts) == 3
+    assert report.transient_retries == 2
+
+
+def test_a_rejection_is_not_retried_at_all(monkeypatch):
+    """Retrying a refusal just pays for the same 'no' repeatedly."""
+    attempts = []
+
+    def rejected(path, settings, client):
+        attempts.append(1)
+        raise _Status(400)
+
+    monkeypatch.setattr(ocr, "extract", rejected)
+    monkeypatch.setattr(ocr.time, "sleep", lambda _s: None)
+    with pytest.raises(_Status):
+        ocr._extract_with_retry(pathlib.Path("x.docx"), get_settings(), None)
+    assert len(attempts) == 1, "a rejection must reach the fallback immediately"
+
+
+def test_retries_are_bounded(monkeypatch):
+    attempts = []
+
+    def always_flaky(path, settings, client):
+        attempts.append(1)
+        raise _as("ServiceResponseError")
+
+    monkeypatch.setattr(ocr, "extract", always_flaky)
+    monkeypatch.setattr(ocr.time, "sleep", lambda _s: None)
+    with pytest.raises(_Named):
+        ocr._extract_with_retry(pathlib.Path("x.docx"), get_settings(), None)
+    assert len(attempts) == get_settings().ocr.transient_retries + 1
