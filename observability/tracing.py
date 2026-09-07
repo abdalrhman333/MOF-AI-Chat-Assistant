@@ -70,6 +70,13 @@ LF_TRACE_NAME = "langfuse.trace.name"
 LF_INPUT = "langfuse.observation.input"
 LF_OUTPUT = "langfuse.observation.output"
 
+# HTTP semantic conventions. Standard names rather than our own, so Grafana's
+# built-in RED views and Tempo's service graph understand them without
+# configuration.
+HTTP_METHOD = "http.request.method"
+HTTP_ROUTE = "http.route"
+HTTP_STATUS = "http.response.status_code"
+
 
 def _exporters(config: ObservabilitySettings) -> list[tuple[str, Any]]:
     """Build one exporter per enabled, usable backend.
@@ -204,6 +211,9 @@ class _NoopSpan:
     def add_event(self, *_args, **_kwargs) -> None:
         return None
 
+    def update_name(self, *_args, **_kwargs) -> None:
+        return None
+
 
 @contextlib.contextmanager
 def span(name: str, **attributes):
@@ -255,6 +265,20 @@ def span(name: str, **attributes):
             manager.__exit__(None, None, None)
         except Exception:                                     # noqa: BLE001
             log.debug("tracing: could not close span %r", name, exc_info=True)
+
+
+def mark_failed(current, message: str) -> None:
+    """Mark a span failed without an exception object.
+
+    An HTTP 500 that was handled and turned into a response has no live
+    exception to record, but the span still needs to show red — otherwise a
+    dashboard reports a healthy service that is returning errors.
+    """
+    try:
+        from opentelemetry.trace import Status, StatusCode
+        current.set_status(Status(StatusCode.ERROR, message))
+    except Exception:                                         # noqa: BLE001
+        pass
 
 
 def record_exception(current, exc: BaseException) -> None:

@@ -137,9 +137,13 @@ def _resolve_retrieval(session: Session, text: str, previous_question: str,
             or not settings.conversation.retry_below_floor):
         return found
 
-    composed = f"{previous_question} {text}"
-    retried = search(session, composed, settings=settings, embedder=embedder,
-                     qdrant=qdrant)
+    # Traced separately: a turn that quietly embedded twice is the single
+    # most confusing thing to see in a latency chart without an explanation.
+    with observability.span("retrieval.followup_retry",
+                            **{"enjaz.bare_score": found.best_score}):
+        composed = f"{previous_question} {text}"
+        retried = search(session, composed, settings=settings,
+                         embedder=embedder, qdrant=qdrant)
     # Both embeddings were paid for, so both are reported. An AC08 number
     # that hid the retry would understate the turns that are slowest.
     retried.embed_ms += found.embed_ms

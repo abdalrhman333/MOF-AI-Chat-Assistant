@@ -488,3 +488,70 @@ def test_the_plan_pairs_each_question_with_its_assigned_user():
         questions, {"PRJ-06": "noura", "PRJ-01": "fahad"})
     assert skipped == []
     assert [user for _, user in runnable] == ["noura", "fahad"]
+
+
+# ---------------------------------------------------------------------------
+# 8. The HTTP span — what a trace must never carry
+# ---------------------------------------------------------------------------
+
+def _traced_client(monkeypatch, settings):
+    """A TestClient whose app traces into the in-memory exporter."""
+    from fastapi.testclient import TestClient
+
+    from Application.backend.api import app as api_app
+    from Application.backend.api.store import ConversationStore
+    from Application.backend.session import AssignedProject, Session
+
+    monkeypatch.setattr(api_app, "SETTINGS", settings)
+    monkeypatch.setattr(api_app, "STORE", ConversationStore(settings.api))
+    monkeypatch.setattr(api_app, "open_session",
+                        lambda u, p, **k: Session(username=u, project_code=p))
+    monkeypatch.setattr(api_app, "list_assigned_projects",
+                        lambda u, **k: [AssignedProject("PRJ-06", "م", "Six", "active")])
+    monkeypatch.setattr(
+        api_app, "account",
+        lambda: type("A", (), {"username": "noura.alharbi", "email": "n@e.gov",
+                               "full_name_ar": "نورة", "full_name_en": "Noura",
+                               "names": ("نورة", "Noura")})())
+    api_app.app.dependency_overrides[api_app.account] = api_app.account
+    return TestClient(api_app.app)
+
+
+def api_traced_settings():
+    base = traced()
+    return dataclasses.replace(
+        base, api=dataclasses.replace(base.api, auth_mode="dev_fixed",
+                                      dev_username="noura.alharbi"))
+
+
+def test_the_http_span_is_named_from_the_route_not_the_raw_path(spans, monkeypatch):
+    """⚠️ A conversation token in a span name would put a handle into the
+    trace store, its span-name index, and every dashboard screenshot — and
+    it is unbounded cardinality, which is how a tracing bill grows."""
+    settings = api_traced_settings()
+    client = _traced_client(monkeypatch, settings)
+    opened = client.post("/api/conversations", json={"project_code": "PRJ-06"})
+    token = opened.json()["conversation_id"]
+    client.get(f"/api/conversations/{token}")
+    tracing.shutdown()
+
+    names = [s.name for s in spans.get_finished_spans()]
+    assert any("{token}" in n for n in names), names
+    assert not any(token in n for n in names), "a conversation handle leaked into a span name"
+    blob = repr([dict(s.attributes) for s in spans.get_finished_spans()])
+    assert token not in blob, "a conversation handle leaked into a span attribute"
+    api_app_cleanup()
+
+
+def test_health_is_not_traced(spans, monkeypatch):
+    """A liveness probe every few seconds would drown the trace view."""
+    client = _traced_client(monkeypatch, api_traced_settings())
+    client.get("/health")
+    tracing.shutdown()
+    assert [s.name for s in spans.get_finished_spans()] == []
+    api_app_cleanup()
+
+
+def api_app_cleanup():
+    from Application.backend.api import app as api_app
+    api_app.app.dependency_overrides.clear()

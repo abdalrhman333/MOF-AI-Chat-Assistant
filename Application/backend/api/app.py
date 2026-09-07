@@ -35,6 +35,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 import observability
 from Application.backend import clients, db
+from observability import tracing
 from Application.backend.api import cookies as cookie_module
 from Application.backend.api import credentials
 from Application.backend.api import identity as identity_module
@@ -90,6 +91,46 @@ if SETTINGS.api.cors_origins:
         allow_methods=["GET", "POST", "DELETE"],
         allow_headers=["*"],
     )
+
+
+# Paths that would drown the trace view without saying anything: a liveness
+# probe and the static UI. Excluded by prefix, not by exact match, so the
+# docs assets go too.
+UNTRACED = ("/health", "/docs", "/redoc", "/openapi.json", "/favicon.ico")
+
+
+@app.middleware("http")
+async def trace_request(request: Request, call_next):
+    """One span per HTTP request, wrapping everything the request does.
+
+    This is the outermost span, so a chat turn, its retrieval and its model
+    call all nest beneath the request that caused them — which is what makes
+    Grafana answer "where did this user's 3 seconds go" rather than "here is
+    a chat turn, unattached to anything".
+
+    ⚠️ **The span is named from the matched ROUTE, never the raw path.**
+    `/api/conversations/{token}/messages` carries a conversation handle, and
+    a handle in a span name would put it in the trace store, in the span
+    name index, and in every screenshot of a dashboard. It is also unbounded
+    cardinality, which is how a tracing backend gets expensive.
+    """
+    if request.url.path.startswith(UNTRACED):
+        return await call_next(request)
+
+    with observability.span("http.request",
+                            **{tracing.HTTP_METHOD: request.method}) as current:
+        response = await call_next(request)
+        # The matched route only exists after routing, which happens inside
+        # call_next — so the name is set here rather than up front.
+        route = request.scope.get("route")
+        template = getattr(route, "path", None)
+        if template:
+            current.set_attribute(tracing.HTTP_ROUTE, template)
+            current.update_name(f"{request.method} {template}")
+        current.set_attribute(tracing.HTTP_STATUS, response.status_code)
+        if response.status_code >= 500:
+            tracing.mark_failed(current, f"HTTP {response.status_code}")
+        return response
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +238,18 @@ def login(body: schemas.LoginIn, response: Response):
     roughly the same timing — a login form that answers faster for an
     unknown address is an account directory.
     """
-    found = credentials.authenticate(body.email, body.password)
+    # ⚠️ The attempted address is NOT recorded on failure. A trace store has
+    # no access control, and a stream of failed sign-ins with addresses in
+    # it is an account directory plus a list of what an attacker guessed.
+    # The username is recorded only once it is known to be genuine.
+    with observability.span("auth.login") as current:
+        try:
+            found = credentials.authenticate(body.email, body.password)
+        except AccessDenied:
+            current.set_attribute("enjaz.outcome", "refused")
+            raise
+        current.set_attributes({"enjaz.outcome": "signed_in",
+                                tracing.LF_USER_ID: found.username})
     config = SETTINGS.api
     try:
         token = cookie_module.sign(found.username, config.session_secret,
@@ -330,15 +382,18 @@ def close_conversation(token: str, who: identity_module.Identity = Depends(calle
 @app.get("/api/projects/{project_code}/documents",
          response_model=schemas.KnowledgeBaseOut, tags=["projects"])
 def knowledge_base(project_code: str,
-                   who: identity_module.Identity = Depends(caller)):
+                   found: credentials.Account = Depends(account)):
     """AC10 — the knowledge-base page: document type and indexing status.
 
     Read through a `Session`, so the gate authorises the project before a
     single row is fetched and row-level security scopes the read. View-only
     by construction: `spm_app` is `SELECT`-only.
     """
-    session = open_session(who.username, project_code, settings=SETTINGS)
-    with session.scoped(settings=SETTINGS) as cursor:
+    session = open_session(found.username, project_code, settings=SETTINGS)
+    with (
+        observability.span("knowledge_base.read", project=session.project_code),
+        session.scoped(settings=SETTINGS) as cursor,
+    ):
         rows = cursor.execute(
             "SELECT filename, doc_type, indexing_status, language, "
             "       chunk_count, indexed_at, file_size_bytes "

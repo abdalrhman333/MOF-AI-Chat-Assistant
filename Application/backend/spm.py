@@ -45,6 +45,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
+import observability
 from Application.backend.errors import BackendUnavailable
 from Application.backend.session import Session
 from pipeline.config import Settings
@@ -163,7 +164,10 @@ def fetch(session: Session, *, settings: Settings | None = None,
     A database that cannot be reached is different, and raises.
     """
     try:
-        with session.scoped(settings=settings, connection=connection) as cursor:
+        with (
+            observability.span("spm.fetch", project=session.project_code),
+            session.scoped(settings=settings, connection=connection) as cursor,
+        ):
             # The project code comes from the Session — the gate's own
             # output — never from a caller argument, so this filter cannot
             # be pointed at a project the user was not granted.
