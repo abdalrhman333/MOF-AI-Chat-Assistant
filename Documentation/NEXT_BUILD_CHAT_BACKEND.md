@@ -444,8 +444,8 @@ These cost real time to learn. All are recorded in full in
 
 ```bash
 docker compose ps                                            # 13 containers
-python infra/postgres-spm/apply_migrations.py --status        # 16 applied, 0 drifted
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 532 passed
+python infra/postgres-spm/apply_migrations.py --status        # 17 applied, 0 drifted
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 620 passed
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status     # exit 0, HEALTHY
 ```
 

@@ -1,6 +1,6 @@
 # Status & Roadmap — MOF Enjaz Chatbot
 
-**Last verified:** 2026-08-12
+**Last verified:** 2026-09-07
 
 ---
 
@@ -306,7 +306,7 @@ being followed; steps 1 and 2 are done.
 | # | Component | State |
 |---|---|---|
 | — | **Infrastructure** — 13 containers, all data on D: | ✅ |
-| — | **SPM schema** — 14 migrations, RLS, 23 regression tests | ✅ |
+| — | **SPM schema** — 17 migrations, RLS, 23 regression tests | ✅ |
 | — | **Ingestion pipeline** — scan → OCR → chunk → embed → index | ✅ 58 docs, 678 vectors |
 | — | **Operations** — worker, daily schedule, stage locks, health check | ✅ runs unattended |
 | **1** | **Retrieval evaluation** — 29 tagged questions, MRR + recall | ✅ 2026-08-09, §13b |
@@ -507,13 +507,19 @@ What it walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**353 tests, ~19s** — `test_answering.py` 50 + `test_session_gate.py` 42 +
-`test_retrieval_eval.py` 39 + `test_scanner.py` 38 + `test_tasks.py` 27 +
-`test_chunker.py` 26 + `test_ocr.py` 23 + `test_indexer.py` 23 +
-`test_rls.py` 23 + `test_native_extract.py` 22 + `test_status.py` 15 +
-`test_config.py` 13 + `test_locking.py` 12.
+**620 Python tests, ~20s**, across 23 files — the largest being
+`test_answering.py` 53, `test_conversation.py` 46, `test_session_gate.py`
+42, `test_ocr.py` 40, `test_retrieval_eval.py` 39, `test_observability.py`
+39, `test_scanner.py` 38, `test_auth.py` 38, `test_continuity.py` 33.
 *(Counted from `--collect-only`, not estimated — this number has needed
 correcting three times when it was inferred instead.)*
+
+That one command covers the **frontend** too: `test_frontend.py` shells out
+to `node --test` for the 25 JavaScript tests in `tests/frontend/`. They
+stay JavaScript because the thing under test is — testing the real page
+script through a Python approximation would be testing the approximation —
+and they **skip rather than fail** where node is absent, since nothing else
+in the project needs it.
 
 `test_rls.py` and `test_session_gate.py` are the only files that connect as
 **`spm_app`**. Every other file uses `spm_admin`, which bypasses row-level
@@ -526,7 +532,7 @@ they exercise the real lock, because atomic set-if-absent, expiry and
 compare-and-delete are exactly the properties a fake dictionary would not
 have.
 
-**Most of the 353 tests need `mof-postgres-spm` running**, and
+**Most of these tests need `mof-postgres-spm` running**, and
 `test_locking.py` / `test_tasks.py` / `test_status.py` need **Redis** as
 well. They create a throwaway
 project, exercise the **real** schema and constraints, and always roll
@@ -767,6 +773,137 @@ What is real, and belongs to the chat backend: Arabic scores ~0.40 against
 English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
 That is **ranking**, not retrieval — the answer is in the results every
 time.
+
+---
+
+## 23. Finalisation: the permanent gaps, the frontend, and tracing end to end (2026-09-07)
+
+The instruction was to finish the backend and frontend "from all aspects",
+resolve the permanent gaps, and connect Grafana and Langfuse to the whole
+process — with AD, real SharePoint and mid-chat upload explicitly out of
+scope. What follows is what was actually gapped, not a summary of what was
+already working.
+
+**Test count: 353 → 620 Python, plus 25 JavaScript. 17 migrations.**
+
+### 23a. The gaps that were real
+
+| Gap | Why it mattered | Closed by |
+|---|---|---|
+| Conversations lived in process memory | A restart lost every live chat, and a second worker could not see the first's | `api/redis_store.py`, durable and shared |
+| Nothing capped question rate | A signed-in loop was a bill, not a breach — but an obvious hole | `api/ratelimit.py`, keyed on the authenticated username |
+| `projects` had no `updated_at` | §3.3 requires each source to be cited **with its date**, and the record could only be attributed "created" | migration 017, backfilled honestly |
+| Document types were never classified | Everything ingested as `Unclassified` | `pipeline/classify.py`, Stage 1b |
+| A throttled OCR call failed the document | A transient error is not a bad file | transient-only retries in `pipeline/ocr.py` |
+| The router had no evaluation | Routing had moved into the model and nothing measured it | `evaluation/router_eval.py`, 59 probes |
+| The frontend had no tests at all | The only untested component in the system | `tests/frontend/`, 25 tests |
+| 27 settings were undocumented | Invisible: not findable by reading the template, defaults discoverable only from source | `.env.example`, plus a test in both directions |
+
+### 23b. Dead configuration, deleted rather than left switched off
+
+`LanguageSettings` and `IntentSettings` — some 5.5k of dataclass and env
+loader — survived §21's redesign as vestiges of the deterministic router.
+Nothing outside `config.py` had referenced them since; `INTENT_PHRASES_PATH`
+defaulted to a file that no longer exists. `LANGFUSE_BASE_URL` was the same
+story, superseded by the OTLP endpoint.
+
+⚠️ **Documented settings that change nothing are worse than undocumented
+ones.** An undocumented setting is merely hard to find. A documented one
+that no code reads tells a deployer they can steer behaviour they cannot,
+and the belief survives until something depends on it. Both directions are
+now tested — the stale-side test counts what `docker-compose.yml`
+interpolates as "read", scanned from compose rather than from a hand-kept
+prefix list that would drift and quietly excuse itself.
+
+### 23c. The frontend
+
+Three things a user would actually hit were unhandled:
+
+- **A 429 showed the server's English detail string to an Arabic reader.**
+  The server answers a rate limit with a status code, not prose, so the
+  wording is now chosen in the page in the UI language.
+- **A 403 after sign-in left a dead chat** that refused every message. It
+  now returns to sign-in, says why, and clears the conversation with it —
+  those turns belong to a session that no longer exists.
+- **The mockups' starter chips and indexed-document count were unbuilt.**
+  The chips are ordinary messages, not a menu: each takes the same path as
+  typed text, so the model still classifies it rather than being handed a
+  pre-decided intent.
+
+`renderTopbar` became the single writer of the header meta, so a slow
+document lookup cannot be clobbered by a project switch, and an absent
+count leaves the project code standing rather than showing a "0 documents"
+that reads as an answer about the project.
+
+**The tests run the real script from the real file** against a small DOM,
+no bundler and no dependencies. Two choices carry their weight:
+`getElementById` throws for an id the markup does not contain, so a `$()`
+typo fails there instead of on a user's click; and `innerHTML` is checked
+across the whole file to only ever receive a constant, which is the
+prompt-fencing argument applied to the DOM.
+
+A shipped Arabic typo surfaced while verifying in the browser — the
+dashboard read **لوحة المتحة**, which is not a word. It had sat in two
+places because nothing checked the strings. Two guards now cover the class
+rather than the instance: both dictionaries must hold the same keys, and no
+value may equal its own key (a missing key renders as the bare key —
+`try1` in the middle of an Arabic screen, with no warning).
+
+### 23d. Tracing, verified in both backends
+
+One instrumentation, two backends, and the same turn was read back out of
+each rather than assumed:
+
+| Span | Tempo | Meaning |
+|---|---|---|
+| `POST /api/conversations/{token}/messages` | 2808 ms | The route **template**, not the raw path — a thousand conversations group into one line |
+| `chat.turn` | 2790 ms | The answering work |
+| `chat gpt-5.4-mini` | 2045 ms | Three quarters of the total |
+| `retrieval.embed` | 590 ms | The other network call |
+| `retrieval.search` | 17 ms | Never the bottleneck |
+| `spm.fetch` | 2 ms | |
+
+Langfuse returned the same trace with 6 observations, from the same
+instrumentation. Tempo's query port is not published, so it is reached
+through Grafana's datasource proxy — recorded in `INVENTORY.md` §7,
+because the obvious `localhost:3200` simply refuses to connect.
+
+**The shape of that trace is the answer to "why three seconds?"** Searching
+is free; the two Azure calls are the entire cost. No amount of tuning the
+vector search will move it.
+
+### 23e. Verified live, not stubbed
+
+- Sign-in, then a chip answered through the model: `project_overview`, ten
+  named fields, cited and dated.
+- **Session expiry** could not be tested by deleting the cookie from the
+  page — it is `HttpOnly`, which is itself the confirmation. The signing
+  secret was rotated under a live browser session instead: the app returned
+  to sign-in with the expiry message and an emptied chat, and signing back
+  in restored everything.
+- All ten frontend mutations caught, then two more for the i18n guards.
+
+⚠️ **One mutation initially survived, and the fault was in my test.** It
+asserted that the model's chosen language beats guessing from the alphabet
+— using a plain English sentence, which guessing also gets right, so the
+test passed with the logic deleted. Rewritten to use an English answer
+naming an Arabic project, where the two genuinely disagree, it caught the
+break. A test that cannot fail is not a test, and only breaking it on
+purpose reveals which kind you have.
+
+### 23f. Still deliberately not built
+
+Unchanged, and unchanged on purpose: **real AD/SSO/OTP**, **a real
+SharePoint connection**, and **mid-chat document upload / CAG**. The
+knowledge-base screen shows the upload control disabled with a reason
+rather than hiding it, so the gap stays visible instead of silently
+missing.
+
+The one thing worth doing next that is not on this list is **streaming the
+answer**. §23d says why: the model is 2 s of a 2.8 s turn, and that is a
+number no amount of tuning elsewhere will move — but first tokens on screen
+in 400 ms would change how long the wait *feels* without changing what it
+*is*.
 
 ---
 

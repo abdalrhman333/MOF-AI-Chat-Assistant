@@ -5,7 +5,7 @@ file first.** It tells you what this project is, which documents to read in
 what order, and how to verify the real state of the system before changing
 anything.
 
-**Last verified:** 2026-09-07 — infra, full SPM schema (16 migrations,
+**Last verified:** 2026-09-07 — infra, full SPM schema (17 migrations,
 row-level security enabled), complete mock corpus, and **the entire
 ingestion pipeline built and run over all 58 documents**: discovery → OCR →
 chunk → embed → index, ending in **678 vectors across 9 per-project Qdrant
@@ -16,6 +16,19 @@ AC07), **an HTTP layer, demo sign-in and the full UI** — so the system runs
 in a browser. AC08 is measured, not asserted (p50 2333 ms / p95 2994 ms against
 a 5 s budget), and tracing goes to Grafana and Langfuse from one
 instrumentation.
+
+Run the whole thing, and check it:
+
+```bash
+.venv/Scripts/python -m Application.backend.api     # then open http://localhost:8000
+.venv/Scripts/python -m pytest tests/ -q            # expect 620 passed
+```
+
+That single `pytest` covers the frontend too: `tests/test_frontend.py`
+shells out to `node --test` for the 25 JavaScript tests in
+`tests/frontend/`, and **skips rather than fails** where node is absent.
+Sign in with any seeded address (e.g. `noura.alharbi@enjaz.gov.sa`) and
+the demo password from `INFRASTRUCTURE.md` §276.
 
 **Every acceptance criterion in the BRD is implemented.** Sign-in is
 *simulated* — email and password against seeded accounts, then a signed
@@ -122,7 +135,7 @@ find "/d/MOF_DataSample" -maxdepth 1 -type d
 ```
 
 ```bash
-python infra/postgres-spm/apply_migrations.py --status   # read-only; expect 16 applied, 0 pending, 0 drifted
+python infra/postgres-spm/apply_migrations.py --status   # read-only; expect 17 applied, 0 pending, 0 drifted
 ```
 
 Stages 0 and 1 have run: every `document_links` row carries a real SHA-256
