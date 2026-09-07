@@ -18,6 +18,7 @@ import pathlib
 
 import pytest
 
+from pipeline import config
 from pipeline.config import Settings, get_settings
 
 
@@ -126,3 +127,67 @@ def test_vector_size_matches_the_embedding_model():
 
 def test_settings_are_cached_per_process():
     assert get_settings() is get_settings()
+
+
+# ---------------------------------------------------------------------------
+# The template must describe the settings that actually exist
+# ---------------------------------------------------------------------------
+
+def _settings_read_by_config() -> set[str]:
+    """Every environment variable `config.py` actually reads."""
+    import pathlib
+    import re
+
+    source = pathlib.Path(config.__file__).read_text(encoding="utf-8")
+    return set(re.findall(
+        r"""_(?:optional|flag|require)\(\s*["']([A-Z][A-Z0-9_]+)["']""", source))
+
+
+def _template() -> str:
+    import pathlib
+    return (pathlib.Path(config.__file__).parents[1]
+            / "infra" / ".env.example").read_text(encoding="utf-8")
+
+
+def test_every_setting_is_documented_in_the_template():
+    """`.env.example` is the only place a deployer learns a setting exists.
+
+    A setting readable from the environment and absent from the template is
+    invisible: it cannot be found by reading the file, and its default is
+    discovered by reading source. Twenty-seven had drifted out of it — the
+    whole HTTP layer, conversation memory, rate limiting and classification
+    — which is what this test exists to stop repeating.
+    """
+    import re
+
+    template = _template()
+    undocumented = sorted(
+        name for name in _settings_read_by_config()
+        if not re.search(rf"^#?\s*{name}=", template, re.M)
+    )
+    assert not undocumented, (
+        "settings read but not in infra/.env.example: " + ", ".join(undocumented))
+
+
+def test_the_template_does_not_describe_settings_that_no_longer_exist():
+    """The other direction, and the one that rots quietly. A documented
+    setting nothing reads is worse than an undocumented one: it tells a
+    deployer they can change behaviour that no code consults. The
+    deterministic router's LANGUAGE_* and INTENT_* settings became exactly
+    that when the model took over routing.
+    """
+    import re
+
+    # The container stack owns variables too, so what compose interpolates
+    # counts as read. Scanning compose beats a hand-kept prefix list, which
+    # would itself drift and quietly excuse whatever it happened to match.
+    import pathlib
+
+    compose = (pathlib.Path(config.__file__).parents[1]
+               / "infra" / "docker-compose.yml").read_text(encoding="utf-8")
+    read = _settings_read_by_config() | set(
+        re.findall(r"\$\{([A-Z][A-Z0-9_]+)", compose))
+
+    documented = set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]+)=", _template(), re.M))
+    stale = sorted(documented - read)
+    assert not stale, "documented but read by nothing: " + ", ".join(stale)
