@@ -1,0 +1,366 @@
+{
+  "_comment": [
+    "Probe set for the LLM router (AC01 language + AC02 intent).",
+    "",
+    "The model decides both, so measuring them costs a completion per",
+    "probe -- this is NOT free like the deterministic harness it replaced.",
+    "Retagged 2026-09-07 for the new taxonomy: language is ar|en|mixed|",
+    "other, intent is one of the six the response schema allows.",
+    "",
+    "Empty and letterless inputs were DROPPED rather than retagged: with",
+    "no deterministic rule there is no defensible expectation for what",
+    "the model should call '?!?!', and a probe whose expected answer is",
+    "a guess measures the tagger, not the system.",
+    "Three tags corrected 2026-09-07 after the first run: the model was right and the tag was wrong. Recorded rather than silently edited -- a harness whose tags get tuned until it passes measures nothing."
+  ],
+  "probes": [
+    {
+      "text": "ما هي الميزانية المعتمدة للمشروع؟",
+      "language": "ar",
+      "intent": "project_question",
+      "note": "the commonest shape"
+    },
+    {
+      "text": "متى ينتهي المشروع حسب الخطة المعتمدة؟",
+      "language": "ar",
+      "intent": "project_question",
+      "note": ""
+    },
+    {
+      "text": "من هو مدير المشروع؟",
+      "language": "ar",
+      "intent": "project_question",
+      "note": ""
+    },
+    {
+      "text": "ما هي المخاطر الحالية وكيف يتم التعامل معها؟",
+      "language": "ar",
+      "intent": "project_question",
+      "note": ""
+    },
+    {
+      "text": "ما حالة PRJ-06؟",
+      "language": "ar",
+      "intent": "project_question",
+      "note": "trap 2 — a Latin code is not a second language"
+    },
+    {
+      "text": "ما هي مخاطر المشروع PRJ-03 لعام 2026؟",
+      "language": "ar",
+      "intent": "out_of_scope",
+      "note": "trap 2 with a year as well"
+    },
+    {
+      "text": "اعطني ملخص التقرير الأسبوعي الأخير",
+      "language": "ar",
+      "intent": "project_question",
+      "note": ""
+    },
+    {
+      "text": "What is the approved budget for this project?",
+      "language": "en",
+      "intent": "project_question",
+      "note": ""
+    },
+    {
+      "text": "Who is the project manager and which department sponsors it?",
+      "language": "en",
+      "intent": "project_question",
+      "note": ""
+    },
+    {
+      "text": "When is the planned completion date?",
+      "language": "en",
+      "intent": "project_question",
+      "note": ""
+    },
+    {
+      "text": "Summarise the latest weekly status report",
+      "language": "en",
+      "intent": "project_question",
+      "note": ""
+    },
+    {
+      "text": "What are the top risks for PRJ-06 in 2026?",
+      "language": "en",
+      "intent": "project_question",
+      "note": ""
+    },
+    {
+      "text": "ما هي الميزانية approved budget للمشروع الحالي؟",
+      "language": "mixed",
+      "intent": "project_question",
+      "note": ""
+    },
+    {
+      "text": "What is the حالة المشروع right now?",
+      "language": "mixed",
+      "intent": "project_question",
+      "note": ""
+    },
+    {
+      "text": "مرحبا",
+      "language": "ar",
+      "intent": "greeting",
+      "note": ""
+    },
+    {
+      "text": "السلام عليكم",
+      "language": "ar",
+      "intent": "greeting",
+      "note": ""
+    },
+    {
+      "text": "أهلاً",
+      "language": "ar",
+      "intent": "greeting",
+      "note": "diacritics and hamza folding"
+    },
+    {
+      "text": "Hello",
+      "language": "en",
+      "intent": "greeting",
+      "note": ""
+    },
+    {
+      "text": "Good morning",
+      "language": "en",
+      "intent": "greeting",
+      "note": ""
+    },
+    {
+      "text": "شكرا جزيلا",
+      "language": "ar",
+      "intent": "greeting",
+      "note": ""
+    },
+    {
+      "text": "Thank you",
+      "language": "en",
+      "intent": "greeting",
+      "note": ""
+    },
+    {
+      "text": "ما هي قدراتك؟",
+      "language": "ar",
+      "intent": "capability",
+      "note": ""
+    },
+    {
+      "text": "What can you do?",
+      "language": "en",
+      "intent": "capability",
+      "note": ""
+    },
+    {
+      "text": "Which project am I in?",
+      "language": "en",
+      "intent": "project_question",
+      "note": "retagged: capability means what you ARE, not which project"
+    },
+    {
+      "text": "ما هو المشروع الحالي؟",
+      "language": "ar",
+      "intent": "project_question",
+      "note": "retagged: same as the English form -- watch for the two diverging"
+    },
+    {
+      "text": "مرحبا، ما هي الميزانية المعتمدة للمشروع؟",
+      "language": "ar",
+      "intent": "project_question",
+      "note": "greeting attached to a real question — must not be swallowed"
+    },
+    {
+      "text": "Hello, what is the approved budget for this project?",
+      "language": "en",
+      "intent": "project_question",
+      "note": "same, in English"
+    },
+    {
+      "text": "شكرا، ومتى ينتهي المشروع؟",
+      "language": "ar",
+      "intent": "project_question",
+      "note": ""
+    },
+    {
+      "text": "Quel est le budget approuve pour ce projet cette annee?",
+      "language": "other",
+      "intent": "unsupported_language",
+      "note": "Latin script — only the discriminator can catch this"
+    },
+    {
+      "text": "Quel est le budget?",
+      "language": "other",
+      "intent": "unsupported_language",
+      "note": "19 chars — a live run answered this in English under the old length gate"
+    },
+    {
+      "text": "Quel est le statut?",
+      "language": "other",
+      "intent": "unsupported_language",
+      "note": "short French"
+    },
+    {
+      "text": "el presupuesto?",
+      "language": "other",
+      "intent": "unsupported_language",
+      "note": "short Spanish"
+    },
+    {
+      "text": "Qual e lo stato?",
+      "language": "other",
+      "intent": "unsupported_language",
+      "note": "short Italian"
+    },
+    {
+      "text": "When does it end?",
+      "language": "en",
+      "intent": "project_question",
+      "note": "the identifier calls this German at 0.473 — must NOT be rejected"
+    },
+    {
+      "text": "project status",
+      "language": "en",
+      "intent": "project_question",
+      "note": "low-confidence English must still pass"
+    },
+    {
+      "text": "Tell me more",
+      "language": "en",
+      "intent": "project_question",
+      "note": "short, referential — AC03 handles it, AC01 must not reject it"
+    },
+    {
+      "text": "Cual es el presupuesto aprobado para este proyecto?",
+      "language": "other",
+      "intent": "unsupported_language",
+      "note": ""
+    },
+    {
+      "text": "Wie hoch ist das genehmigte Budget fuer dieses Projekt?",
+      "language": "other",
+      "intent": "unsupported_language",
+      "note": ""
+    },
+    {
+      "text": "这个项目的预算是多少",
+      "language": "other",
+      "intent": "unsupported_language",
+      "note": "Han"
+    },
+    {
+      "text": "Каков бюджет этого проекта",
+      "language": "other",
+      "intent": "unsupported_language",
+      "note": "Cyrillic"
+    },
+    {
+      "text": "מה תקציב הפרויקט הזה",
+      "language": "other",
+      "intent": "unsupported_language",
+      "note": "Hebrew — RTL but not Arabic"
+    },
+    {
+      "text": "このプロジェクトの予算はいくらですか",
+      "language": "other",
+      "intent": "unsupported_language",
+      "note": "Japanese"
+    },
+    {
+      "text": "इस परियोजना का बजट क्या है",
+      "language": "other",
+      "intent": "unsupported_language",
+      "note": "Devanagari"
+    },
+    {
+      "text": "قم بتحديث حالة المشروع إلى مكتمل",
+      "language": "ar",
+      "intent": "out_of_scope",
+      "note": "a request to change data -- the prompt puts this out of scope"
+    },
+    {
+      "text": "Update the project status to completed",
+      "language": "en",
+      "intent": "out_of_scope",
+      "note": "write_action"
+    },
+    {
+      "text": "Send an email to the sponsor about the delay",
+      "language": "en",
+      "intent": "out_of_scope",
+      "note": "write_action"
+    },
+    {
+      "text": "قارن ميزانية هذا المشروع بميزانية PRJ-03",
+      "language": "ar",
+      "intent": "out_of_scope",
+      "note": "cross_project — tier 2 by design"
+    },
+    {
+      "text": "What is the budget of PRJ-03?",
+      "language": "en",
+      "intent": "out_of_scope",
+      "note": "cross_project"
+    },
+    {
+      "text": "ما هي عاصمة فرنسا؟",
+      "language": "ar",
+      "intent": "out_of_scope",
+      "note": "out_of_scope — the relevance floor catches this"
+    },
+    {
+      "text": "Write me a poem about budgets",
+      "language": "en",
+      "intent": "out_of_scope",
+      "note": "out_of_scope"
+    },
+    {
+      "text": "أعطني نظرة عامة عن المشروع",
+      "language": "ar",
+      "intent": "project_overview",
+      "note": "QA1.1 -- the ten-field overview"
+    },
+    {
+      "text": "Give me an overview of this project",
+      "language": "en",
+      "intent": "project_overview"
+    },
+    {
+      "text": "ما هو ملخص حالة المشروع؟",
+      "language": "ar",
+      "intent": "project_overview"
+    },
+    {
+      "text": "summarise the project status",
+      "language": "en",
+      "intent": "project_overview"
+    },
+    {
+      "text": "ما هو رقم هاتف مدير المشروع؟",
+      "language": "ar",
+      "intent": "project_question",
+      "note": "in scope but absent from the sources -- must answer, not refuse the topic"
+    },
+    {
+      "text": "مرحبا، ما الميزانية المعتمدة؟",
+      "language": "ar",
+      "intent": "project_question",
+      "note": "greeting attached to a real question -- classify by the question"
+    },
+    {
+      "text": "Wie hoch ist das Budget?",
+      "language": "other",
+      "intent": "unsupported_language"
+    },
+    {
+      "text": "この案件の予算は？",
+      "language": "other",
+      "intent": "unsupported_language"
+    },
+    {
+      "text": "من أنت وماذا تفعل؟",
+      "language": "ar",
+      "intent": "capability"
+    }
+  ]
+}

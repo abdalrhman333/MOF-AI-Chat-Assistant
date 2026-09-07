@@ -1,0 +1,80 @@
+{
+  "_comment": [
+    "Recorded baseline for the LLM router, 2026-09-07.",
+    "Measured against gpt-5.4-mini on this corpus and this probe set — both",
+    "are named below, because the numbers mean nothing without them.",
+    "The three misses are recorded rather than tagged away: each is",
+    "defensible model behaviour, and a harness tuned until it passes",
+    "measures the tagger rather than the system.",
+    "",
+    "OBSERVED RANGE, not a fixed number: two consecutive runs of the same",
+    "probe set against the same model gave language 0.983 and 0.966. The",
+    "call is temperature 0, so this is provider-side nondeterminism, not a",
+    "code change. That is why the thresholds sit at 0.95 / 0.85 rather than",
+    "at the measured value -- a threshold pinned to a lucky run fails on the",
+    "next one and teaches everyone to ignore the check."
+  ],
+  "measured_at": "2026-09-07",
+  "model": "gpt-5.4-mini",
+  "project": "PRJ-06",
+  "probes": 59,
+  "language_accuracy": 0.966,
+  "intent_accuracy": 0.966,
+  "mean_ms": 1878,
+  "by_language": {
+    "ar": {
+      "n": 23,
+      "ok": 23
+    },
+    "en": {
+      "n": 20,
+      "ok": 20
+    },
+    "mixed": {
+      "n": 2,
+      "ok": 0
+    },
+    "other": {
+      "n": 14,
+      "ok": 14
+    }
+  },
+  "known_misses": [
+    {
+      "text": "Ù…Ø§ Ù‡ÙŠ Ø§Ù„Ù…ÙŠØ²Ø§Ù†ÙŠØ© approved budget Ù„Ù„Ù…Ø´Ø±ÙˆØ¹ Ø§Ù„Ø­Ø§Ù„ÙŠØŸ",
+      "expected_language": "mixed",
+      "actual_language": "ar",
+      "expected_intent": "project_question",
+      "actual_intent": "project_question",
+      "note": ""
+    },
+    {
+      "text": "What is the Ø­Ø§Ù„Ø© Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ right now?",
+      "expected_language": "mixed",
+      "actual_language": "en",
+      "expected_intent": "project_question",
+      "actual_intent": "project_question",
+      "note": ""
+    },
+    {
+      "text": "Ù…Ø§ Ù‡Ùˆ Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ Ø§Ù„Ø­Ø§Ù„ÙŠØŸ",
+      "expected_language": "ar",
+      "actual_language": "ar",
+      "expected_intent": "project_question",
+      "actual_intent": "project_overview",
+      "note": "retagged: same as the English form -- watch for the two diverging"
+    },
+    {
+      "text": "project status",
+      "expected_language": "en",
+      "actual_language": "en",
+      "expected_intent": "project_question",
+      "actual_intent": "project_overview",
+      "note": "low-confidence English must still pass"
+    }
+  ],
+  "observed_language_range": [
+    0.966,
+    0.983
+  ]
+}
