@@ -28,7 +28,7 @@
   `INFRASTRUCTURE.md` §4.1).
 - [x] **Cloud model provider selection — all Azure, all provisioned and
   verified live**, across **two separate Azure accounts**:
-  - **LLM** (account #1): Azure OpenAI `gpt-5.4-mini` via an Azure AI
+  - **LLM** (account #2 since 2026-09-07, §22): Azure OpenAI `gpt-5.4-mini` via an Azure AI
     Foundry unified endpoint (`*.services.ai.azure.com` — not the classic
     `*.openai.azure.com` resource format). Verified live
     (`gpt-5.4-mini-2026-03-17`, confirmed working in Arabic).
@@ -336,7 +336,7 @@ measured, and exercised end to end:
 |---|---|
 | AC01 language · AC02 intent · AC03 continuity · AC04 welcome | ✅ §17, §18 |
 | AC05 reply-in-kind · AC06 grounded + cited · AC07 fallback | ✅ §15, §16, §17 |
-| AC08 response time | ✅ measured, p50 1845 / p95 2782 ms, §19 |
+| AC08 response time | ✅ measured, p50 2333 / p95 2994 ms, §19, §22 |
 | AC09 no cross-project access | ✅ four layers, §14, §20a–b |
 | AC10 knowledge-base page · AC11 document links | ✅ §20, §11 |
 | AC08 *(dup)* SSO/OTP sign-in | ⬜ **deferred — external dependency** |
@@ -767,6 +767,79 @@ What is real, and belongs to the chat backend: Arabic scores ~0.40 against
 English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
 That is **ranking**, not retrieval — the answer is in the results every
 time.
+
+---
+
+## 22. The LLM account moved, and a key that looked right was not (2026-09-07)
+
+After three weeks idle the assistant could sign a user in, open a
+conversation and render the welcome — but could not answer. Account #1's
+subscription key had stopped authenticating: `401 — Access denied due to
+invalid subscription key`. Embeddings and retrieval were unaffected, so the
+failure was one credential, not the stack.
+
+### 22a. The screenshot key was not the fix
+
+`gpt-5.4-mini` had been redeployed onto **account #2's** resource
+(`sce-foundry1`) — the one the embeddings already used — and the Azure
+portal showed an endpoint and a key for it.
+
+**That key returned 401 on every surface tried**: the v1 route with
+`api-key`, the v1 route with `Authorization: Bearer`, and the classic
+`/openai/deployments/{name}/chat/completions` route. Meanwhile the key
+**already in `.env` for embeddings returned 200 on both surfaces** for the
+same deployment.
+
+So the deployment was reachable all along and needed no new secret: it lives
+on a resource we were already authenticated against. The fix was two lines
+of `.env` — repoint `AZURE_OPENAI_LLM_ENDPOINT` at `sce-foundry1` and reuse
+the account-#2 key.
+
+⚠️ **The general lesson: a credential shown next to a resource is not
+evidence that it authenticates that resource.** Probing four
+endpoint/key/route combinations took under a minute and turned a guess into
+a fact — and avoided persisting a secret that does not work, which would
+have produced exactly the same 401 with a much more confusing cause.
+
+### 22b. The two-account split is gone, and that is a real trade
+
+All three roles — LLM, embeddings, OCR — now sit on one resource and one
+key. **A single expired or rotated key now takes down generation *and*
+retrieval *and* ingestion together**, where previously an LLM outage still
+left the corpus searchable. Recorded rather than glossed; a production
+deployment should decide whether that blast radius is acceptable.
+
+Nothing in the code assumed the split. `config.py` groups model settings by
+**role**, not by account, which is exactly why moving one role was a
+configuration change and not a code change (§4.1's original reasoning,
+paying off in the direction it was written for).
+
+### 22c. AC08, re-measured on the new deployment
+
+| | before (§19) | now |
+|---|---|---|
+| p50 / p95 | 1845 / 2782 ms | **2333 / 2994 ms** |
+| within budget | 18/18 | **18/18** |
+| mean LLM phase | 2020 ms | 2041 ms |
+
+Slightly slower at the median and still comfortably inside the five-second
+budget. Warm-up also dropped from ~20 s to 4.8 s, which says the earlier
+figures were taken during a degraded network rather than that the new
+deployment is faster.
+
+### 22d. A secret nearly became a tracked file
+
+Backing up `infra/.env` before editing produced `infra/.env.bak.<date>` —
+and **`.gitignore` only ignored `infra/.env` exactly**, so the backup, which
+contained the old key, was a tracked file waiting to be committed.
+
+Deleted, and the rule widened to `infra/.env.*` with `!infra/.env.example`
+so the template stays tracked. Verified in both directions rather than
+assumed: a probe backup is ignored, and `.env.example` still is not.
+
+⚠️ **A dead credential is still a credential.** The old key had stopped
+working, which is exactly the reasoning that makes it easy to leave lying
+around in a repository.
 
 ---
 

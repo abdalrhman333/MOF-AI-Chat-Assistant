@@ -139,9 +139,23 @@ SharePoint/AD ecosystem this platform already lives in:
 
 | Capability | Provider | Azure account | Status |
 |---|---|---|---|
-| LLM | Azure OpenAI `gpt-5.4-mini`, via an Azure AI Foundry unified endpoint (`*.services.ai.azure.com`) | Account #1 | ✅ Provisioned, credentials verified live (Arabic + English) |
-| Embeddings | Azure OpenAI `text-embedding-3-small` (deployment name saved truncated as `text-embedding-3-S`, cosmetic only) | Account #2 (separate from LLM) | ✅ Provisioned, verified live — **1536-dimension vectors** |
-| OCR | Azure AI Document Intelligence (resource `DI-Enjaz`, East US, Standard tier) | Account #2 (separate from LLM) | ✅ Provisioned, verified live (`prebuilt-read`, `prebuilt-layout` models confirmed available) |
+| LLM | Azure OpenAI `gpt-5.4-mini`, via an Azure AI Foundry unified endpoint (`*.services.ai.azure.com`) | **Account #2** (moved 2026-09-07) | ✅ Verified live (Arabic + English) |
+| Embeddings | Azure OpenAI `text-embedding-3-small` (deployment name saved truncated as `text-embedding-3-S`, cosmetic only) | Account #2 | ✅ Verified live — **1536-dimension vectors** |
+| OCR | Azure AI Document Intelligence (resource `DI-Enjaz`, East US, Standard tier) | Account #2 | ✅ Verified live (`prebuilt-read`, `prebuilt-layout` models confirmed available) |
+
+⚠️ **The two-account split is gone as of 2026-09-07.** Account #1's
+subscription key stopped authenticating (`401 — invalid subscription key`)
+and `gpt-5.4-mini` was redeployed onto account #2's resource
+(`sce-foundry1`), where the embeddings already lived. All three roles now
+sit on one resource and one key.
+
+That is a **reduction in isolation**, recorded rather than glossed: a single
+expired or rotated key now takes down retrieval *and* generation *and*
+ingestion together, where previously an LLM outage still left the corpus
+searchable. Nothing in the code assumes the split — `config.py` groups model
+settings by role, not by account, which is exactly why moving one role was a
+two-line `.env` change — but a production deployment should weigh whether
+one blast radius is what it wants.
 
 **1536 dimensions is now a fixed parameter** — every per-project Qdrant
 collection created by the ingestion pipeline must be configured with

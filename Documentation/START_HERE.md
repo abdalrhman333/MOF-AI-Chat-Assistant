@@ -5,7 +5,7 @@ file first.** It tells you what this project is, which documents to read in
 what order, and how to verify the real state of the system before changing
 anything.
 
-**Last verified:** 2026-08-17 — infra, full SPM schema (16 migrations,
+**Last verified:** 2026-09-07 — infra, full SPM schema (16 migrations,
 row-level security enabled), complete mock corpus, and **the entire
 ingestion pipeline built and run over all 58 documents**: discovery → OCR →
 chunk → embed → index, ending in **678 vectors across 9 per-project Qdrant
@@ -13,7 +13,7 @@ collections**. Retrieval quality is measured, not guessed
 (`evaluation/`). `Application/` holds the AC09 session gate, grounded
 answering over RAG + live SPM, the whole conversational layer (AC01–AC05,
 AC07), **an HTTP layer, demo sign-in and the full UI** — so the system runs
-in a browser. AC08 is measured, not asserted (p50 1845 ms / p95 2782 ms against
+in a browser. AC08 is measured, not asserted (p50 2333 ms / p95 2994 ms against
 a 5 s budget), and tracing goes to Grafana and Langfuse from one
 instrumentation.
 
@@ -26,6 +26,12 @@ do not exist here.
 .venv/Scripts/python -m Application.backend.api      # http://127.0.0.1:8000
 # sign in as noura.alharbi@enjaz.gov.sa / Enjaz@2026  (she holds 3 projects)
 ```
+
+⚠️ **All three Azure roles share one resource and one key** since
+2026-09-07 (§22). The LLM moved to account #2 when account #1's key stopped
+authenticating, so a single expired key now takes down generation,
+retrieval *and* ingestion together. `config.py` groups model settings by
+role rather than by account, which is why that move was a `.env` change.
 
 ⚠️ **The model is the router.** Since 2026-08-17 the language check and the
 intent classifier are gone from the code: every message goes to the model,

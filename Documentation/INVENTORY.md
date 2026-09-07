@@ -1,6 +1,6 @@
 # Inventory — Folders, Tools, Models, Libraries
 
-**Last verified:** 2026-08-12
+**Last verified:** 2026-09-07
 
 A tracking reference for everything installed, downloaded, or created on
 this machine for this project — what it is, why it exists, and how to
@@ -72,15 +72,22 @@ All credentials live in `infra/.env` (gitignored); variable names/purposes docum
 
 ---
 
-## 3. Cloud AI models — all Azure, two separate accounts, all verified live
+## 3. Cloud AI models — all Azure, ONE account since 2026-09-07, all verified live
 
 | Capability | Model | Account | Why this one |
 |---|---|---|---|
-| **LLM** | `gpt-5.4-mini`, via an Azure AI Foundry unified endpoint | Account 1 | Chat responses, structured output |
-| **Embeddings** | `text-embedding-3-small` (1536-dim) | Account 2 | Text → searchable vectors |
+| **LLM** | `gpt-5.4-mini`, via an Azure AI Foundry unified endpoint (`sce-foundry1`) | Account 2 *(moved 2026-09-07)* | Chat responses, structured output |
+| **Embeddings** | `text-embedding-3-small` (1536-dim, `sce-foundry1`) | Account 2 | Text → searchable vectors |
 | **OCR** | Azure AI Document Intelligence, `prebuilt-layout` model | Account 2 | Chosen over `prebuilt-read` specifically for table/structure extraction — verified live on real scanned Arabic content |
 
 Credentials in `infra/.env` under `AZURE_OPENAI_LLM_*`, `AZURE_OPENAI_EMBEDDING_*`, `AZURE_DOCUMENT_INTELLIGENCE_*`. Full reasoning: `SOLUTION_ARCHITECTURE.md` §4.1.
+
+⚠️ **The LLM and embedding endpoint/key pairs now hold identical values**,
+because all three roles share one resource. They stay separate variables on
+purpose — `config.py` groups model settings by role, not by account, which
+is what made the move a two-line `.env` change. The trade is a single blast
+radius: one expired key stops generation, retrieval and ingestion together.
+See `STATUS_AND_ROADMAP.md` §22.
 
 ---
 

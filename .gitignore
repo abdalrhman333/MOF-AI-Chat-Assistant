@@ -1,4 +1,6 @@
 infra/.env
+infra/.env.*
+!infra/.env.example
 
 # App attachment storage (screenshots pasted into chat), not project content
 Tools ACC/

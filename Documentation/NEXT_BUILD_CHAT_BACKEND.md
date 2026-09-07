@@ -30,7 +30,7 @@ Straight from the BRD (`..\My_Prompts\SOLUTION_SCOPE.md`), not paraphrased:
 | **AC05** | Reply in the same language as the question | ✅ **done** — told, not inferred, §17c |
 | **AC06** | Answers grounded **only** in indexed documents, with the source cited | ✅ **done** — §15, §16 |
 | **AC07** | Clear, safe fallback for out-of-scope queries | ✅ **done** — §17c |
-| **AC08** | Response time ≤ 5 seconds under normal conditions | ✅ **measured** — p50 1845 / p95 2782 ms, §19 |
+| **AC08** | Response time ≤ 5 seconds under normal conditions | ✅ **measured** — p50 2333 / p95 2994 ms, §19 |
 | **AC08** *(dup)* | Authorized user signs in via SSO/OTP | ⚠️ **simulated** — email + password + signed cookie, §21c. Real SSO/OTP still deferred |
 | **AC09** | No user can view documents of a project not assigned to them | ✅ **done** — four layers, §2, §14, §20a–b |
 | **AC10** | Knowledge-base page shows document type + indexing status | ✅ **done** — §20 |
@@ -289,7 +289,7 @@ instrumentation), `Application/backend/clients.py` (the AC08 fix), and
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.latency_bench
 ```
 
-**Measured: p50 1845 ms, p95 2782 ms** against the 5 s budget, with the LLM
+**Measured: p50 2333 ms, p95 2994 ms** against the 5 s budget, with the LLM
 call ~80% of a turn. The fix was setup, not the model: every question had
 been rebuilding all three clients, ~2.3 s of pure overhead.
 
