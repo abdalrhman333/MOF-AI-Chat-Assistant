@@ -191,6 +191,26 @@ test("the chips go away once the conversation has started", async () => {
   assert.ok(a.el("chips").classList.contains("hidden"));
 });
 
+test("the two dictionaries hold the same keys", () => {
+  // A key present in one language and missing from the other renders as the
+  // key itself — "try1" in the middle of an Arabic screen. Nothing warns.
+  const a = load();
+  const ar = Object.keys(a.get("T").ar).sort();
+  const en = Object.keys(a.get("T").en).sort();
+  assert.deepEqual(ar.filter((k) => !en.includes(k)), [], "missing from en");
+  assert.deepEqual(en.filter((k) => !ar.includes(k)), [], "missing from ar");
+});
+
+test("no translation is left as its own key", () => {
+  const a = load();
+  for (const lang of ["ar", "en"]) {
+    for (const [key, value] of Object.entries(a.get("T")[lang])) {
+      assert.notEqual(value, key, `${lang}.${key} was never translated`);
+      assert.ok(String(value).trim(), `${lang}.${key} is empty`);
+    }
+  }
+});
+
 test("the chips are translated, not raw keys", () => {
   const a = load();
   a.set("UI", "en");
