@@ -96,9 +96,14 @@ test("innerHTML is only ever assigned a constant", () => {
 // Reply direction comes from the server's detection
 // ---------------------------------------------------------------------------
 
-test("the server's detected language sets the direction", async () => {
+test("the server's detected language beats the script of the text", async () => {
+  // An English answer that names an Arabic project: the script heuristic
+  // sees Arabic letters and would flip the whole bubble to RTL. The model
+  // already decided the reply language, so that decision wins — the
+  // heuristic is only for text the server never labelled.
   const a = await chatting({ "/messages": { status: 200, body:
-    { ...REPLY, text: "Budget is 12M", reply_language: "en" } } });
+    { ...REPLY, text: "The budget for مشروع الرقمنة is 12M SAR.",
+      reply_language: "en" } } });
   await a.ask("hi");
   assert.equal(a.el("chatView").children.at(-1).dir, "ltr",
     "the model detected the language; the page must not re-decide it");
