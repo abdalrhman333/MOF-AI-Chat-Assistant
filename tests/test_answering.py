@@ -602,7 +602,8 @@ ROW = ("PRJ-TEST", "مشروع", "Test Project", None, "A project.", "at-risk",
        dt.date(2025, 1, 15), dt.date(2026, 9, 30), 22900000,
        None, "General Budget Agency", dt.datetime(2026, 8, 1, tzinfo=dt.timezone.utc),
        None, None, "م. سلطان", "Eng. Sultan", 74,
-       "التنفيذ", "Execution", "اختبار القبول", "UAT")
+       "التنفيذ", "Execution", "اختبار القبول", "UAT",
+       dt.datetime(2026, 8, 1, tzinfo=dt.timezone.utc))
 
 
 def test_the_record_read_filters_by_the_session_s_project_explicitly():
@@ -648,3 +649,19 @@ def test_no_record_for_this_project_is_not_an_error():
 def test_spm_timing_is_recorded_separately():
     answer = run(project_record=RECORD)
     assert answer.timings.total_ms >= answer.timings.spm_ms >= 0
+
+
+def test_an_updated_record_is_attributed_by_when_it_changed():
+    """§3.3 wants a date a project manager can compare against a document's
+    date. "created" is the wrong fact once a row has been edited."""
+    row = list(ROW)
+    row[-1] = dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc)   # updated later
+    record = spm.fetch(SESSION, settings=settings(), connection=StubConn(tuple(row)))
+    assert record.as_of == "record updated 2026-09-01"
+
+
+def test_an_untouched_record_still_says_created():
+    """Labelling a row nobody edited "updated" would be exactly the invented
+    provenance §16b refused."""
+    record = spm.fetch(SESSION, settings=settings(), connection=StubConn(ROW))
+    assert record.as_of.startswith("record created")

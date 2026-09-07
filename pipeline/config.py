@@ -334,6 +334,12 @@ class ApiSettings:
     conversation_idle_minutes: int = 60
     max_conversations: int = 500
     max_question_chars: int = 2000
+    # Questions per user per window. Every answered turn costs an embedding
+    # and a completion, so this is a budget guard rather than a security
+    # control. 0 disables it, which is what lets a demo run without a limit
+    # without needing a second flag to say so.
+    rate_limit_questions: int = 30
+    rate_limit_window_seconds: int = 60
     cors_origins: tuple[str, ...] = ()
 
 
@@ -716,6 +722,13 @@ def _api_from_env() -> ApiSettings:
         ),
         max_question_chars=int(
             _optional("API_MAX_QUESTION_CHARS", str(d.max_question_chars))
+        ),
+        rate_limit_questions=int(
+            _optional("API_RATE_LIMIT_QUESTIONS", str(d.rate_limit_questions))
+        ),
+        rate_limit_window_seconds=int(
+            _optional("API_RATE_LIMIT_WINDOW_SECONDS",
+                      str(d.rate_limit_window_seconds))
         ),
         cors_origins=tuple(o.strip() for o in raw_origins.split(",") if o.strip()),
     )

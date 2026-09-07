@@ -52,6 +52,9 @@ def fake_stages(monkeypatch):
             self.chunks = 2
             self.tokens = 100
             self.collections_created = []
+            self.candidates = []
+            self.classified = []
+            self.left_unclassified = []
 
         @property
         def writes(self):
@@ -68,12 +71,17 @@ def fake_stages(monkeypatch):
         calls.append(("ocr", project))
         return Report()
 
+    def classify_run(*_a, **_kw):
+        calls.append(("classify", None))
+        return Report()
+
     def index_run(project=None, **_kw):
         calls.append(("index", project))
         return Report()
 
     monkeypatch.setattr(tasks.scanner, "scan", scan)
     monkeypatch.setattr(tasks.ocr, "run", ocr_run)
+    monkeypatch.setattr(tasks.classify, "run", classify_run)
     monkeypatch.setattr(tasks.indexer, "run", index_run)
     return calls
 
@@ -131,18 +139,23 @@ def test_ingest_returns_an_outcome_not_task_ids(fake_stages):
     result = tasks.do_ingest()
 
     assert result["ok"] is True
-    assert [s["stage"] for s in result["stages"]] == ["scan", "ocr", "index"]
+    assert [s["stage"] for s in result["stages"]] == ["scan", "ocr",
+                                                      "classify", "index"]
     assert all(isinstance(s, dict) for s in result["stages"])
 
 
 def test_ingest_runs_the_stages_in_order(fake_stages):
     tasks.do_ingest()
-    assert [name for name, _ in fake_stages] == ["scan", "ocr", "index"]
+    assert [name for name, _ in fake_stages] == ["scan", "ocr", "classify",
+                                                 "index"]
 
 
 def test_ingest_passes_the_project_to_every_stage(fake_stages):
     tasks.do_ingest("PRJ-03")
-    assert fake_stages == [("scan", "PRJ-03"), ("ocr", "PRJ-03"), ("index", "PRJ-03")]
+    # `classify` takes no project: its pending set is "every row still
+    # marked Unclassified", which is already the cheap and correct scope.
+    assert fake_stages == [("scan", "PRJ-03"), ("ocr", "PRJ-03"),
+                           ("classify", None), ("index", "PRJ-03")]
 
 
 def test_a_failing_stage_does_not_stop_the_rest(monkeypatch, fake_stages):
@@ -184,10 +197,18 @@ def test_a_skipped_stage_keeps_ingest_ok(fake_stages):
 # Registration and configuration
 # ---------------------------------------------------------------------------
 
-def test_all_four_tasks_are_registered():
+def test_every_stage_is_registered_as_a_task():
     registered = {n for n in tasks.app.tasks if n.startswith("pipeline.")}
-    assert registered == {"pipeline.scan", "pipeline.ocr",
+    assert registered == {"pipeline.scan", "pipeline.ocr", "pipeline.classify",
                           "pipeline.index", "pipeline.ingest"}
+
+
+def test_classify_runs_between_ocr_and_indexing(fake_stages):
+    """It needs text to read, and the indexer's citations carry the label it
+    writes — so it belongs after one and before the other."""
+    tasks.do_ingest()
+    order = [name for name, _ in fake_stages]
+    assert order.index("ocr") < order.index("classify") < order.index("index")
 
 
 def test_the_schedule_is_a_daily_wall_clock_time(fake_stages=None):

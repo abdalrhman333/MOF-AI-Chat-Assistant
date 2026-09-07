@@ -30,7 +30,7 @@ from celery import Celery
 from celery.schedules import crontab
 from celery.signals import setup_logging
 
-from pipeline import indexer, ocr, scanner
+from pipeline import classify, indexer, ocr, scanner
 from pipeline.config import get_settings
 from pipeline.locking import AlreadyRunning, stage_lock
 
@@ -177,6 +177,27 @@ def do_ocr(project: str | None = None) -> dict:
     return _run_stage("ocr", work)
 
 
+def do_classify(project: str | None = None) -> dict:
+    """Stage 1b — give newly discovered documents a type.
+
+    Sits between OCR and indexing because it needs text to read and the
+    indexer's citations carry the label. Costs one completion per
+    *unclassified* document and nothing at all on an unchanged corpus, so it
+    is safe on the daily schedule.
+
+    `project` is accepted for signature symmetry with the other stages and
+    ignored: the pending set is "every row still marked Unclassified", which
+    is already the cheap and correct scope.
+    """
+    def work():
+        report = classify.run()
+        return {"candidates": len(report.candidates),
+                "classified": len(report.classified),
+                "left_unclassified": len(report.left_unclassified),
+                "failed": len(report.failed)}
+    return _run_stage("classify", work)
+
+
 def do_index(project: str | None = None) -> dict:
     """Stages 2+3 — chunk, embed, index. Billed per token, but pennies."""
     def work():
@@ -206,7 +227,8 @@ def do_ingest(project: str | None = None) -> dict:
     """
     results = [
         _safe(name, fn, project)
-        for name, fn in (("scan", do_scan), ("ocr", do_ocr), ("index", do_index))
+        for name, fn in (("scan", do_scan), ("ocr", do_ocr),
+                         ("classify", do_classify), ("index", do_index))
     ]
     return {"ok": all(r.get("ok") for r in results), "stages": results}
 
@@ -228,6 +250,11 @@ def scan(project: str | None = None) -> dict:
 @app.task(name="pipeline.ocr", **_RETRY)
 def extract(project: str | None = None) -> dict:
     return do_ocr(project)
+
+
+@app.task(name="pipeline.classify", **_RETRY)
+def classify_task(project: str | None = None) -> dict:
+    return do_classify(project)
 
 
 @app.task(name="pipeline.index", **_RETRY)
@@ -271,7 +298,8 @@ app.conf.beat_schedule = {
 # Manual trigger
 # ---------------------------------------------------------------------------
 
-_TASKS = {"scan": scan, "ocr": extract, "index": index, "ingest": ingest}
+_TASKS = {"scan": scan, "ocr": extract, "classify": classify_task,
+          "index": index, "ingest": ingest}
 
 
 def main(argv: list[str] | None = None) -> int:

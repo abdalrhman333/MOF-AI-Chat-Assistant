@@ -55,7 +55,7 @@ _SELECT = """
            start_date, planned_end_date, budget_sar,
            sponsoring_department_ar, sponsoring_department_en, created_at,
            owner_ar, owner_en, manager_ar, manager_en, completion_percent,
-           phase_ar, phase_en, stage_ar, stage_en
+           phase_ar, phase_en, stage_ar, stage_en, updated_at
     FROM projects
     WHERE code = %s
 """
@@ -76,6 +76,7 @@ class ProjectRecord:
     sponsor_ar: str | None
     sponsor_en: str | None
     recorded_at: dt.datetime | None
+    updated_at: dt.datetime | None = None
     # The five fields migration 016 added, so the overview request (QA1.1)
     # can be answered from the system of record rather than assembled out of
     # whatever the documents happen to mention.
@@ -91,10 +92,23 @@ class ProjectRecord:
 
     @property
     def as_of(self) -> str:
-        """What this record can honestly claim about its own currency."""
-        if self.recorded_at is None:
-            return "date unknown"
-        return f"record created {self.recorded_at:%Y-%m-%d}"
+        """What this record can honestly claim about its own currency.
+
+        §3.3 wants a date on every source so a project manager comparing two
+        claims can see which is newer. Migration 017 finally gives the table
+        a maintained `updated_at`, so the record can say when it last
+        *changed* rather than when it was first written — which is the fact
+        the comparison actually needs.
+
+        A row nobody has edited reports its creation date, and says so.
+        Labelling an untouched row "updated" would be the invented
+        provenance §16b refused.
+        """
+        if self.updated_at and self.recorded_at and self.updated_at > self.recorded_at:
+            return f"record updated {self.updated_at:%Y-%m-%d}"
+        if self.recorded_at is not None:
+            return f"record created {self.recorded_at:%Y-%m-%d}"
+        return "date unknown"
 
     def as_prompt_block(self) -> str:
         """Rendered for the model — labelled, dated, and clearly not a document.
@@ -182,7 +196,7 @@ def fetch(session: Session, *, settings: Settings | None = None,
     (code, name_ar, name_en, desc_ar, desc_en, status, start, end,
      budget, sponsor_ar, sponsor_en, created,
      owner_ar, owner_en, manager_ar, manager_en, completion,
-     phase_ar, phase_en, stage_ar, stage_en) = row
+     phase_ar, phase_en, stage_ar, stage_en, updated) = row
     return ProjectRecord(
         code=code, name_ar=name_ar, name_en=name_en,
         description_ar=desc_ar, description_en=desc_en, status=status,
@@ -193,5 +207,5 @@ def fetch(session: Session, *, settings: Settings | None = None,
         manager_ar=manager_ar, manager_en=manager_en,
         completion_percent=completion,
         phase_ar=phase_ar, phase_en=phase_en,
-        stage_ar=stage_ar, stage_en=stage_en,
+        stage_ar=stage_ar, stage_en=stage_en, updated_at=updated,
     )

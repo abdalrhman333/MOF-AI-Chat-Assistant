@@ -39,6 +39,7 @@ from observability import tracing
 from Application.backend.api import cookies as cookie_module
 from Application.backend.api import credentials
 from Application.backend.api import identity as identity_module
+from Application.backend.api import ratelimit
 from Application.backend.api import schemas
 from Application.backend.api.store import build_store
 from Application.backend.conversation import Reply
@@ -52,6 +53,7 @@ SETTINGS = get_settings()
 # Built lazily at startup rather than at import, so a module import in a
 # test does not require a live Redis.
 STORE = None
+LIMITER = None
 
 # Shown for every refusal, whatever the underlying reason. The reason slug
 # stays in the log; see `errors.AccessDenied`.
@@ -72,6 +74,11 @@ async def lifespan(_app: FastAPI):
     global STORE
     STORE = build_store(SETTINGS.api, settings=SETTINGS)
     log.info("conversation store: %s", type(STORE).__name__)
+    global LIMITER
+    LIMITER = _build_limiter()
+    log.info("rate limit: %s", "off" if not LIMITER.enabled else
+             f"{SETTINGS.api.rate_limit_questions} questions / "
+             f"{SETTINGS.api.rate_limit_window_seconds}s per user")
     try:
         yield
     finally:
@@ -136,6 +143,14 @@ async def trace_request(request: Request, call_next):
         if response.status_code >= 500:
             tracing.mark_failed(current, f"HTTP {response.status_code}")
         return response
+
+
+def _build_limiter():
+    from Application.backend.api.redis_store import _client
+    return ratelimit.RateLimiter(
+        _client(SETTINGS),
+        limit=SETTINGS.api.rate_limit_questions,
+        window_seconds=SETTINGS.api.rate_limit_window_seconds)
 
 
 # ---------------------------------------------------------------------------
@@ -361,6 +376,21 @@ def ask(token: str, body: schemas.AskIn,
         who: identity_module.Identity = Depends(caller)):
     """One turn. AC01–AC07 all happen below this line, not in it."""
     conversation = _conversation_or_denied(token, who)
+
+    # Checked AFTER the conversation is authorised, so a rate-limit answer
+    # cannot tell a stranger whether a conversation id is real — it is only
+    # ever reached by someone who already owns it.
+    if LIMITER is not None:
+        decision = LIMITER.check(who.username)
+        if not decision.allowed:
+            log.warning("rate limited user=%s", who.username)
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": str(decision.retry_after)},
+                content={"error": "rate_limited",
+                         "detail": "Too many questions just now. "
+                                   "Please wait a moment and try again."})
+
     text = body.text[:SETTINGS.api.max_question_chars]
     reply = conversation.ask(text)
     # The in-memory store held the live object, so a new turn was already
