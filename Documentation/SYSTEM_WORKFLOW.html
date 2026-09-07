@@ -346,21 +346,21 @@
 <div class="wrap">
 
   <header class="masthead">
-    <div class="kicker">MOF · منصة إنجاز · Build state as of 9 August 2026</div>
+    <div class="kicker">MOF · منصة إنجاز · Build state as of 7 September 2026</div>
     <h1>How the Enjaz assistant works today</h1>
-    <p class="standfirst">A walk through everything that has actually been built — the infrastructure it runs on, the database underneath it, the four-stage pipeline that turns 58 project documents into 678 searchable passages in nine sealed compartments, the gate that decides who may open which project, and the measurement that says whether search is any good.</p>
+    <p class="standfirst">A walk through everything that has actually been built — the infrastructure it runs on, the database underneath it, the pipeline that turns 58 project documents into 678 searchable passages in nine sealed compartments, the gate that decides who may open which project, the assistant a person actually types into, and the measurement that says whether any of it is any good.</p>
   </header>
   <div class="underrule"></div>
 
   <div class="strip">
     <div class="cell"><span class="n">13</span><span class="k">containers running</span></div>
-    <div class="cell"><span class="n">14</span><span class="k">migrations applied, 0 drifted</span></div>
-    <div class="cell"><span class="n">301</span><span class="k">tests passing</span></div>
+    <div class="cell"><span class="n">17</span><span class="k">migrations applied, 0 drifted</span></div>
+    <div class="cell"><span class="n">645</span><span class="k">tests passing</span></div>
     <div class="cell"><span class="n">58</span><span class="k">documents, all indexed</span></div>
     <div class="cell"><span class="n">678</span><span class="k">vectors in 9 collections</span></div>
     <div class="cell"><span class="n">0</span><span class="k">failed · 0 pending</span></div>
   </div>
-  <p class="stamp">Every number above was read from the running system, not from a document — <b>docker compose ps</b>, <b>apply_migrations.py --status</b>, <b>pytest</b>, <b>pipeline.status</b> (exit 0, HEALTHY) and <b>pipeline.scanner --dry-run</b> (rows written 0).</p>
+  <p class="stamp">Every number above was read from the running system, not from a document — <b>docker compose ps</b>, <b>apply_migrations.py --status</b>, <b>pytest</b> (620 Python + 25 JavaScript), <b>pipeline.status</b> (exit 0, HEALTHY) and <b>pipeline.scanner --dry-run</b> (rows written 0).</p>
 
   <!-- ============================================================= -->
   <section>
@@ -1250,12 +1250,195 @@
 
   <!-- ============================================================= -->
   <section>
-    <div class="shead"><span class="snum">12</span><h2>How any of this is known to work</h2></div>
+    <div class="shead"><span class="snum">12</span><h2>What happens when someone types a question</h2></div>
     <div class="srule"></div>
 
-    <p class="lead">301 automated tests, running in about twenty seconds. But the tests are not the interesting part — the method used to check the tests themselves is.</p>
+    <p class="lead">Everything up to here builds and guards the knowledge base. This is the part a person actually touches: a sign-in page, a project to choose, and a box to type into. One question travels through nine steps, and the interesting thing about them is how few decisions the code makes.</p>
 
-    <p><strong>Every safety feature was proved by deliberately breaking it</strong> and confirming that the intended test caught the break. 74 such deliberate breakages have been run across the system. The ones that slipped through were the valuable ones: each exposed a real gap that was invisible on inspection — including a test that quietly passed against broken code because it imported the very constant it was supposed to be checking, and a security check that no test was watching at all.</p>
+    <figure>
+      <div class="scroller">
+      <svg class="dg" viewBox="0 0 1080 486" role="img" aria-label="The path of one question: browser to API, session gate, embedding, vector search, SPM record, the model, and back to the browser.">
+        <defs>
+          <marker id="a12" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <polygon points="0,1 10,5 0,9" fill="currentColor"/>
+          </marker>
+        </defs>
+
+        <rect class="bx-a" x="24" y="20" width="240" height="58" rx="2"/>
+        <text class="t" x="38" y="44">The browser</text>
+        <text class="s" x="38" y="64">one static file, no framework</text>
+        <line class="ln" x1="264" y1="49" x2="352" y2="49" marker-end="url(#a12)"/>
+        <text class="lbl" x="272" y="41">question text only</text>
+
+        <rect class="bx-a" x="356" y="20" width="704" height="58" rx="2"/>
+        <text class="tm" x="370" y="44">The API</text>
+        <text class="s" x="440" y="44">It never receives a username. Identity comes from a signed cookie the page cannot read.</text>
+        <text class="s" x="370" y="64">A field for “who am I” would be a field the server must then be trusted to ignore.</text>
+
+        <line class="ln" x1="130" y1="78" x2="130" y2="104" marker-end="url(#a12)"/>
+
+        <g class="warm">
+          <rect class="bx-c" x="24" y="106" width="1036" height="58" rx="2"/>
+          <text class="tm" x="38" y="130">1 · The gate</text>
+        </g>
+        <text class="s" x="150" y="130">May this person open this project? Answered from the assignment table, on every single turn.</text>
+        <text class="s" x="38" y="150">A restored conversation carries a project code, but that code is a CLAIM the user once made — never a standing permission. It is re-checked, not trusted.</text>
+
+        <line class="ln" x1="130" y1="164" x2="130" y2="190" marker-end="url(#a12)"/>
+
+        <rect class="bx" x="24" y="192" width="1036" height="52" rx="2"/>
+        <text class="tm" x="38" y="214">2 · Turn the question into a vector</text>
+        <text class="s" x="330" y="214">The same model that read the documents, so question and passage live in one space.</text>
+        <text class="s" x="38" y="234">If the question is a bare follow-up — “and the end date?” — it is first rewritten against the conversation so it carries its own subject.</text>
+
+        <line class="ln" x1="130" y1="244" x2="130" y2="270" marker-end="url(#a12)"/>
+
+        <rect class="bx" x="24" y="272" width="506" height="70" rx="2"/>
+        <text class="tm" x="38" y="294">3 · Search — one collection</text>
+        <text class="s" x="38" y="314">Not “search everything, filter after”. The project's</text>
+        <text class="s" x="38" y="332">compartment is the only one opened at all.</text>
+
+        <rect class="bx" x="554" y="272" width="506" height="70" rx="2"/>
+        <text class="tm" x="568" y="294">4 · Read the live SPM record</text>
+        <text class="s" x="568" y="314">Through the restricted account: read-only, and</text>
+        <text class="s" x="568" y="332">constrained by the database itself to one project.</text>
+
+        <line class="ln" x1="277" y1="342" x2="277" y2="366" marker-end="url(#a12)"/>
+        <line class="ln" x1="807" y1="342" x2="807" y2="366" marker-end="url(#a12)"/>
+
+        <rect class="bx-a" x="24" y="368" width="1036" height="62" rx="2"/>
+        <text class="tm" x="38" y="392">5 · One call to the model</text>
+        <text class="s" x="230" y="392">It detects the language, decides what is being asked, and writes the answer — together, in a single call.</text>
+        <text class="s" x="38" y="412">The passages and the SPM row go in as evidence. Nothing else is allowed in as fact.</text>
+
+        <line class="ln" x1="130" y1="430" x2="130" y2="452" marker-end="url(#a12)"/>
+        <rect class="bx-a" x="24" y="454" width="1036" height="26" rx="2"/>
+        <text class="s" x="38" y="472">6 · Back to the browser as TEXT — with its citations, the language it chose, and how long it took. The page inserts it as text, never as markup.</text>
+      </svg>
+      </div>
+      <figcaption>Nine steps, and the code decides almost nothing. It decides who may look, and where to look. What the question <em>means</em>, and what language to answer in, are left to the model — deliberately, as section 13 explains.</figcaption>
+    </figure>
+
+    <h3>Three rules that shape the whole path</h3>
+    <ul>
+      <li><strong>The browser never says who it is.</strong> It sends the question and nothing else. Identity is established by the server from a signed cookie that JavaScript on the page cannot read — which was confirmed by trying to delete it from the page and failing.</li>
+      <li><strong>Everything the server returns is inserted as text.</strong> Document content is not trusted input. The same reasoning that fences untrusted text out of the prompt fences it out of the page, and a test checks the whole file for any place that could break the rule.</li>
+      <li><strong>Every refusal is decided on the server.</strong> The page renders decisions; it never makes them. It cannot decide to show a project, to answer without evidence, or to soften a refusal, because it is never given the choice.</li>
+    </ul>
+
+    <div class="cbox">
+      <p class="cn">Four locks, not one</p>
+      <p class="cd">A question can only ever reach one project's material, and four independent things have to fail before that stops being true: the sign-in gate, the database's own row-level rules, the fact that each project's vectors live in a physically separate collection, and the fact that the collection name is derived from the checked session rather than from anything the caller sent. No single mistake opens two projects.</p>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">13</span><h2>The system prompt is the brain</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">There was once a rule-based router: a language detector, a phrase list, a table of intents. It was accurate, it was fast, and it was deleted. The requirement was that <strong>every input goes to the model and nothing is hard-coded</strong> — so the routing moved into the prompt, and the code that used to decide was removed rather than left switched off.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <caption>What moved, and where it went</caption>
+        <thead>
+          <tr><th>Decision</th><th>Before</th><th>Now</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>What language is this?</td><td>Script counting, plus a statistical identifier for Latin text</td><td>The model, in the same call that answers</td></tr>
+          <tr><td>Is this a greeting, an overview request, a lookup?</td><td>An exact-match phrase list held as data</td><td>The model, in the same call</td></tr>
+          <tr><td>Is this language supported at all?</td><td>A configured list of codes</td><td>The model, which apologises in the language it was asked in</td></tr>
+          <tr><td>Is there enough evidence to answer?</td><td colspan="2">Still the code: below a measured similarity floor the model is <strong>not called at all</strong>, and the honest refusal costs nothing</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>The trade was made with open eyes. One call instead of two is <em>faster</em>, and it removes an entire class of bug where the router and the answer disagreed with each other. What it costs is determinism: a rule either fires or it doesn't, while a model is asked to be consistent. That is why the router is now measured rather than assumed.</p>
+
+    <h3>How something non-deterministic is held to account</h3>
+    <p>59 tagged probes are pushed through the <em>real</em> path — a real session, a real project, the real prompt — and the language and intent it chose are scored against what they should have been. Language lands at 96.6–98.3%, intent at 96.6%.</p>
+
+    <p>That first figure is a <strong>range, not a number</strong>, and the range is the honest part: two consecutive runs at temperature zero did not agree. Recording a single value would have implied a stability the system does not have. The floor is what any change must beat.</p>
+
+    <div class="cbox">
+      <p class="cn">The evaluation corrected the author, not the model</p>
+      <p class="cd">On its first full run the harness reported failures that turned out to be three probes tagged wrong by hand. The model had been right and the expectation was wrong. That is the argument for measuring against a written-down answer key rather than reading transcripts and forming an impression — an impression would have quietly agreed with whoever wrote it.</p>
+    </div>
+
+    <h3>What the prompt is not allowed to do</h3>
+    <ul>
+      <li><strong>It may not answer from its own knowledge.</strong> The evidence supplied with the question is the only permitted source of fact. Absent evidence, the required output is an apology, not a plausible sentence.</li>
+      <li><strong>It may not cite what it was not given.</strong> Citations are resolved against the passages actually retrieved, so a fabricated source has nothing to resolve to.</li>
+      <li><strong>It may not answer about another project.</strong> By the time the prompt is built, the material from any other project is not merely filtered out — it was never fetched.</li>
+    </ul>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">14</span><h2>Remembering the conversation</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">“And the end date?” is a perfectly normal thing to ask second, and a meaningless thing to search for on its own. Follow-ups are what make a chat a chat, and they are also where a retrieval system quietly falls over.</p>
+
+    <p>When a follow-up retrieves nothing above the evidence floor, the question is rewritten against the conversation so far — carrying its subject with it — and searched once more. Once, not repeatedly: a second failure is an honest “not in the documents”, and a retry loop against a five-second budget would turn a clean refusal into a timeout.</p>
+
+    <p>Conversations live in Redis rather than in the server's memory. That is what lets the API be restarted, or run as more than one worker, without a person losing the thread mid-sentence — verified by restarting the process under a live conversation and watching a bare Arabic follow-up still resolve correctly.</p>
+
+    <div class="cbox">
+      <p class="cn">A stored project code is a claim, not a permission</p>
+      <p class="cd">A conversation read back from Redis says which project it belongs to. It would be easy — and wrong — to treat that as authorisation, because it was written when the chat opened and the world has moved on since: assignments change, and people leave. Every read re-runs the gate from scratch. If the answer is now no, the conversation is simply not there.</p>
+    </div>
+
+    <p>History is bounded twice over, by turns and by tokens. Turns are what a follow-up plausibly refers back to; tokens are what the latency budget can afford. Neither bound alone is enough — six short turns and six long ones are very different amounts of prompt.</p>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">15</span><h2>Watching it work</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">Two observability systems were already running, for two genuinely different audiences: Grafana for engineers asking why something was slow, Langfuse for anyone asking what the model was actually sent. The temptation was to instrument twice. That was refused.</p>
+
+    <p><strong>One instrumentation, two backends.</strong> The code records a span once; it is exported to both. Two SDKs would mean two sets of instrumentation calls placed by hand in the same functions, and they drift — one gets a new span, the other doesn't, and the two pictures of the same request stop agreeing.</p>
+
+    <div class="tbl-wrap">
+      <table>
+        <caption>The same chat turn, in both systems</caption>
+        <thead>
+          <tr><th>Span</th><th class="num">Typical</th><th>What it tells you</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="mono">POST /api/conversations/{token}/messages</td><td class="num">2808 ms</td><td>The whole request. Recorded against the route <em>template</em>, so a thousand conversations group into one line instead of a thousand</td></tr>
+          <tr><td class="mono">&nbsp;&nbsp;chat.turn</td><td class="num">2790 ms</td><td>The answering work, minus HTTP overhead</td></tr>
+          <tr><td class="mono">&nbsp;&nbsp;&nbsp;&nbsp;retrieval.embed</td><td class="num">590 ms</td><td>Turning the question into a vector — a network call, and it shows</td></tr>
+          <tr><td class="mono">&nbsp;&nbsp;&nbsp;&nbsp;retrieval.search</td><td class="num">17 ms</td><td>The vector search itself. Never the bottleneck</td></tr>
+          <tr><td class="mono">&nbsp;&nbsp;&nbsp;&nbsp;spm.fetch</td><td class="num">2 ms</td><td>The live project record</td></tr>
+          <tr><td class="mono">&nbsp;&nbsp;&nbsp;&nbsp;chat gpt-5.4-mini</td><td class="num">2045 ms</td><td>The model. Three quarters of the time, which is where any latency work has to start</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>The shape of that trace is itself the answer to “why does it take three seconds?”. Searching is free; the two network calls to Azure are the entire cost. No amount of tuning the search will move it.</p>
+
+    <div class="cbox">
+      <p class="cn">Tracing fails open — and that is the one place it is allowed</p>
+      <p class="cd">If a tracing backend is down, unreachable, or misconfigured, the request still succeeds. An observability outage must never become a service outage, and a person asking about their project should not be told no because a dashboard is unwell. Every rule about <em>access</em> fails the opposite way: when in doubt, refuse. The rate limiter is the only other thing here that fails open, and for the same reason — it guards a budget, not a boundary.</p>
+    </div>
+
+    <p>One thing is deliberately never recorded: a failed sign-in does not log the address that was tried. A log of attempted addresses is a list of who might exist, sitting in a system that is easier to read than the one it describes.</p>
+  </section>
+
+  <!-- ============================================================= -->
+  <section>
+    <div class="shead"><span class="snum">16</span><h2>How any of this is known to work</h2></div>
+    <div class="srule"></div>
+
+    <p class="lead">645 automated tests, running in about twenty seconds. But the tests are not the interesting part — the method used to check the tests themselves is.</p>
+
+    <p><strong>Every safety feature was proved by deliberately breaking it</strong> and confirming that the intended test caught the break. 74 such breakages were run across the pipeline and the access gate, and everything added since has been held to the same standard — the frontend, for instance, was checked against twelve, all caught. The ones that slip through are the valuable ones: each has exposed a real gap that was invisible on inspection, including a test that quietly passed against broken code because it imported the very constant it was supposed to be checking, and a security check that no test was watching at all.</p>
+
+    <p>One of those twelve is worth repeating, because the fault was in the test rather than the code. A test asserting that <em>the model's</em> chosen language beats guessing from the alphabet passed even with that logic torn out — it used a plain English sentence, which guessing also gets right. Rewritten to use an English answer that names an Arabic project, where the two genuinely disagree, it caught the break immediately. A test that cannot fail is not a test, and only breaking it on purpose tells you which kind you have.</p>
 
     <div class="tbl-wrap">
       <table>
@@ -1264,18 +1447,29 @@
           <tr><th>Tests for</th><th class="num">Tests</th><th>What they exercise</th></tr>
         </thead>
         <tbody>
-          <tr><td class="mono">test_session_gate.py</td><td class="num">40</td><td>Who may open what, refusals, hostile input, pooled connections, concurrency</td></tr>
+          <tr><td class="mono">test_answering.py</td><td class="num">53</td><td>The system prompt, grounding, refusals and citation resolution, with the model stubbed</td></tr>
+          <tr><td class="mono">test_conversation.py</td><td class="num">46</td><td>History, its two bounds, and follow-up rewriting</td></tr>
+          <tr><td class="mono">test_session_gate.py</td><td class="num">42</td><td>Who may open what, refusals, hostile input, pooled connections, concurrency</td></tr>
+          <tr><td class="mono">test_ocr.py</td><td class="num">40</td><td>The full extraction path with Azure stubbed — no paid calls — including transient retries</td></tr>
           <tr><td class="mono">test_retrieval_eval.py</td><td class="num">39</td><td>The measurement itself — a wrong measuring tool is worse than none</td></tr>
+          <tr><td class="mono">test_observability.py</td><td class="num">39</td><td>Tracing — above all that it fails open, and never masks the caller's own exception</td></tr>
           <tr><td class="mono">test_scanner.py</td><td class="num">38</td><td>All five discovery outcomes against the real database schema</td></tr>
-          <tr><td class="mono">test_tasks.py</td><td class="num">27</td><td>The background tasks, the schedule, and stage sequencing</td></tr>
+          <tr><td class="mono">test_auth.py</td><td class="num">38</td><td>Password hashing, signed cookies, and what a failed sign-in must never reveal</td></tr>
+          <tr><td class="mono">test_continuity.py</td><td class="num">33</td><td>That a conversation survives a restart — and is re-authorised when it does</td></tr>
+          <tr><td class="mono">test_tasks.py</td><td class="num">28</td><td>The background tasks, the schedule, and stage sequencing</td></tr>
+          <tr><td class="mono">test_api.py</td><td class="num">27</td><td>The HTTP surface: status codes, and refusals that reveal nothing</td></tr>
           <tr><td class="mono">test_chunker.py</td><td class="num">26</td><td>Cutting rules, including three real Document Intelligence samples</td></tr>
-          <tr><td class="mono">test_ocr.py</td><td class="num">23</td><td>The full extraction path with Azure stubbed — no paid calls</td></tr>
           <tr><td class="mono">test_indexer.py</td><td class="num">23</td><td>Embedding and indexing with both the API and Qdrant stubbed</td></tr>
           <tr><td class="mono">test_rls.py</td><td class="num">23</td><td>The database's own isolation rules, including future tables</td></tr>
+          <tr><td class="mono">test_redis_store.py</td><td class="num">22</td><td>The durable conversation store, and the gate it re-runs on every read</td></tr>
           <tr><td class="mono">test_native_extract.py</td><td class="num">22</td><td>The local fallback reader for Office files</td></tr>
           <tr><td class="mono">test_status.py</td><td class="num">15</td><td>Health judgements, including the two-store comparison</td></tr>
-          <tr><td class="mono">test_config.py</td><td class="num">13</td><td>Settings loading, and refusing an absolute stored path</td></tr>
+          <tr><td class="mono">test_classify.py</td><td class="num">15</td><td>Document typing, and its refusal to invent a label or guess unconfidently</td></tr>
+          <tr><td class="mono">test_config.py</td><td class="num">15</td><td>Settings loading, and that the template documents every setting and no others</td></tr>
+          <tr><td class="mono">test_router_eval.py</td><td class="num">12</td><td>The harness that scores the model's own routing</td></tr>
           <tr><td class="mono">test_locking.py</td><td class="num">12</td><td>The real Redis lock — expiry, ownership, contention</td></tr>
+          <tr><td class="mono">test_ratelimit.py</td><td class="num">10</td><td>The cost guard, and that it fails open while every access rule fails closed</td></tr>
+          <tr><td class="mono">tests/frontend/ui.test.mjs</td><td class="num">25</td><td>The real page script against a small DOM: rate limits, session expiry, and that nothing from the server is ever inserted as markup</td></tr>
         </tbody>
       </table>
     </div>
@@ -1301,7 +1495,7 @@
 
   <!-- ============================================================= -->
   <section>
-    <div class="shead"><span class="snum">13</span><h2>What it all cost, and what exists</h2></div>
+    <div class="shead"><span class="snum">17</span><h2>What it all cost, and what exists</h2></div>
     <div class="srule"></div>
 
     <div class="tbl-wrap">
@@ -1343,7 +1537,7 @@
     </div>
 
     <h3>The code that exists</h3>
-    <p>Three separate packages, each with one job. There is still no web interface and no chat screen — nothing a person can type into yet.</p>
+    <p>Four separate packages, each with one job — and the last of them is now something a person can type into.</p>
 
     <div class="tbl-wrap">
       <table>
@@ -1354,7 +1548,8 @@
         <tbody>
           <tr><td class="mono">pipeline/</td><td><strong>Builds</strong> the knowledge base — discovery, extraction, chunking, indexing, plus the worker, scheduler, locks and health check</td><td>the powerful one: it must reach every project</td></tr>
           <tr><td class="mono">evaluation/</td><td><strong>Judges</strong> it — the tagged question set, the scoring, and the recorded baseline</td><td>read-only, all projects</td></tr>
-          <tr><td class="mono">Application/</td><td><strong>Serves</strong> it — the access gate and the scoped data layer. This is where the chat interface will be added</td><td>the restricted one: read-only, one project at a time</td></tr>
+          <tr><td class="mono">Application/</td><td><strong>Serves</strong> it — the access gate, the scoped data layer, the system prompt, the HTTP API and the single-file web interface</td><td>the restricted one: read-only, one project at a time</td></tr>
+          <tr><td class="mono">observability/</td><td><strong>Watches</strong> it — one instrumentation, exported to both Grafana and Langfuse</td><td>none: it holds no data of its own</td></tr>
         </tbody>
       </table>
     </div>
@@ -1365,8 +1560,8 @@
   </section>
 
   <footer>
-    <p>Compiled 12 August 2026 from the running system on this machine. Every figure on this page was read from live output, not copied from documentation.</p>
-    <span class="mono">docker compose ps · apply_migrations.py --status · pytest tests/ -q · pipeline.status · pipeline.scanner --dry-run · evaluation.retrieval_eval</span>
+    <p>Compiled 12 August 2026, extended 7 September 2026 with the assistant itself — the request path, the system prompt, conversation memory and tracing. Every figure on this page was read from live output, not copied from documentation.</p>
+    <span class="mono">docker compose ps · apply_migrations.py --status · pytest tests/ -q · node --test · pipeline.status · pipeline.scanner --dry-run · evaluation.retrieval_eval · evaluation.router_eval · Tempo and Langfuse trace APIs</span>
   </footer>
 
 </div>

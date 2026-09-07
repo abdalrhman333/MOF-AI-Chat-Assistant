@@ -18,12 +18,13 @@ open it" reference.
 |---|---|---|
 | `Documentation\` | This file + `SOLUTION_ARCHITECTURE.md`, `INFRASTRUCTURE.md`, `STATUS_AND_ROADMAP.md`, `NEXT_BUILD_PIPELINE.md`, `NEXT_BUILD_CHAT_BACKEND.md`, `START_HERE.md`, `SYSTEM_WORKFLOW.html` | Small text, versioned with the code it describes |
 | `My_Prompts\` | `SOLUTION_SCOPE.md` (BRD-derived scope, assistant-authored) + `PRE_PIPELINE_ENHANCEMENTS.md` (user-authored) | Requirements/planning source material |
-| `infra\` | `docker-compose.yml`, `.env` / `.env.example`, `postgres-spm\init\` (one-time) + `migrations\` (14 SQL files, ongoing), `apply_migrations.py`, `README.md` | All infrastructure-as-code |
+| `infra\` | `docker-compose.yml`, `.env` / `.env.example`, `postgres-spm\init\` (one-time) + `migrations\` (17 SQL files, ongoing), `apply_migrations.py`, `README.md` | All infrastructure-as-code |
 | `mock-data\` | `spm_manifest.json` — the 8-project / 4-user / 45-document source data | Small structured data, worth versioning |
-| `pipeline\` | `__init__.py`, `config.py` (all settings), `chunker.py`, `db.py` (the `spm_admin` connection), `scanner.py` (Stage 0 — discovery), `ocr.py` (Stage 1 — extraction), `native_extract.py` (Office fallback), `indexer.py` (Stages 2+3 — chunk, embed, index), `locking.py` (cross-process stage locks), `tasks.py` (Celery tasks + schedule), `status.py` (operational health check) | Builds the knowledge base. Complete, and runs as a containerised worker. The chat application lives in `Application\` |
-| `Application\` | `README.md` (layout + the trust boundary), `backend\errors.py` (typed access failures), `backend\db.py` (the `spm_app` pool, transaction boundaries, scope applied with a bind parameter), `backend\session.py` (the AC09 gate), `backend\retrieval.py` (vector search, scoped to a Session), `backend\answer.py` (prompt, LLM call, citation resolution). An `api/` package and a `frontend/` are named in the README as their future home but are not built | **All chat-application code lives here**, kept apart from the pipeline that builds the knowledge base and the harness that measures it — they run as different processes under different database roles |
-| `evaluation\` | `dataset.py` (load + validate the question set), `retrieval_eval.py` (embed, search, score), `questions.json` (29 tagged questions — **data, not code**, path configurable via `EVAL_QUESTIONS_PATH`), `baseline.json` (the measured baseline, a record) | Measures retrieval quality so a change can be shown to help. Separate from `pipeline\` because the pipeline *produces* the vector store and this *judges* it |
-| `tests\` | `test_session_gate.py` (40) + `test_retrieval_eval.py` (39) + `test_scanner.py` (38) + `test_answering.py` (36) + `test_tasks.py` (27) + `test_chunker.py` (26) + `test_ocr.py` (23) + `test_indexer.py` (23) + `test_rls.py` (23) + `test_native_extract.py` (22) + `test_status.py` (15) + `test_config.py` (13) + `test_locking.py` (12) + `tests\fixtures\` (3 real OCR samples) | **337 tests.** The Postgres-backed ones roll back and leave nothing behind; `test_locking.py` and `test_tasks.py` need Redis. Everything that costs money is stubbed — `test_ocr.py` stubs Azure; `test_indexer.py`, `test_retrieval_eval.py` and `test_answering.py` stub the embedding API, Qdrant and the LLM — so the full write and answer paths are tested with no paid call. **`test_rls.py` and `test_session_gate.py` are the only files that connect as `spm_app`** — every other file uses `spm_admin`, which bypasses row-level security, which is why RLS went untested until 2026-08-09 |
+| `pipeline\` | `config.py` (all settings), `chunker.py`, `db.py` (the `spm_admin` connection), `scanner.py` (Stage 0 — discovery), `ocr.py` (Stage 1 — extraction, with transient-error retries), `classify.py` + `doc_type_labels.json` (Stage 1b — document type, labels held as **data**), `native_extract.py` (Office fallback), `indexer.py` (Stages 2+3 — chunk, embed, index), `locking.py` (cross-process stage locks), `tasks.py` (Celery tasks + schedule), `status.py` (operational health check) | Builds the knowledge base. Complete, and runs as a containerised worker. The chat application lives in `Application\` |
+| `Application\` | `README.md` (layout + the trust boundary), `backend\errors.py` (typed access failures), `backend\db.py` (the `spm_app` pool, transaction boundaries, scope applied with a bind parameter), `backend\session.py` (the AC09 gate), `backend\retrieval.py` (vector search, scoped to a Session), `backend\spm.py` (the live project record), `backend\answer.py` (**the system prompt — the assistant's brain** — the LLM call, citation resolution), `backend\conversation.py` (history + follow-up rewriting), `backend\messages.py`, `backend\clients.py`. **`backend\api\`**: `app.py` (FastAPI routes, tracing middleware), `identity.py`, `credentials.py` (PBKDF2 demo passwords), `cookies.py` (HMAC-signed session cookies), `store.py` + `redis_store.py` (conversation stores), `ratelimit.py`, `schemas.py`. **`frontend\index.html`**: the entire UI in one static file — sign-in, dashboard, project picker, chat, knowledge base — no build step, no framework, served by the API process on the same origin | **All chat-application code lives here**, kept apart from the pipeline that builds the knowledge base and the harness that measures it — they run as different processes under different database roles |
+| `evaluation\` | `dataset.py` (load + validate the question set), `retrieval_eval.py` (embed, search, score) + `questions.json` (29 tagged questions) + `baseline.json`; `router_eval.py` (drives 59 tagged probes through the **real** answer path and scores language + intent) + `router_probes.json` + `router_baseline.json`; `conversation_probes.json`; `latency_bench.py`. Question sets are **data, not code** — paths configurable | Measures quality so a change can be shown to help. Separate from `pipeline\` because the pipeline *produces* the vector store and this *judges* it. The router eval exists because the LLM-first redesign moved language and intent into the model, and a component with no measurement is a component nobody can safely change |
+| `tests\` | `test_answering.py` (53) + `test_conversation.py` (46) + `test_session_gate.py` (42) + `test_ocr.py` (40) + `test_retrieval_eval.py` (39) + `test_observability.py` (39) + `test_scanner.py` (38) + `test_auth.py` (38) + `test_continuity.py` (33) + `test_tasks.py` (28) + `test_api.py` (27) + `test_chunker.py` (26) + `test_rls.py` (23) + `test_indexer.py` (23) + `test_redis_store.py` (22) + `test_native_extract.py` (22) + `test_status.py` (15) + `test_classify.py` (15) + `test_config.py` (15) + `test_router_eval.py` (12) + `test_locking.py` (12) + `test_ratelimit.py` (10) + `test_frontend.py` (2) + `tests\frontend\` (`harness.mjs` + `ui.test.mjs`, 25 JS tests) + `tests\fixtures\` (3 real OCR samples) | **620 Python tests, plus 25 JavaScript.** The frontend suite is JavaScript because the thing under test is — `test_frontend.py` runs it through `node --test` so one `pytest` command still covers the whole system, and **skips rather than fails** where node is absent. Its DOM shim throws for any element id the markup does not contain, so a `$()` typo fails there instead of on a user's click. The Postgres-backed ones roll back and leave nothing behind; `test_locking.py` and `test_tasks.py` need Redis. Everything that costs money is stubbed — `test_ocr.py` stubs Azure; `test_indexer.py`, `test_retrieval_eval.py` and `test_answering.py` stub the embedding API, Qdrant and the LLM — so the full write and answer paths are tested with no paid call. **`test_rls.py` and `test_session_gate.py` are the only files that connect as `spm_app`** — every other file uses `spm_admin`, which bypasses row-level security, which is why RLS went untested until 2026-08-09 |
+| `observability\` | `tracing.py` — **one** instrumentation feeding **two** backends (Grafana Tempo and Langfuse), plus the HTTP semantic-convention names. ⚠️ Fails **open**: a tracing outage must never become a service outage | Tracing is cross-cutting; it belongs to neither the pipeline nor the chat application |
 | `Dockerfile` / `.dockerignore` | Image for the ingestion worker | Built by `docker compose build pipeline-worker`; excludes `.venv` and `infra/.env` from the build context |
 | `requirements.txt` / `requirements-dev.txt` | Pinned Python dependencies | Reproducible environment |
 | `.venv\` | Project virtualenv | **Gitignored** — machine-specific, never committed |
@@ -102,7 +103,8 @@ See `STATUS_AND_ROADMAP.md` §22.
 | `openai` | 2.53.0 | Azure OpenAI client (LLM + embeddings) |
 | `tiktoken` | 0.13.0 | Token counting for chunk sizing |
 | `fastapi` | 0.121.2 | The HTTP layer |
-| `uvicorn[standard]` | 0.40.0 | ASGI server. Runs single-process: conversations are held in memory |
+| `uvicorn[standard]` | 0.40.0 | ASGI server. Multiple workers are safe now that conversations live in Redis; with `API_CONVERSATION_STORE=memory` they are per-process and a second worker would not see the first's |
+| `psycopg_pool` | 3.3.1 | Connection pool, for the chat application only. Pooling is where the `SET LOCAL` rule stops being style and becomes the isolation boundary — a plain `SET` persists onto whoever borrows the connection next |
 | `opentelemetry-sdk` | 1.39.0 | Tracing. **One instrumentation, two backends** — the same spans go to Grafana (OTLP :4318) and Langfuse (its own OTLP endpoint, verified 200 before use), so LLM tracing needs no second SDK |
 | `opentelemetry-exporter-otlp-proto-http` | 1.39.0 | The exporter. HTTP rather than gRPC because Langfuse only speaks HTTP and grafana-lgtm speaks both — one package covers both backends. ⚠️ Pins protobuf to 6.x (was 7.35.1); verified afterwards that Qdrant reads and `pipeline.status` still work |
 | `python-dotenv` | 1.2.2 | Loads `infra/.env` |
@@ -135,10 +137,21 @@ Never into system Python — one of the four gaps closed before the pipeline pha
 
 ---
 
-## 6. What's deliberately *not* installed anywhere yet
+## 6. What's deliberately *not* built
 
-- No FastAPI app and no frontend — `pipeline/` (ingestion) and `evaluation/` (measuring retrieval quality) are the only application code so far. The Celery worker **does** now exist (`mof-pipeline-worker` / `mof-pipeline-beat`), running that same pipeline code in a container
-- Real Active Directory, real SharePoint connection, real OTP — external dependencies, explicitly flagged as deferred rather than faked (per the BRD's own practical note for a demo build)
+The API and the frontend both exist now — run them with
+`.venv/Scripts/python -m Application.backend.api` and open
+http://localhost:8000. What remains deferred is deferred on purpose:
+
+- **Real Active Directory, real SharePoint, real OTP** — external
+  dependencies, flagged as deferred rather than faked (per the BRD's own
+  practical note for a demo build). Sign-in is a simulation over the users
+  already seeded in SPM, and the sign-in screen says so on its own face
+- **Mid-chat document upload and CAG** — deferred by explicit instruction.
+  The knowledge-base screen shows the button disabled with a reason rather
+  than hiding it, so the gap is visible instead of silently missing
+- **LangChain** — the chosen RAG orchestration layer, still not installed.
+  Nothing yet needs it, and a large unused dependency tree is churn
 
 ---
 
@@ -146,8 +159,8 @@ Never into system Python — one of the four gaps closed before the pipeline pha
 
 ```bash
 docker ps --format "{{.Names}}: {{.Status}}"                     # 13 containers
-python infra/postgres-spm/apply_migrations.py --status           # 14 applied, 0 pending
-.venv/Scripts/python -m pytest tests/ -q                         # 353 passed
+python infra/postgres-spm/apply_migrations.py --status           # 17 applied, 0 pending
+.venv/Scripts/python -m pytest tests/ -q                         # 620 passed
 find /d/MOF_DataSample -maxdepth 1 -type d                       # 9 project folders
 
 # The whole pipeline has run. Every stage is free to re-run unchanged:
@@ -158,6 +171,36 @@ PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.ocr --dry-run
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.indexer --dry-run
 #   -> candidates : 0        (678 vectors already indexed)
 ```
+
+The application itself, and whether tracing reached both backends:
+
+```bash
+.venv/Scripts/python -m Application.backend.api      # then open :8000
+curl -s localhost:8000/health
+#   -> {"status":"ok","auth_mode":"session_login",
+#       "tracing":["grafana","langfuse"],"conversation_store":"RedisConversationStore"}
+```
+
+`tracing` listing both names means both exporters were built, not that
+either accepted a span — tracing fails open, so a broken backend is
+invisible here by design. To check a trace actually landed, ask each
+backend for it. Tempo's query port is not published, so it is reached
+through Grafana's datasource proxy:
+
+```bash
+# Grafana / Tempo — spans, with the route TEMPLATE not the raw path
+curl -s -u admin:$GRAFANA_ADMIN_PASSWORD \
+  "localhost:3000/api/datasources/proxy/uid/tempo/api/search?q=%7B%7D&limit=5"
+
+# Langfuse — the same turns, from the same instrumentation
+curl -s -H "Authorization: Basic $(printf '%s:%s' \
+  "$LANGFUSE_PUBLIC_KEY" "$LANGFUSE_SECRET_KEY" | base64 -w0)" \
+  "localhost:3001/api/public/traces?limit=5"
+```
+
+A chat turn appears in both as
+`POST /api/conversations/{token}/messages` → `chat.turn` →
+`retrieval.embed`, `retrieval.search`, `spm.fetch`, `chat gpt-5.4-mini`.
 
 Qdrant's dashboard (http://localhost:6333/dashboard) loads without a key
 but its API returns 401, so it looks broken until you paste
