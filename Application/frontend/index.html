@@ -161,6 +161,11 @@
            font-size: 12.5px; color: var(--muted); }
   .cites b { color: var(--ink); }
   .metaline { margin-top: 7px; font-size: 11px; color: var(--muted); }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 22px 4px; }
+  .chips button { border: 1px solid var(--line); background: var(--panel);
+                  border-radius: 99px; padding: 6px 14px; font-size: 13px;
+                  color: var(--brand-strong); }
+  .chips button:hover { border-color: var(--brand); background: var(--brand-soft); }
   .composer { border-top: 1px solid var(--line); background: var(--panel);
               padding: 13px 22px; display: flex; gap: 10px; }
   .composer textarea { flex: 1; resize: none; border: 1px solid var(--line);
@@ -320,7 +325,8 @@
 
     <div class="view hidden" id="kbView"></div>
 
-    <form class="composer hidden" id="composer">
+    <div class="chips hidden" id="chips"></div>
+<form class="composer hidden" id="composer">
       <textarea id="q" rows="1" aria-label="Message"></textarea>
       <button type="submit" id="sendBtn" data-t="send"></button>
     </form>
@@ -361,7 +367,10 @@ const T = {
     switchWarn:"سيؤدي تغيير المشروع إلى إنهاء هذه المحادثة وبدء محادثة جديدة. هل تريد المتابعة؟",
     noProjects:"لا توجد مشاريع مسندة إليك.", pickFirst:"اختر مشروعاً أولاً.",
     loginFailed:"البريد الإلكتروني أو كلمة المرور غير صحيحة.",
-    thinking:"جارٍ التحليل…", sources:"المصدر"
+    thinking:"جارٍ التحليل…", sources:"المصدر",
+    docsIndexed:"وثيقة مفهرسة", tooFast:"عدد كبير من الأسئلة خلال وقت قصير. يُرجى الانتظار قليلاً ثم المحاولة مجدداً.",
+    expired:"انتهت جلستك. يُرجى تسجيل الدخول مرة أخرى.",
+    try1:"أعطني نظرة عامة عن المشروع", try2:"ما هي أبرز المخاطر؟", try3:"ما الميزانية المعتمدة؟"
   },
   en: {
     platform:"Smart Agent Platform", tagline:"Risk management, lessons engine and the smart assistant — with a single sign-in",
@@ -386,13 +395,17 @@ const T = {
     switchWarn:"Changing project will end this conversation and start a new one. Continue?",
     noProjects:"You have no assigned projects.", pickFirst:"Choose a project first.",
     loginFailed:"That email or password is not correct.",
-    thinking:"Thinking…", sources:"Source"
+    thinking:"Thinking…", sources:"Source",
+    docsIndexed:"documents indexed", tooFast:"That is a lot of questions at once. Please wait a moment and try again.",
+    expired:"Your session has ended. Please sign in again.",
+    try1:"Give me an overview of this project", try2:"What are the top risks?", try3:"What is the approved budget?"
   }
 };
 
 const $ = (id) => document.getElementById(id);
 const RTL = /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/;
 let UI = "ar", ME = null, PROJECTS = [], CURRENT = null, CONV = null, BUSY = false;
+let DOC_COUNT = null;   // indexed documents in CURRENT, or null before it loads
 let KB_FILTER = "all", KB_DATA = null;
 
 const t = (key) => T[UI][key] ?? key;
@@ -405,6 +418,10 @@ async function api(path, options = {}) {
   if (!response.ok) {
     let detail = `HTTP ${response.status}`;
     try { detail = (await response.json()).detail || detail; } catch (_) {}
+    // The server answers a rate limit and an expired session with codes, not
+    // prose, so the wording is chosen here in the user's UI language rather
+    // than showing an English detail string to an Arabic reader.
+    if (response.status === 429) detail = t("tooFast");
     const error = new Error(detail); error.status = response.status; throw error;
   }
   return response.status === 204 ? null : response.json();
@@ -453,9 +470,25 @@ $("loginForm").addEventListener("submit", async (event) => {
 
 $("logoutBtn").addEventListener("click", async () => {
   await api("/api/auth/logout", { method: "POST" }).catch(() => {});
-  ME = null; CONV = null; CURRENT = null; PROJECTS = [];
-  $("app").classList.add("hidden"); $("login").classList.remove("hidden");
+  toLogin();
 });
+
+function toLogin() {
+  ME = null; CONV = null; CURRENT = null; PROJECTS = [];
+  DOC_COUNT = null; KB_DATA = null;
+  $("chatView").innerHTML = "";
+  $("app").classList.add("hidden");
+  $("login").classList.remove("hidden");
+}
+
+function endSession() {
+  // The cookie expired, or the account was removed. Showing a dead chat
+  // that 403s on every message is worse than saying so once. The chat is
+  // cleared with it: those turns belong to a session that no longer exists.
+  toLogin();
+  $("loginError").textContent = t("expired");
+  $("loginError").classList.remove("hidden");
+}
 
 function renderWho() {
   const name = UI === "ar" ? ME.full_name_ar : ME.full_name_en;
@@ -481,6 +514,8 @@ async function refreshDocCount() {
   try {
     const kb = await api(`/api/projects/${encodeURIComponent(CURRENT.code)}/documents`);
     $("tileDocs").textContent = `${kb.indexed}/${kb.total}`;
+    DOC_COUNT = kb.indexed;
+    renderTopbar();
   } catch (_) { $("tileDocs").textContent = "—"; }
 }
 
@@ -489,7 +524,12 @@ function renderTopbar() {
   $("projCode").textContent = CURRENT ? CURRENT.code : "—";
   $("projName").textContent = CURRENT ? CURRENT.display_name : t("noProjects");
   $("barTitle").textContent = CURRENT ? CURRENT.display_name : t("noProjects");
-  $("barMeta").textContent = CURRENT ? CURRENT.code : "";
+  // The count is appended only once it is known, so a slow or failed
+  // lookup leaves the code standing rather than a "0 documents" that reads
+  // as an answer about the project.
+  $("barMeta").textContent = !CURRENT ? ""
+    : DOC_COUNT === null ? CURRENT.code
+    : `${CURRENT.code} · ${DOC_COUNT} ${t("docsIndexed")}`;
 }
 
 function openPicker() {
@@ -540,7 +580,7 @@ function openPicker() {
     // A conversation is bound to one project for its lifetime, so switching
     // means a new one. Confirm first when there is something to lose.
     if (CONV && $("chatView").children.length > 1 && !confirm(t("switchWarn"))) return;
-    CURRENT = next; CONV = null; KB_DATA = null;
+    CURRENT = next; CONV = null; KB_DATA = null; DOC_COUNT = null;
     $("chatView").innerHTML = "";
     renderTopbar(); refreshDocCount();
     if (!$("chatView").classList.contains("hidden")) startConversation();
@@ -558,6 +598,7 @@ function showView(name) {
     $(id).classList.toggle("hidden", view !== name);
   }
   $("composer").classList.toggle("hidden", name !== "chat");
+  if (name !== "chat") $("chips").classList.add("hidden");
   document.querySelectorAll("nav a").forEach((a) =>
     a.classList.toggle("active", a.dataset.view === name && !a.classList.contains("disabled")));
   if (name === "chat" && !CONV) startConversation();
@@ -603,7 +644,27 @@ async function startConversation() {
     // AC04 — shown before anything is typed, so it is bilingual: with no
     // message there is no language to reply in.
     bubble(opened.welcome, "welcome");
-  } catch (error) { bubble(error.message, "error"); }
+    renderChips();
+  } catch (error) {
+    if (error.status === 403 && ME) return endSession();
+    bubble(error.message, "error");
+  }
+}
+
+function renderChips() {
+  // The starters from the mockup. They are ordinary messages, not a menu:
+  // each one goes through the same path as anything typed, so the model
+  // still classifies it rather than being handed a pre-decided intent.
+  const box = $("chips");
+  box.innerHTML = "";
+  for (const key of ["try1", "try2", "try3"]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = t(key);
+    b.addEventListener("click", () => { box.classList.add("hidden"); ask(t(key)); });
+    box.append(b);
+  }
+  box.classList.remove("hidden");
 }
 
 /* An outcome decides how a reply is SHOWN. The model already decided what
@@ -614,6 +675,7 @@ const STYLE = { answered:"assistant", conversational:"assistant",
 async function ask(text) {
   if (!CONV || BUSY) return;
   BUSY = true; $("sendBtn").disabled = true;
+  $("chips").classList.add("hidden");
   bubble(text, "user");
   const pending = bubble("", "assistant");
   pending.classList.add("typing");
@@ -627,7 +689,9 @@ async function ask(text) {
       meta: `${reply.intent || reply.outcome} · ${reply.timings.total_ms} ms`,
     });
   } catch (error) {
-    pending.remove(); bubble(error.message, "error");
+    pending.remove();
+    if (error.status === 403 && ME) { return endSession(); }
+    bubble(error.message, "error");
   } finally { BUSY = false; $("sendBtn").disabled = false; $("q").focus(); }
 }
 
