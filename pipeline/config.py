@@ -321,6 +321,11 @@ class ApiSettings:
     # demo runs on http://127.0.0.1 and a Secure cookie would simply never
     # be sent — a login that silently never works. Must be true behind TLS.
     cookie_secure: bool = False
+    # `redis` survives a restart and allows more than one worker; `memory`
+    # is for tests and for running without Redis. Redis is the default
+    # because the in-memory one silently makes the API single-process, and
+    # a limitation you only meet under load is worse than one you configure.
+    conversation_store: str = "redis"
     conversation_idle_minutes: int = 60
     max_conversations: int = 500
     max_question_chars: int = 2000
@@ -672,6 +677,8 @@ def _api_from_env() -> ApiSettings:
         session_secret=_optional("API_SESSION_SECRET", ""),
         session_hours=int(_optional("API_SESSION_HOURS", str(d.session_hours))),
         cookie_secure=_flag("API_COOKIE_SECURE", "false"),
+        conversation_store=_optional("API_CONVERSATION_STORE",
+                                     d.conversation_store).strip().lower(),
         conversation_idle_minutes=int(
             _optional("API_CONVERSATION_IDLE_MINUTES",
                       str(d.conversation_idle_minutes))

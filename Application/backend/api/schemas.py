@@ -125,6 +125,7 @@ class HealthOut(BaseModel):
     auth_mode: str
     tracing: list[str]
     conversations: int
+    conversation_store: str = ""
 
 
 class ErrorOut(BaseModel):

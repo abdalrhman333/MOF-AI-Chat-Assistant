@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 
 from Application.backend.conversation import Conversation
 from Application.backend.session import Session
+from Application.backend.errors import BackendUnavailable
 from pipeline.config import ApiSettings, Settings
 
 
@@ -119,3 +120,31 @@ class ConversationStore:
     def clear(self) -> None:
         with self._lock:
             self._entries.clear()
+
+
+def build_store(config: ApiSettings, *, settings: Settings | None = None):
+    """The configured store.
+
+    Redis by default, because the in-memory one silently makes the API
+    single-process and loses every open chat on restart — a limitation you
+    only discover under load is worse than one you had to configure.
+
+    An unreachable Redis is **not** quietly downgraded to memory. That would
+    work perfectly on one machine and then split conversations across
+    workers the moment a second one started, which is the kind of failure
+    that gets debugged for a day. It raises, and `/health` reports it.
+    """
+    if config.conversation_store == "memory":
+        return ConversationStore(config)
+
+    from Application.backend.api.redis_store import RedisConversationStore
+
+    store = RedisConversationStore(config, settings=settings)
+    if not store.ping():
+        raise BackendUnavailable(
+            "the conversation store is configured as `redis` but Redis is "
+            "unreachable. Set API_CONVERSATION_STORE=memory to run without "
+            "it — knowing that chats will not survive a restart and the API "
+            "must stay single-process."
+        )
+    return store

@@ -40,7 +40,7 @@ from Application.backend.api import cookies as cookie_module
 from Application.backend.api import credentials
 from Application.backend.api import identity as identity_module
 from Application.backend.api import schemas
-from Application.backend.api.store import ConversationStore
+from Application.backend.api.store import build_store
 from Application.backend.conversation import Reply
 from Application.backend.errors import AccessDenied, AccessError, BackendUnavailable
 from Application.backend.session import list_assigned_projects, open_session
@@ -49,7 +49,9 @@ from pipeline.config import get_settings
 log = logging.getLogger("enjaz.api")
 
 SETTINGS = get_settings()
-STORE = ConversationStore(SETTINGS.api)
+# Built lazily at startup rather than at import, so a module import in a
+# test does not require a live Redis.
+STORE = None
 
 # Shown for every refusal, whatever the underlying reason. The reason slug
 # stays in the log; see `errors.AccessDenied`.
@@ -67,6 +69,9 @@ async def lifespan(_app: FastAPI):
     # AC08 depends on this: without it the first question pays ~19 s of
     # client construction and connection setup (STATUS_AND_ROADMAP.md §19a).
     log.info("warmup: %s", clients.warmup(SETTINGS))
+    global STORE
+    STORE = build_store(SETTINGS.api, settings=SETTINGS)
+    log.info("conversation store: %s", type(STORE).__name__)
     try:
         yield
     finally:
@@ -297,7 +302,9 @@ def health():
         service=SETTINGS.observability.service_name,
         auth_mode=SETTINGS.api.auth_mode,
         tracing=list(observability.tracing.backends()),
-        conversations=len(STORE),
+        conversations=len(STORE) if STORE is not None else 0,
+        conversation_store=(type(STORE).__name__ if STORE is not None
+                            else "not started"),
     )
 
 
@@ -355,7 +362,13 @@ def ask(token: str, body: schemas.AskIn,
     """One turn. AC01–AC07 all happen below this line, not in it."""
     conversation = _conversation_or_denied(token, who)
     text = body.text[:SETTINGS.api.max_question_chars]
-    return _reply_out(conversation.ask(text))
+    reply = conversation.ask(text)
+    # The in-memory store held the live object, so a new turn was already
+    # stored. A durable store holds a snapshot and must be written back.
+    saver = getattr(STORE, "save", None)
+    if saver is not None:
+        saver(token, conversation)
+    return _reply_out(reply)
 
 
 @app.get("/api/conversations/{token}", response_model=schemas.TranscriptOut,

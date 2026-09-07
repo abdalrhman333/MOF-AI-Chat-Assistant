@@ -301,10 +301,15 @@ class Conversation:
     def __init__(self, session: Session, *, settings: Settings | None = None,
                  conversation_id: str = "",
                  user_name: str | tuple[str, str] = "",
-                 ui_language: str = "ar"):
+                 ui_language: str = "ar",
+                 turns: list[Turn] | None = None):
         self._session = session
         self._settings = settings or get_settings()
-        self._turns: list[Turn] = []
+        # `turns` exists so a durable store can rebuild a conversation that
+        # outlived the process. It is a restore path, not a way to inject a
+        # transcript: whoever restores must re-authorise the session first,
+        # because a stored project code is a claim, not a permission.
+        self._turns: list[Turn] = list(turns or [])
         # The signed-in user's display name, from their authenticated
         # account. It reaches the model so it can greet by name, and it never
         # comes from anything the user typed.
