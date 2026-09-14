@@ -5,7 +5,7 @@ file first.** It tells you what this project is, which documents to read in
 what order, and how to verify the real state of the system before changing
 anything.
 
-**Last verified:** 2026-09-07 — infra, full SPM schema (17 migrations,
+**Last verified:** 2026-09-14 — infra, full SPM schema (17 migrations,
 row-level security enabled), complete mock corpus, and **the entire
 ingestion pipeline built and run over all 58 documents**: discovery → OCR →
 chunk → embed → index, ending in **678 vectors across 9 per-project Qdrant
@@ -25,7 +25,7 @@ Run the whole thing, and check it:
 ```
 
 That single `pytest` covers the frontend too: `tests/test_frontend.py`
-shells out to `node --test` for the 40 JavaScript tests in
+shells out to `node --test` for the 41 JavaScript tests in
 `tests/frontend/`, and **skips rather than fails** where node is absent.
 Sign in with any seeded address (e.g. `noura.alharbi@enjaz.gov.sa`) and
 the demo password from `INFRASTRUCTURE.md` §276.

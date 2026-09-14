@@ -313,14 +313,18 @@ class ObservabilitySettings:
     questions: Grafana shows *where the time went* across a request, and
     Langfuse shows *what the model was actually asked and answered*.
 
-    ⚠️ **`capture_content` controls whether prompts and completions leave
-    the process.** A trace with content in it contains project document
-    passages, and a trace store has no notion of AC09 — anyone who can read
-    Langfuse can read every project's passages regardless of assignment.
-    That is acceptable here because Langfuse is a container on the same
-    machine holding the same corpus. **It would not be acceptable against a
-    shared or hosted trace store**, and turning this off leaves timing and
-    token counts intact, which is most of the operational value.
+    ⚠️ **`capture_content` controls whether content leaves the process —
+    to BOTH backends.** Despite the `LANGFUSE_` prefix on its variable, the
+    one instrumentation exports identical attributes to Grafana and
+    Langfuse. With it on, every step records its input and output: the
+    question and answer, the passages retrieval found, the project record,
+    and the full prompt. A trace store has no notion of AC09, so anyone who
+    can read *either* Grafana or Langfuse can read every project's material
+    regardless of assignment. That is acceptable here because both are
+    containers on the same machine holding the same corpus. **It would not
+    be acceptable against a shared or hosted trace store**, and turning this
+    off leaves timing and token counts intact, which is most of the
+    operational value.
 
     Tracing is **fail-open**, the opposite of every access rule in this
     project, and deliberately: an unreachable collector must never stop a

@@ -302,7 +302,8 @@ been rebuilding all three clients, ~2.3 s of pure overhead.
 - **Spans are exported in the background.** A synchronous processor puts
   the collector's latency straight into the AC08 budget.
 - **`LANGFUSE_CAPTURE_CONTENT` is an AC09 decision.** A trace carries
-  document passages and a trace store has no notion of assignment.
+  document passages and a trace store has no notion of assignment. Despite
+  its name it governs Grafana too — both receive the same attributes.
 
 ⚠️ **Judge AC08 on p95, not the mean or the max.** A mean hides the turns
 that break the budget; a max fails the run on one slow upstream response.

@@ -693,13 +693,21 @@ answer about *observability* is a blind spot, and a blind spot is cheaper
 than an outage. An unreachable collector must never stop a project manager
 getting an answer.
 
-⚠️ **A trace store is an AC09 surface.** The prompt carries retrieved
-passages, so a trace with content in it carries project documents — and
-Langfuse has no notion of project assignment. Anyone who can read it can
-read every project. `LANGFUSE_CAPTURE_CONTENT` exists for that reason and
-is a deployment decision, not a preference: acceptable against a container
-on the same machine holding the same corpus, not acceptable against a
-shared or hosted store. Disabling it keeps timing and token counts.
+⚠️ **A trace store is an AC09 surface — and there are two of them.** With
+content capture on, every step records its input and output: the question
+and answer, the passages retrieval found, the project record, the prompt.
+Neither Langfuse nor Grafana has any notion of project assignment, and the
+one instrumentation sends identical attributes to both, so anyone who can
+read *either* can read every project. `LANGFUSE_CAPTURE_CONTENT` governs
+both despite its name, and is a deployment decision, not a preference:
+acceptable against containers on the same machine holding the same corpus,
+not acceptable against a shared or hosted store. Disabling it keeps timing
+and token counts.
+
+The design intent was that Grafana answers *where the time went* and
+Langfuse *what the model saw*. The code does not yet enforce that split:
+stripping content attributes from the Grafana exporter alone would make it
+true, and is an open decision (`STATUS_AND_ROADMAP.md` §3).
 
 **AC08 is a percentile claim.** "Does not exceed 5 seconds under normal
 conditions" is about the tail, so `evaluation/latency_bench.py` reports

@@ -238,8 +238,18 @@
 
 ## 3. Waiting on user action
 
-*(none currently — Docker Desktop autostart was enabled 2026-08-04, see
-`INFRASTRUCTURE.md` §4.4)*
+- **Re-enable Docker Desktop auto-start.** A Docker Desktop update reset it
+  to off (found 2026-09-13), so nothing comes back after a reboot until
+  Docker is opened by hand. Settings → General → "Start Docker Desktop when
+  you sign in". See `INFRASTRUCTURE.md` §4.4.
+- **Decide whether Grafana should receive content.** Today both trace tools
+  get every step's input and output, so anyone with either login can read
+  every project's material (§24b). The proposed change strips content from
+  the Grafana export only, keeping timings there and content in Langfuse.
+- **Optional clean-up, once satisfied Docker is stable:** the 43 GB disk
+  backup at `D:\MOF_Installations\docker-data-backup-2026-09-13\`, the empty
+  1.5 GB disk Docker created at `%LOCALAPPDATA%\Docker\wsl\`, and the two
+  `run-stale-…` folders in `%LOCALAPPDATA%\Docker\`.
 
 ---
 
@@ -515,7 +525,7 @@ What it walks into, flagged in advance:
 correcting three times when it was inferred instead.)*
 
 That one command covers the **frontend** too: `test_frontend.py` shells out
-to `node --test` for the 40 JavaScript tests in `tests/frontend/`. They
+to `node --test` for the 41 JavaScript tests in `tests/frontend/`. They
 stay JavaScript because the thing under test is — testing the real page
 script through a Python approximation would be testing the approximation —
 and they **skip rather than fail** where node is absent, since nothing else
@@ -778,7 +788,7 @@ time.
 
 ## 24. The MOF redesign, content in every trace, and a Docker that kept dying (2026-09-14)
 
-**Tests: 629 Python, plus 40 JavaScript.**
+**Tests: 629 Python, plus 41 JavaScript.**
 
 ### 24a. The UI now follows the MOF design screens
 
@@ -818,6 +828,12 @@ Two real defects surfaced only in the browser, not in the tests:
 The API gained `as_of` on citations so the SPM chip can show its date in
 the reader's language instead of the English "record updated …" sentence.
 All ten mutations of the new logic were caught.
+
+Afterwards, at the user's request, the knowledge-base table's columns were
+reordered to **name, type, status** (right to left), so the file name is
+read first. A test pins the header order *and* that each row's cells line
+up under it — swapping one without the other would still render a
+plausible-looking table.
 
 ### 24b. Every traced step now carries its input and output
 

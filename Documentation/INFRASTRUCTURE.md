@@ -208,8 +208,63 @@ container comes back after a reboot/logout, regardless of
 
 **Fix (manual, app-level GUI setting — not something to hand-edit in the
 live config file):** Docker Desktop → Settings → General → check "Start
-Docker Desktop when you sign in". **Status: done** — confirmed
-`AutoStart: true` in `settings-store.json` on 2026-08-04.
+Docker Desktop when you sign in". **Status: off again.** It was enabled
+on 2026-08-04, but a Docker Desktop update (4.90) rewrote
+`settings-store.json` and reset it to `false` — found 2026-09-13, when
+nothing was running after a restart. Re-enable it in the GUI, and re-check
+it after any Docker Desktop update.
+
+### 4.4b A Docker Desktop update can move the engine back to C:
+
+**Symptom:** Docker starts, but `docker info` reports **0 images, 0
+containers**, and `docker compose up` tries to pull everything from scratch.
+Nothing is lost — the engine is simply looking at a new, empty disk.
+
+**Cause:** the same update reset `CustomWslDistroDir` in
+`%APPDATA%\Docker\settings-store.json` to the default
+`C:\Users\<you>\AppData\Local\Docker\wsl`, while the real 43 GB disk stayed
+at `D:\MOF_Installations\docker-data\DockerDesktopWSL\disk\docker_data.vhdx`.
+
+**Fix — with Docker quit, never through the GUI:**
+1. Back up `docker_data.vhdx` (a plain copy on D:).
+2. Edit `settings-store.json` so `CustomWslDistroDir` is
+   `D:\\MOF_Installations\\docker-data\\DockerDesktopWSL` again.
+3. Start Docker; `docker info` should show the images and containers back.
+
+⚠️ **Do not use Settings → Resources → Advanced → Disk image location.** That
+control *moves* the current disk to the chosen folder. The current disk is
+the empty one, so pointing it at D: risks overwriting the real disk with it.
+
+### 4.4c Stop Docker gracefully — force-quitting it breaks the next start
+
+`Stop-Process` on Docker Desktop left two problems behind:
+- **Unix-socket files in `%LOCALAPPDATA%\Docker\run`** that Windows cannot
+  open, move or delete. The next start crashed renaming them
+  (`sailor-ingest.sock` … "The file cannot be accessed by the system"). Fix:
+  rename the whole `run` folder aside with Docker stopped; Docker recreates it.
+- **The disk left attached to Windows** (`Get-DiskImage` → `Attached: True`),
+  so WSL could not mount it: `ERROR_SHARING_VIOLATION`, retried endlessly.
+  Fix: `Dismount-DiskImage -ImagePath <vhdx>` in an **administrator**
+  PowerShell.
+
+Use `docker desktop stop` and `docker desktop start` instead; neither leaves
+anything behind.
+
+### 4.4d The stack needs 8 GB — on 4 GB the VM restarts itself
+
+**Symptom:** the containers show "Up", but the app, the tests and Qdrant or
+Grafana fail with `server closed the connection unexpectedly` or connection
+refused, then recover, then fail again minutes later. Nothing reports a crash.
+
+**Cause:** `%USERPROFILE%\.wslconfig` capped the WSL VM at `memory=4GB`. The
+stack uses about 2.9 GB a minute after starting — Langfuse's web server alone
+~1.15 GB, with ClickHouse spiking — so the VM ran out of headroom and
+restarted, and Windows' port forwarding stayed broken for a while after each
+restart.
+
+**Fix:** `memory=8GB` in `.wslconfig` (this machine has 15.8 GB), applied
+with `docker desktop stop` → `wsl --shutdown` → `docker desktop start`.
+Confirm with `docker info` (`MemTotal` ≈ 7.8 GB). Stable since 2026-09-14.
 
 ### 4.5a Python crashes printing Arabic to the console
 
@@ -281,7 +336,11 @@ because a demo nobody can sign in to is not a demo. It must never be
 carried into anything real, and migration `015` says so beside the data.
 The four addresses are `fahad.alqahtani@`, `noura.alharbi@`,
 `abdullah.alshehri@` and `reem.aldosari@enjaz.gov.sa` — only Noura holds
-three projects, so she is the one that exercises the switcher.
+three projects (PRJ-02, PRJ-05, PRJ-06), so she is the one that exercises
+the switcher. Fahad holds PRJ-01, Abdullah PRJ-03, Reem PRJ-04.
+**PRJ-07, PRJ-08 and TEST-PROJECT are assigned to nobody**, so no one can
+open them in the app — TEST-PROJECT, the 13 real documents, included. One
+row in `project_assignments` changes that.
 | Langfuse | http://localhost:3001 | LLM execution tracing — **in use since 2026-08-16**. Turns of one conversation appear as a single **session**, attributed to the user, with a span per phase | Own account, created in-browser (unrelated to Enjaz/AD auth). API keys: `LANGFUSE_SECRET_KEY`/`LANGFUSE_PUBLIC_KEY` |
 | Grafana (LGTM) | http://localhost:3000 | App workflow observability — **in use since 2026-08-16**. Traces under service `enjaz-chat` in Tempo; OTLP on :4317/:4318 | `GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD` |
 
@@ -291,13 +350,29 @@ project keys), so there is no second SDK. Enable with
 `OBSERVABILITY_ENABLED=true` in `infra/.env`; see `observability/tracing.py`
 and `STATUS_AND_ROADMAP.md` §19.
 
-⚠️ **`LANGFUSE_CAPTURE_CONTENT=true` puts project document passages into
-the trace store, and a trace store has no notion of AC09** — anyone who can
-read Langfuse can read every project's passages, regardless of assignment.
-Acceptable here only because Langfuse is a container on this machine
-holding the same corpus. Set it `false` against anything shared or hosted;
-timing and token counts, which are most of the operational value, are
-unaffected.
+⚠️ **`LANGFUSE_CAPTURE_CONTENT=true` puts project material into BOTH trace
+stores, and a trace store has no notion of AC09.** The name says Langfuse,
+but the one instrumentation exports identical attributes to Grafana: every
+step's input and output — the question and answer, the passages retrieval
+found, the project record, the full prompt. Anyone who can sign in to
+*either* tool can read every project's material, regardless of assignment.
+(This was documented as Langfuse-only until 2026-09-14; the prompt had in
+fact been reaching Tempo all along.) Acceptable here only because both are
+containers on this machine holding the same corpus. Set it `false` against
+anything shared or hosted; timing and token counts, which are most of the
+operational value, are unaffected.
+
+**Reading a trace.**
+- *Langfuse* (http://localhost:3001 → Traces): open a `chat.turn`. The trace
+  shows the question and answer; `retrieval.search` shows the passages found
+  with their scores — the first place to look when an answer is wrong. Only
+  turns recorded after 2026-09-14 carry content on every step.
+- *Grafana* (http://localhost:3000 → Explore → data source **Tempo** →
+  Search → Run query): the timeline of each step. Content is there too,
+  under **Span Attributes** as `langfuse.observation.input` / `output`, but
+  unformatted — use Langfuse to read it and Grafana to see where time went.
+  Tempo's own query port is not published; scripts reach it through
+  Grafana's datasource proxy (`INVENTORY.md` §7).
 | Portainer | https://localhost:9443 | Docker/container management UI | Own admin account, created in-browser (see §4.3 if the 5-min setup window expires) |
 | MinIO console | http://localhost:9003 | Langfuse's internal blob storage (debugging only) | `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` |
 

@@ -355,12 +355,12 @@
   <div class="strip">
     <div class="cell"><span class="n">13</span><span class="k">containers running</span></div>
     <div class="cell"><span class="n">17</span><span class="k">migrations applied, 0 drifted</span></div>
-    <div class="cell"><span class="n">669</span><span class="k">tests passing</span></div>
+    <div class="cell"><span class="n">670</span><span class="k">tests passing</span></div>
     <div class="cell"><span class="n">58</span><span class="k">documents, all indexed</span></div>
     <div class="cell"><span class="n">678</span><span class="k">vectors in 9 collections</span></div>
     <div class="cell"><span class="n">0</span><span class="k">failed · 0 pending</span></div>
   </div>
-  <p class="stamp">Every number above was read from the running system, not from a document — <b>docker compose ps</b>, <b>apply_migrations.py --status</b>, <b>pytest</b> (629 Python + 40 JavaScript), <b>pipeline.status</b> (exit 0, HEALTHY) and <b>pipeline.scanner --dry-run</b> (rows written 0).</p>
+  <p class="stamp">Every number above was read from the running system, not from a document — <b>docker compose ps</b>, <b>apply_migrations.py --status</b>, <b>pytest</b> (629 Python + 41 JavaScript), <b>pipeline.status</b> (exit 0, HEALTHY) and <b>pipeline.scanner --dry-run</b> (rows written 0).</p>
 
   <!-- ============================================================= -->
   <section>
@@ -510,13 +510,13 @@
       <div class="cbox"><span class="cn">mof-postgres-spm</span><span class="cd">The project database — projects, users, assignments, documents, and the cached OCR text.</span></div>
       <div class="cbox"><span class="cn">mof-qdrant</span><span class="cd">The vector store. One separate collection per project.</span></div>
       <div class="cbox"><span class="cn">mof-redis</span><span class="cd">The job queue behind the worker, and the place stage locks are held.</span></div>
-      <div class="cbox"><span class="cn">mof-langfuse-web</span><span class="cd">A UI for tracing what an AI model was asked and what it answered. Running, not yet connected to anything.</span></div>
+      <div class="cbox"><span class="cn">mof-langfuse-web</span><span class="cd">A UI for tracing what an AI model was asked and what it answered. Receives every chat turn, with the content of each step.</span></div>
       <div class="cbox"><span class="cn">mof-langfuse-worker</span><span class="cd">Langfuse's own background processing.</span></div>
       <div class="cbox"><span class="cn">mof-langfuse-postgres</span><span class="cd">Langfuse's private database, deliberately separate from the project one.</span></div>
       <div class="cbox"><span class="cn">mof-langfuse-clickhouse</span><span class="cd">Langfuse's trace store. The one service on a named volume — it needs filesystem behaviour a Windows bind mount cannot provide.</span></div>
       <div class="cbox"><span class="cn">mof-langfuse-redis</span><span class="cd">Langfuse's own queue.</span></div>
       <div class="cbox"><span class="cn">mof-langfuse-minio</span><span class="cd">Langfuse's file storage.</span></div>
-      <div class="cbox"><span class="cn">mof-grafana-lgtm</span><span class="cd">Dashboards for timings, logs and metrics across services. Running, not yet connected.</span></div>
+      <div class="cbox"><span class="cn">mof-grafana-lgtm</span><span class="cd">Dashboards for timings, logs and metrics across services. Receives the same traces as Langfuse, through Tempo.</span></div>
       <div class="cbox"><span class="cn">mof-portainer</span><span class="cd">A web UI for managing the containers themselves.</span></div>
       <div class="cbox"><span class="cn">mof-langfuse-minio-init</span><span class="cd">Runs once to create a storage bucket, then exits. Showing as “Exited (0)” is correct, not a failure.</span></div>
     </div>
@@ -1422,6 +1422,11 @@
     <p>The shape of that trace is itself the answer to “why does it take three seconds?”. Searching is free; the two network calls to Azure are the entire cost. No amount of tuning the search will move it.</p>
 
     <div class="cbox">
+      <p class="cn">Both tools can read every project's documents</p>
+      <p class="cd">Every step records what it received and produced: the question, the answer, the passages retrieval found, the project record, the full prompt. That is what makes a wrong answer diagnosable — if the right passage is not in the search step, the fault is retrieval; if it is, the fault is the prompt or the model. But neither Grafana nor Langfuse knows which projects a person is assigned to, and both receive exactly the same content from the one instrumentation. So anyone who can sign in to either tool can read every project's material. That is acceptable on this machine, with the same corpus sitting beside it. It is one setting to turn off anywhere shared, and the timings survive.</p>
+    </div>
+
+    <div class="cbox">
       <p class="cn">Tracing fails open — and that is the one place it is allowed</p>
       <p class="cd">If a tracing backend is down, unreachable, or misconfigured, the request still succeeds. An observability outage must never become a service outage, and a person asking about their project should not be told no because a dashboard is unwell. Every rule about <em>access</em> fails the opposite way: when in doubt, refuse. The rate limiter is the only other thing here that fails open, and for the same reason — it guards a budget, not a boundary.</p>
     </div>
@@ -1434,7 +1439,7 @@
     <div class="shead"><span class="snum">16</span><h2>How any of this is known to work</h2></div>
     <div class="srule"></div>
 
-    <p class="lead">669 automated tests, running in about twenty seconds. But the tests are not the interesting part — the method used to check the tests themselves is.</p>
+    <p class="lead">670 automated tests, running in about twenty seconds. But the tests are not the interesting part — the method used to check the tests themselves is.</p>
 
     <p><strong>Every safety feature was proved by deliberately breaking it</strong> and confirming that the intended test caught the break. 74 such breakages were run across the pipeline and the access gate, and everything added since has been held to the same standard — the frontend, for instance, was checked against twelve, all caught. The ones that slip through are the valuable ones: each has exposed a real gap that was invisible on inspection, including a test that quietly passed against broken code because it imported the very constant it was supposed to be checking, and a security check that no test was watching at all.</p>
 
