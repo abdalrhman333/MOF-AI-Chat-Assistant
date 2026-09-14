@@ -4,8 +4,8 @@
 sessions.** Read `START_HERE.md` first, then this.
 
 ⚠️ **This is now a record, not a to-do.** Every step below is built, and
-the system runs in a browser: `python -m Application.backend.api`, then
-http://127.0.0.1:8000. The only unbuilt acceptance criterion is SSO/OTP, a
+the system runs in a browser: `docker compose up -d` from `infra/`, then
+http://localhost:8000 (the app is the `mof-chat-api` container since 2026-09-14). The only unbuilt acceptance criterion is SSO/OTP, a
 deferred external dependency. Kept in full because the *reasoning* — what
 was specified, what was built, and where they differ — is what the next
 person needs, not the to-do list.
@@ -317,7 +317,7 @@ that break the budget; a max fails the run on one slow upstream response.
 **This brief is now a record, not a to-do.**
 
 ```bash
-.venv/Scripts/python -m Application.backend.api    # http://127.0.0.1:8000
+cd infra && docker compose up -d    # http://localhost:8000 — container mof-chat-api
 ```
 
 **Three properties worth not undoing:**
@@ -444,9 +444,9 @@ These cost real time to learn. All are recorded in full in
 ## 7. Verify the starting point with
 
 ```bash
-docker compose ps                                            # 13 containers
+docker compose ps                                            # 14 containers
 python infra/postgres-spm/apply_migrations.py --status        # 17 applied, 0 drifted
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 629 passed
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 648 passed
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status     # exit 0, HEALTHY
 ```
 

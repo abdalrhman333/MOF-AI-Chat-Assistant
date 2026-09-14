@@ -42,7 +42,9 @@ knowledge-base page showing what is indexed. Sign-in is simulated: email and
 password against seeded accounts, then a signed session cookie.
 
 ```bash
-.venv/Scripts/python -m Application.backend.api    # http://127.0.0.1:8000
+cd infra && docker compose up -d                   # runs as container mof-chat-api → http://localhost:8000
+docker compose up -d --build chat-api              # after changing code here
+.venv/Scripts/python -m Application.backend.api    # host run, for development — stop the container first
 ```
 
 ## Call `open_conversation`, not `answer_question`

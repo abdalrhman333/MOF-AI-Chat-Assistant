@@ -39,14 +39,35 @@ Windows (Docker Desktop, WSL2 backend, engine disk relocated to D:)
     ├── pipeline-worker ...... built from ./Dockerfile   THE INGESTION PIPELINE
     │                          Celery worker; corpus bind-mounted READ-ONLY at
     │                          /data. Healthchecked via `celery inspect ping`.
-    └── pipeline-beat ........ same image; fires the scheduled full ingest.
-                               Schedule persisted to D:, not /tmp.
+    ├── pipeline-beat ........ same image; fires the scheduled full ingest.
+    │                          Schedule persisted to D:, not /tmp.
+    └── chat-api ............. built from ./Dockerfile (target app)  THE APP
+                               API + frontend on 127.0.0.1:8000 only.
+                               Healthchecked via /health.
 ```
 
-**13 containers total** (`langfuse-minio-init` runs once and exits — that's
-correct, not a failure). The last two are the ingestion pipeline itself —
-the first application code in this stack; everything above it is
+**14 containers total** (`langfuse-minio-init` runs once and exits — that's
+correct, not a failure). The last three are application code — the
+ingestion pipeline and the chat app; everything above them is
 infrastructure.
+
+**The chat app runs as a container since 2026-09-14.** Before that it was
+started by hand on the Windows host, and stopped whenever the terminal — or
+the session — that started it closed. As `chat-api` it starts with the
+stack, restarts itself after a crash, and returns after a reboot once
+Docker Desktop auto-start is on (§4.4). Two things worth knowing:
+
+- **Its port is bound to `127.0.0.1` only.** The demo sign-in uses one shared,
+  documented password, so publishing it on every interface would let anyone
+  on the network sign in. To demo from another device, change the mapping
+  to `"8000:8000"` deliberately.
+- **Code changes need a rebuild:** `docker compose up -d --build chat-api`.
+  One Dockerfile builds two targets (`pipeline`, `app`) on a shared base, so
+  rebuilding the app does not recreate the pipeline containers.
+
+Running it on the host instead (`.venv/Scripts/python -m Application.backend.api`)
+still works for development — stop the container first, since both want
+port 8000.
 
 ---
 
@@ -328,7 +349,7 @@ a blank value.
 | Postgres (SPM) | `localhost:5432` | SPM data — `projects`, `users`, `project_assignments`, `document_links` (see §8) | `POSTGRES_SPM_USER` / `POSTGRES_SPM_PASSWORD`, db `POSTGRES_SPM_DB` |
 | Qdrant | http://localhost:6333/dashboard | Vector DB, one collection per project | `QDRANT_API_KEY` |
 | Redis | `localhost:6379` | Celery broker + result backend for the ingestion worker, and the store behind the cross-process stage locks | `REDIS_PASSWORD` |
-| **الوكيل الذكي / Smart Agent Platform** | **http://localhost:8000** | **The application itself** — sign-in, project picker, assistant chat, knowledge base, styled to the MOF design (DIN Next LT Arabic, #005459). `/docs` for the OpenAPI UI. Not a container: `python -m Application.backend.api` | **Demo sign-in:** any seeded address (e.g. `noura.alharbi@enjaz.gov.sa`) with password `Enjaz@2026` |
+| **الوكيل الذكي / Smart Agent Platform** | **http://localhost:8000** | **The application itself** — sign-in, project picker, assistant chat, knowledge base, styled to the MOF design (DIN Next LT Arabic, #005459). `/docs` for the OpenAPI UI. Container `mof-chat-api`, reachable from this machine only; rebuild after code changes with `docker compose up -d --build chat-api` | **Demo sign-in:** any seeded address (e.g. `noura.alharbi@enjaz.gov.sa`) with password `Enjaz@2026` |
 
 ⚠️ **That password is a demo credential for four fictional users in a mock
 dataset, not a secret in the sense of `infra/.env`.** It is written here

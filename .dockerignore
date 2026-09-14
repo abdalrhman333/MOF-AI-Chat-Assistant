@@ -7,7 +7,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-# Secrets never belong in an image layer. The worker receives its
+# Secrets never belong in an image layer. Both containers receive their
 # configuration from Compose (env_file + environment) at run time.
 infra/.env
 
@@ -15,7 +15,7 @@ infra/.env
 .github/
 .claude/
 
-# Not needed to run the pipeline.
+# Not needed to run the pipeline or the chat app.
 Documentation/
 My_Prompts/
 tests/

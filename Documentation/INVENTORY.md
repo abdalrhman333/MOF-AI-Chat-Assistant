@@ -23,9 +23,9 @@ open it" reference.
 | `pipeline\` | `config.py` (all settings), `chunker.py`, `db.py` (the `spm_admin` connection), `scanner.py` (Stage 0 — discovery), `ocr.py` (Stage 1 — extraction, with transient-error retries), `classify.py` + `doc_type_labels.json` (Stage 1b — document type, labels held as **data**), `native_extract.py` (Office fallback), `indexer.py` (Stages 2+3 — chunk, embed, index), `locking.py` (cross-process stage locks), `tasks.py` (Celery tasks + schedule), `status.py` (operational health check) | Builds the knowledge base. Complete, and runs as a containerised worker. The chat application lives in `Application\` |
 | `Application\` | `README.md` (layout + the trust boundary), `backend\errors.py` (typed access failures), `backend\db.py` (the `spm_app` pool, transaction boundaries, scope applied with a bind parameter), `backend\session.py` (the AC09 gate), `backend\retrieval.py` (vector search, scoped to a Session), `backend\spm.py` (the live project record), `backend\answer.py` (**the system prompt — the assistant's brain** — the LLM call, citation resolution), `backend\conversation.py` (history + follow-up rewriting), `backend\messages.py`, `backend\clients.py`. **`backend\api\`**: `app.py` (FastAPI routes, tracing middleware), `identity.py`, `credentials.py` (PBKDF2 demo passwords), `cookies.py` (HMAC-signed session cookies), `store.py` + `redis_store.py` (conversation stores), `ratelimit.py`, `schemas.py`. **`frontend\index.html`**: the entire UI in one static file — sign-in, project picker, chat, knowledge base — styled to the MOF design screens, no build step, no framework, served by the API process on the same origin. **`frontend\assets\`**: `logo.svg` (committed) and `fonts\` — DIN Next LT Arabic, **gitignored** because it is a licensed Monotype font; the folder's README says which files to place there, and the page falls back to a system font without them | **All chat-application code lives here**, kept apart from the pipeline that builds the knowledge base and the harness that measures it — they run as different processes under different database roles |
 | `evaluation\` | `dataset.py` (load + validate the question set), `retrieval_eval.py` (embed, search, score) + `questions.json` (29 tagged questions) + `baseline.json`; `router_eval.py` (drives 59 tagged probes through the **real** answer path and scores language + intent) + `router_probes.json` + `router_baseline.json`; `conversation_probes.json`; `latency_bench.py`. Question sets are **data, not code** — paths configurable | Measures quality so a change can be shown to help. Separate from `pipeline\` because the pipeline *produces* the vector store and this *judges* it. The router eval exists because the LLM-first redesign moved language and intent into the model, and a component with no measurement is a component nobody can safely change |
-| `tests\` | `test_answering.py` (53) + `test_conversation.py` (46) + `test_session_gate.py` (42) + `test_ocr.py` (40) + `test_retrieval_eval.py` (39) + `test_observability.py` (48) + `test_scanner.py` (38) + `test_auth.py` (38) + `test_continuity.py` (33) + `test_tasks.py` (28) + `test_api.py` (27) + `test_chunker.py` (26) + `test_rls.py` (23) + `test_indexer.py` (23) + `test_redis_store.py` (22) + `test_native_extract.py` (22) + `test_status.py` (15) + `test_classify.py` (15) + `test_config.py` (15) + `test_router_eval.py` (12) + `test_locking.py` (12) + `test_ratelimit.py` (10) + `test_frontend.py` (2) + `tests\frontend\` (`harness.mjs` + `ui.test.mjs`, 41 JS tests) + `tests\fixtures\` (3 real OCR samples) | **629 Python tests, plus 41 JavaScript.** The frontend suite is JavaScript because the thing under test is — `test_frontend.py` runs it through `node --test` so one `pytest` command still covers the whole system, and **skips rather than fails** where node is absent. Its DOM shim throws for any element id the markup does not contain, so a `$()` typo fails there instead of on a user's click. The Postgres-backed ones roll back and leave nothing behind; `test_locking.py` and `test_tasks.py` need Redis. Everything that costs money is stubbed — `test_ocr.py` stubs Azure; `test_indexer.py`, `test_retrieval_eval.py` and `test_answering.py` stub the embedding API, Qdrant and the LLM — so the full write and answer paths are tested with no paid call. **`test_rls.py` and `test_session_gate.py` are the only files that connect as `spm_app`** — every other file uses `spm_admin`, which bypasses row-level security, which is why RLS went untested until 2026-08-09 |
+| `tests\` | `test_answering.py` (53) + `test_conversation.py` (46) + `test_session_gate.py` (42) + `test_ocr.py` (40) + `test_retrieval_eval.py` (39) + `test_observability.py` (48) + `test_scanner.py` (38) + `test_auth.py` (38) + `test_continuity.py` (33) + `test_tasks.py` (28) + `test_api.py` (27) + `test_chunker.py` (26) + `test_rls.py` (23) + `test_indexer.py` (23) + `test_redis_store.py` (22) + `test_native_extract.py` (22) + `test_status.py` (15) + `test_classify.py` (15) + `test_config.py` (15) + `test_router_eval.py` (12) + `test_locking.py` (12) + `test_deployment.py` (19) + `test_ratelimit.py` (10) + `test_frontend.py` (2) + `tests\frontend\` (`harness.mjs` + `ui.test.mjs`, 41 JS tests) + `tests\fixtures\` (3 real OCR samples) | **648 Python tests, plus 41 JavaScript.** `test_deployment.py` reads the real Compose file and Dockerfile, so the container decisions — port bound to this machine, service names not localhost, no startup dependency on tracing, no root user, no secrets in the image — cannot be undone by a quiet edit. The frontend suite is JavaScript because the thing under test is — `test_frontend.py` runs it through `node --test` so one `pytest` command still covers the whole system, and **skips rather than fails** where node is absent. Its DOM shim throws for any element id the markup does not contain, so a `$()` typo fails there instead of on a user's click. The Postgres-backed ones roll back and leave nothing behind; `test_locking.py` and `test_tasks.py` need Redis. Everything that costs money is stubbed — `test_ocr.py` stubs Azure; `test_indexer.py`, `test_retrieval_eval.py` and `test_answering.py` stub the embedding API, Qdrant and the LLM — so the full write and answer paths are tested with no paid call. **`test_rls.py` and `test_session_gate.py` are the only files that connect as `spm_app`** — every other file uses `spm_admin`, which bypasses row-level security, which is why RLS went untested until 2026-08-09 |
 | `observability\` | `tracing.py` — **one** instrumentation feeding **two** backends (Grafana Tempo and Langfuse), plus the HTTP semantic-convention names. ⚠️ Fails **open**: a tracing outage must never become a service outage | Tracing is cross-cutting; it belongs to neither the pipeline nor the chat application |
-| `Dockerfile` / `.dockerignore` | Image for the ingestion worker | Built by `docker compose build pipeline-worker`; excludes `.venv` and `infra/.env` from the build context |
+| `Dockerfile` / `.dockerignore` | **Two images from one file**: target `pipeline` (worker + beat) and target `app` (the chat app), on a shared dependency layer | `docker compose build pipeline-worker` / `chat-api`. Rebuilding one does not recreate the other. The context excludes `.venv` and `infra/.env`; the licensed fonts are copied into the local app image, which is never pushed |
 | `requirements.txt` / `requirements-dev.txt` | Pinned Python dependencies | Reproducible environment |
 | `.venv\` | Project virtualenv | **Gitignored** — machine-specific, never committed |
 | `Tools ACC\` | One screenshot | Not created by the assistant — the chat app's own attachment storage |
@@ -51,7 +51,7 @@ downloaded/created for this project stays under D:, nothing touches C:."
 
 ---
 
-## 2. Docker containers (13 total, all `restart: unless-stopped`)
+## 2. Docker containers (14 total, all `restart: unless-stopped`)
 
 | Container | Image | Purpose | Access |
 |---|---|---|---|
@@ -68,6 +68,7 @@ downloaded/created for this project stays under D:, nothing touches C:."
 | `mof-portainer` | portainer-ce | Docker management UI | https://localhost:9443 |
 | `mof-pipeline-worker` | `mof-enjaz-pipeline` (built from this repo) | **The ingestion pipeline as a background worker.** Runs scan / OCR / index as Celery tasks; the corpus is mounted **read-only** at `/data` | `docker compose exec pipeline-worker python -m pipeline.tasks ingest --wait` |
 | `mof-pipeline-beat` | same image | Fires the scheduled full ingest — **daily at 13:00 `Asia/Amman`**. Keeps its schedule under `D:\MOF_Installations\volumes\pipeline-beat` so a restart doesn't lose it | `docker logs mof-pipeline-beat` |
+| `mof-chat-api` | `mof-enjaz-chat` (built from this repo, target `app`) | **The chat application** — API and frontend. Reaches every dependency by service name; **bound to 127.0.0.1 only**, because the demo sign-in shares one password. Runs as a container since 2026-09-14 so it no longer dies with the terminal that started it | http://localhost:8000 · `docker logs -f mof-chat-api` · rebuild: `docker compose up -d --build chat-api` |
 
 All credentials live in `infra/.env` (gitignored); variable names/purposes documented in `infra/.env.example`. Full detail: `INFRASTRUCTURE.md` §6.
 
@@ -139,8 +140,8 @@ Never into system Python — one of the four gaps closed before the pipeline pha
 
 ## 6. What's deliberately *not* built
 
-The API and the frontend both exist now — run them with
-`.venv/Scripts/python -m Application.backend.api` and open
+The API and the frontend both exist, and run as the `mof-chat-api`
+container — `docker compose up -d` from `infra/`, then
 http://localhost:8000. What remains deferred is deferred on purpose:
 
 - **Real Active Directory, real SharePoint, real OTP** — external
@@ -158,9 +159,9 @@ http://localhost:8000. What remains deferred is deferred on purpose:
 ## 7. Quick verification commands
 
 ```bash
-docker ps --format "{{.Names}}: {{.Status}}"                     # 13 containers
+docker ps --format "{{.Names}}: {{.Status}}"                     # 14 containers
 python infra/postgres-spm/apply_migrations.py --status           # 17 applied, 0 pending
-.venv/Scripts/python -m pytest tests/ -q                         # 629 passed
+.venv/Scripts/python -m pytest tests/ -q                         # 648 passed
 find /d/MOF_DataSample -maxdepth 1 -type d                       # 9 project folders
 
 # The whole pipeline has run. Every stage is free to re-run unchanged:
@@ -175,7 +176,7 @@ PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.indexer --dry-run
 The application itself, and whether tracing reached both backends:
 
 ```bash
-.venv/Scripts/python -m Application.backend.api      # then open :8000
+docker compose up -d                                 # from infra/ — then open :8000
 curl -s localhost:8000/health
 #   -> {"status":"ok","auth_mode":"session_login",
 #       "tracing":["grafana","langfuse"],"conversation_store":"RedisConversationStore"}

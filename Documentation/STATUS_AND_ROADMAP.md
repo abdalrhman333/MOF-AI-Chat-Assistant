@@ -240,7 +240,8 @@
 
 - **Re-enable Docker Desktop auto-start.** A Docker Desktop update reset it
   to off (found 2026-09-13), so nothing comes back after a reboot until
-  Docker is opened by hand. Settings → General → "Start Docker Desktop when
+  Docker is opened by hand — and since the chat app is now a container too,
+  that includes the app itself. Settings → General → "Start Docker Desktop when
   you sign in". See `INFRASTRUCTURE.md` §4.4.
 - **Decide whether Grafana should receive content.** Today both trace tools
   get every step's input and output, so anyone with either login can read
@@ -315,7 +316,7 @@ being followed; steps 1 and 2 are done.
 
 | # | Component | State |
 |---|---|---|
-| — | **Infrastructure** — 13 containers, all data on D: | ✅ |
+| — | **Infrastructure** — 14 containers, the chat app included, all data on D: | ✅ |
 | — | **SPM schema** — 17 migrations, RLS, 23 regression tests | ✅ |
 | — | **Ingestion pipeline** — scan → OCR → chunk → embed → index | ✅ 58 docs, 678 vectors |
 | — | **Operations** — worker, daily schedule, stage locks, health check | ✅ runs unattended |
@@ -339,7 +340,7 @@ acceptance criterion the BRD assigns to this build is implemented,
 measured, and exercised end to end:
 
 ```bash
-.venv/Scripts/python -m Application.backend.api    # then open http://127.0.0.1:8000
+cd infra && docker compose up -d    # then open http://localhost:8000 (container mof-chat-api)
 ```
 
 | AC | State |
@@ -517,7 +518,7 @@ What it walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**629 Python tests, ~30s**, across 23 files — the largest being
+**648 Python tests, ~30s**, across 24 files — the largest being
 `test_answering.py` 53, `test_conversation.py` 46, `test_session_gate.py`
 42, `test_ocr.py` 40, `test_retrieval_eval.py` 39, `test_observability.py`
 39, `test_scanner.py` 38, `test_auth.py` 38, `test_continuity.py` 33.
@@ -788,7 +789,7 @@ time.
 
 ## 24. The MOF redesign, content in every trace, and a Docker that kept dying (2026-09-14)
 
-**Tests: 629 Python, plus 41 JavaScript.**
+**Tests: 648 Python, plus 41 JavaScript.**
 
 ### 24a. The UI now follows the MOF design screens
 
@@ -868,6 +869,38 @@ yet decided.
   the symptom was `server closed the connection unexpectedly`, not a crash
   report. The stack uses ~2.9 GB a minute after start. Raised to 8 GB in
   `.wslconfig`; stable since.
+
+### 24d. The chat app becomes a container
+
+The app still ran on the Windows host, started by hand — and when a demo
+was opened the next day it answered `ERR_CONNECTION_REFUSED`: the session
+that had started it had ended, and the app with it, while every container
+kept running. The one component outside Docker was the one that failed.
+
+It now runs as `chat-api` in the same Compose file, with
+`restart: unless-stopped` and a `/health` healthcheck. Decisions worth not
+undoing, each pinned by `tests/test_deployment.py` (19 tests; all nine
+mutations — among them a public port, a host left on localhost, a misspelt
+tracing host and a root user — are caught):
+
+- **One Dockerfile, two targets on a shared base.** The dependency layer is
+  built once; an app change rebuilds only the app image, so the pipeline
+  containers are not recreated. A service with no target would silently
+  build the *last* stage, so every service names its target.
+- **Bound to `127.0.0.1`.** The demo sign-in shares one documented password;
+  publishing on every interface would open it to the network.
+- **Every dependency by service name.** `.env` holds localhost values for
+  host runs, and inside a container localhost is the container. Langfuse is
+  addressed on 3000, its internal port — 3001 is only its host mapping.
+- **No startup dependency on tracing.** Tracing fails open; waiting on
+  Langfuse or Grafana to start would make a tracing outage stop the app.
+- **Secrets stay out of the image** (`infra/.env` is dockerignored). The
+  licensed fonts are copied into the local image, which is never pushed.
+
+Verified live: the rebuild recreated the whole stack (every container
+created fresh, no VM restart), data intact at 9 projects / 58 documents, a
+real question answered through the container with citations in 2.8 s, and
+the turn arriving in both Langfuse and Tempo from inside the network.
 
 ---
 

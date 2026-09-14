@@ -353,14 +353,14 @@
   <div class="underrule"></div>
 
   <div class="strip">
-    <div class="cell"><span class="n">13</span><span class="k">containers running</span></div>
+    <div class="cell"><span class="n">14</span><span class="k">containers running</span></div>
     <div class="cell"><span class="n">17</span><span class="k">migrations applied, 0 drifted</span></div>
-    <div class="cell"><span class="n">670</span><span class="k">tests passing</span></div>
+    <div class="cell"><span class="n">689</span><span class="k">tests passing</span></div>
     <div class="cell"><span class="n">58</span><span class="k">documents, all indexed</span></div>
     <div class="cell"><span class="n">678</span><span class="k">vectors in 9 collections</span></div>
     <div class="cell"><span class="n">0</span><span class="k">failed · 0 pending</span></div>
   </div>
-  <p class="stamp">Every number above was read from the running system, not from a document — <b>docker compose ps</b>, <b>apply_migrations.py --status</b>, <b>pytest</b> (629 Python + 41 JavaScript), <b>pipeline.status</b> (exit 0, HEALTHY) and <b>pipeline.scanner --dry-run</b> (rows written 0).</p>
+  <p class="stamp">Every number above was read from the running system, not from a document — <b>docker compose ps</b>, <b>apply_migrations.py --status</b>, <b>pytest</b> (648 Python + 41 JavaScript), <b>pipeline.status</b> (exit 0, HEALTHY) and <b>pipeline.scanner --dry-run</b> (rows written 0).</p>
 
   <!-- ============================================================= -->
   <section>
@@ -507,6 +507,7 @@
     <div class="cgrid">
       <div class="cbox app"><span class="cn">mof-pipeline-worker</span><span class="cd">The pipeline itself, as a background worker. The document folder is mounted read-only, so it physically cannot alter the source files.</span></div>
       <div class="cbox app"><span class="cn">mof-pipeline-beat</span><span class="cd">The alarm clock. Fires one full ingest a day at 13:00 Amman time.</span></div>
+      <div class="cbox app"><span class="cn">mof-chat-api</span><span class="cd">The assistant itself — the API and the web page. Reachable from this machine only, and restarts on its own. It ran by hand on Windows until it stopped with the session that started it; now it lives with everything else.</span></div>
       <div class="cbox"><span class="cn">mof-postgres-spm</span><span class="cd">The project database — projects, users, assignments, documents, and the cached OCR text.</span></div>
       <div class="cbox"><span class="cn">mof-qdrant</span><span class="cd">The vector store. One separate collection per project.</span></div>
       <div class="cbox"><span class="cn">mof-redis</span><span class="cd">The job queue behind the worker, and the place stage locks are held.</span></div>
@@ -1439,7 +1440,7 @@
     <div class="shead"><span class="snum">16</span><h2>How any of this is known to work</h2></div>
     <div class="srule"></div>
 
-    <p class="lead">670 automated tests, running in about twenty seconds. But the tests are not the interesting part — the method used to check the tests themselves is.</p>
+    <p class="lead">689 automated tests, running in about twenty seconds. But the tests are not the interesting part — the method used to check the tests themselves is.</p>
 
     <p><strong>Every safety feature was proved by deliberately breaking it</strong> and confirming that the intended test caught the break. 74 such breakages were run across the pipeline and the access gate, and everything added since has been held to the same standard — the frontend, for instance, was checked against twelve, all caught. The ones that slip through are the valuable ones: each has exposed a real gap that was invisible on inspection, including a test that quietly passed against broken code because it imported the very constant it was supposed to be checking, and a security check that no test was watching at all.</p>
 

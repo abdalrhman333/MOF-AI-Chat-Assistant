@@ -289,6 +289,7 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+      target: pipeline
     image: mof-enjaz-pipeline:latest
     container_name: mof-pipeline-worker
     restart: unless-stopped
@@ -332,6 +333,7 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+      target: pipeline
     image: mof-enjaz-pipeline:latest
     container_name: mof-pipeline-beat
     restart: unless-stopped
@@ -359,6 +361,64 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+    networks: [mof-net]
+
+  # ===========================================================================
+  # Chat application — the API and the frontend it serves
+  # ===========================================================================
+  # Ran on the Windows host until 2026-09-14, started by hand or by a
+  # session, and stopped whenever that session ended. As a service it starts
+  # with the stack, restarts itself after a crash, and comes back after a
+  # reboot like everything else here.
+  chat-api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: app
+    image: mof-enjaz-chat:latest
+    container_name: mof-chat-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Listen on every interface INSIDE the container; which host
+      # interfaces reach it is decided by `ports` below. The .env value
+      # (127.0.0.1) is right for a host run and unreachable in a container.
+      API_HOST: 0.0.0.0
+      API_PORT: "8000"
+      # Service names, not localhost: inside the container, localhost is
+      # the container itself.
+      POSTGRES_SPM_HOST: postgres-spm
+      REDIS_HOST: redis
+      QDRANT_URL: http://qdrant:6333
+      OTLP_TRACES_ENDPOINT: http://grafana-lgtm:4318/v1/traces
+      # Langfuse listens on 3000 inside the network; 3001 is only its host port.
+      LANGFUSE_OTLP_ENDPOINT: http://langfuse-web:3000/api/public/otel/v1/traces
+      PYTHONIOENCODING: utf-8
+    ports:
+      # ⚠️ Bound to this machine only. The demo sign-in has one shared,
+      # documented password, so publishing it on every interface would let
+      # anyone on the network sign in as any seeded user. To demo from
+      # another device, change this deliberately to "8000:8000".
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres-spm:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      # Deliberately NOT langfuse-web or grafana-lgtm. Tracing fails open:
+      # a tracing outage must never stop an answer, and a startup dependency
+      # on it would make exactly that happen.
+    healthcheck:
+      # /health answers without touching a database, so this checks the
+      # process is serving — python, because python:slim ships no curl.
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).status == 200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks: [mof-net]
 
   # ===========================================================================

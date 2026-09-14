@@ -20,9 +20,14 @@ instrumentation.
 Run the whole thing, and check it:
 
 ```bash
-.venv/Scripts/python -m Application.backend.api     # then open http://localhost:8000
-.venv/Scripts/python -m pytest tests/ -q            # expect 629 passed
+cd infra && docker compose up -d                    # everything, the app included → http://localhost:8000
+.venv/Scripts/python -m pytest tests/ -q            # expect 648 passed
 ```
+
+The app is the `mof-chat-api` container. After changing its code, rebuild it
+with `docker compose up -d --build chat-api`; its log is
+`docker logs -f mof-chat-api`. ⚠️ Docker Desktop auto-start is currently
+**off**, so after a reboot open Docker Desktop first.
 
 That single `pytest` covers the frontend too: `tests/test_frontend.py`
 shells out to `node --test` for the 41 JavaScript tests in
@@ -36,7 +41,7 @@ session cookie — because real AD SSO and OTP are external dependencies that
 do not exist here.
 
 ```bash
-.venv/Scripts/python -m Application.backend.api      # http://127.0.0.1:8000
+# http://localhost:8000 — served by the mof-chat-api container
 # sign in as noura.alharbi@enjaz.gov.sa / Enjaz@2026  (she holds 3 projects)
 ```
 
@@ -106,7 +111,7 @@ Docs drift. Before making changes, verify reality:
 
 ```bash
 cd "D:\MOF Enjaz Chatbot\infra"
-docker compose ps                          # 13 containers, all Up/healthy
+docker compose ps                          # 14 containers, all Up/healthy
 docker ps --format "table {{.Names}}\t{{.Status}}"
 ```
 
@@ -114,8 +119,9 @@ Expected containers (project name `mof-enjaz-chatbot`, network `mof-net`):
 `mof-postgres-spm`, `mof-qdrant`, `mof-redis`, `mof-langfuse-postgres`,
 `mof-langfuse-clickhouse`, `mof-langfuse-redis`, `mof-langfuse-minio`,
 `mof-langfuse-worker`, `mof-langfuse-web`, `mof-grafana-lgtm`,
-`mof-portainer`, plus the ingestion pipeline itself:
-`mof-pipeline-worker` and `mof-pipeline-beat`.
+`mof-portainer`, plus the application code: the ingestion pipeline
+(`mof-pipeline-worker`, `mof-pipeline-beat`) and the chat app
+(`mof-chat-api`).
 (`mof-langfuse-minio-init` runs once and exits — that's expected, not a
 failure.)
 

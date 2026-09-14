@@ -11,8 +11,9 @@ def main() -> None:
     from pipeline.config import get_settings
 
     config = get_settings().api
-    # Single process on purpose: conversations are held in memory, so a
-    # second worker would not see the first's. See `store.py`.
+    # One process. Conversations live in Redis, so more would be safe —
+    # but with API_CONVERSATION_STORE=memory a second worker would not see
+    # the first's, and a demo gains nothing from the extra processes.
     uvicorn.run("Application.backend.api.app:app",
                 host=config.host, port=config.port, workers=1)
 
