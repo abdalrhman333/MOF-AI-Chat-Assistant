@@ -25,17 +25,36 @@ ENGLISH = "en"
 
 # key -> {language -> text}
 MESSAGES: dict[str, dict[str, str]] = {
-    # AC04. `{name}` is the signed-in user's own name, from their
+    # AC04. `{name}` is the signed-in user's first name, from their
     # authenticated account; `{project}` comes from the Session.
+    #
+    # ⚠️ Every limit stated here is one the system actually enforces — the
+    # welcome is a promise, and a promise the assistant then breaks is worse
+    # than none. Each line maps to a rule:
+    #   this project only, cannot see others  -> AC09 gate + per-project index
+    #   not from outside its sources          -> system prompt rule 1
+    #   says so rather than guessing          -> system prompt rule 2
+    #   never changes data                    -> read-only `spm_app` role
+    #   Arabic or English                     -> unsupported_language intent
+    # Change a rule and this text must change with it.
     "welcome": {
-        ARABIC: "أهلاً بك يا {name}. أنا المساعد الذكي، وجلستك مرتبطة "
-                "بالمشروع {project}. اسألني بالعربية أو الإنجليزية، وسأجيب "
-                "اعتماداً على وثائق المشروع المعتمدة وسجله في نظام SPM، مع "
-                "ذكر المصدر في كل إجابة.",
-        ENGLISH: "Welcome, {name}. I'm the Smart Assistant, and this session "
-                 "is for project {project}. Ask me in Arabic or English and "
-                 "I'll answer from the project's approved documents and its "
-                 "SPM record, citing the source each time.",
+        ARABIC: "أهلاً بك يا {name}، أنا المساعد الذكي لمشروع {project}.\n"
+                "أجيب عن أسئلتك حول هذا المشروع — حالته وميزانيته وجدوله "
+                "الزمني ومخاطره واجتماعاته — من وثائقه المعتمدة وسجله في نظام "
+                "SPM، مع ذكر المصدر في كل إجابة.\n"
+                "حدودي: أعمل على هذا المشروع فقط ولا أطّلع على غيره، ولا أجيب "
+                "من خارج مصادره، ولا أعدّل أي بيانات. وإن لم أجد المعلومة "
+                "أخبرتك بذلك بدلاً من التخمين.\n"
+                "اسألني بالعربية أو الإنجليزية.",
+        ENGLISH: "Welcome, {name}. I'm the Smart Assistant for project {project}.\n"
+                 "I answer questions about this project — its status, budget, "
+                 "timeline, risks and meetings — from its approved documents "
+                 "and its SPM record, citing the source every time.\n"
+                 "My limits: I work on this project only and can't see any "
+                 "other, I don't answer from outside its sources, and I don't "
+                 "change any data. If the information isn't there, I'll tell "
+                 "you rather than guess.\n"
+                 "Ask me in Arabic or English.",
     },
     "unavailable": {
         ARABIC: "تعذّر الوصول إلى الخدمة مؤقتاً. يُرجى المحاولة مرة أخرى.",

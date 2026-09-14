@@ -230,20 +230,39 @@ test("the header leads with the UI language and carries the other name below", (
   const a = load();
   a.set("CURRENT", PROJECT);
   a.renderTopbar();
-  assert.equal(a.el("chatTitle").textContent, "مشروع التحول الرقمي - PRJ-06");
-  assert.equal(a.el("chatSub").textContent, "Digital Transformation");
+  assert.equal(a.el("barTitle").textContent, "مشروع التحول الرقمي - PRJ-06");
+  assert.equal(a.el("barMeta").textContent, "Digital Transformation");
   a.set("UI", "en");
   a.renderTopbar();
-  assert.equal(a.el("chatTitle").textContent, "Digital Transformation - PRJ-06");
-  assert.equal(a.el("chatSub").textContent, "مشروع التحول الرقمي");
+  assert.equal(a.el("barTitle").textContent, "Digital Transformation - PRJ-06");
+  assert.equal(a.el("barMeta").textContent, "مشروع التحول الرقمي");
+});
+
+test("the project stays in the top bar on every screen", () => {
+  // Requested: the locked project belongs in the header bar, visible while
+  // chatting as well as on the knowledge base — not inside the chat card.
+  const a = load();
+  a.set("CURRENT", PROJECT);
+  a.set("CONV", "c1");
+  for (const view of ["chat", "kb", "chat"]) {
+    a.set("KB_DATA", { project_code: "PRJ-06", documents: [], indexed: 0, total: 0 });
+    a.showView(view);
+    assert.equal(a.el("barTitleWrap").classList.contains("hidden"), false, view);
+  }
+  assert.ok(!source().includes('id="chatTitle"'), "no second title inside the chat card");
+  // The shim builds elements from ids, not from the markup's classes, so a
+  // `class="hidden"` written into the HTML would pass the loop above.
+  // Found by mutation: check the markup itself.
+  const tag = source().match(/<div id="barTitleWrap"[^>]*>/)[0];
+  assert.ok(!/hidden/.test(tag), "the title must not start hidden: " + tag);
 });
 
 test("a project missing a name falls back to its display name, not to blank", () => {
   const a = load();
   a.set("CURRENT", { code: "PRJ-09", name_ar: null, name_en: null, display_name: "Legacy" });
   a.renderTopbar();
-  assert.equal(a.el("chatTitle").textContent, "Legacy - PRJ-09");
-  assert.equal(a.el("chatSub").textContent, "", "no second name is invented");
+  assert.equal(a.el("barTitle").textContent, "Legacy - PRJ-09");
+  assert.equal(a.el("barMeta").textContent, "", "no second name is invented");
 });
 
 test("switching project replaces every place the old one was named", () => {
@@ -252,7 +271,7 @@ test("switching project replaces every place the old one was named", () => {
   a.renderTopbar();
   a.set("CURRENT", { code: "PRJ-02", name_ar: "خدماتي", name_en: "Khadamati", display_name: "" });
   a.renderTopbar();
-  for (const id of ["chatTitle", "chatSub", "barTitle", "barMeta", "projName", "projCode"]) {
+  for (const id of ["barTitle", "barMeta", "projName", "projCode"]) {
     assert.ok(!a.el(id).textContent.includes("PRJ-06"), `${id} still names PRJ-06`);
     assert.ok(!a.el(id).textContent.includes("التحول"), `${id} still names the old project`);
   }
@@ -290,15 +309,17 @@ test("an unknown document type is shown as it arrives, never dropped", async () 
   assert.ok(a.el("chatView").children.at(-1).textContent.includes("Board Paper - ص 2"));
 });
 
-test("the SPM record shows its date, not the English provenance sentence", async () => {
+test("the SPM record is named as a source, without a date or the English sentence", async () => {
+  // Requested: "تاريخ الإنشاء: الثلاثاء، 4 أغسطس 2026" beside the chip added
+  // noise to every answer that used the record. The chip names the source;
+  // the provenance date stays in the API for anyone who needs it.
   const a = await chatting({ "/messages": { status: 200, body: { ...REPLY,
     citations: [{ source: "project_record", label: "SPM project record (record updated 2026-08-04)",
                   as_of: "record updated 2026-08-04" }] } } });
   await a.ask("hi");
   const shown = a.el("chatView").children.at(-1).textContent;
   assert.ok(shown.includes("سجل المشروع في SPM"));
-  assert.ok(shown.includes("آخر تحديث"), "updated and created are different claims");
-  assert.ok(shown.includes("2026"));
+  assert.ok(!shown.includes("2026"), "no date beside the source");
   assert.ok(!shown.includes("record updated"), "the English sentence must not leak");
 });
 
@@ -511,7 +532,7 @@ test("a user with no projects is told so, with no picker to get stuck in", async
 
 test("before a choice, the header asks for one rather than claiming there are none", async () => {
   const a = await signedIn();
-  assert.equal(a.el("chatTitle").textContent, a.t("pickFirst"));
+  assert.equal(a.el("barTitle").textContent, a.t("pickFirst"));
 });
 
 // ---------------------------------------------------------------------------

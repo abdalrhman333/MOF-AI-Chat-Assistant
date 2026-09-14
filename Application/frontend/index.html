@@ -178,8 +178,6 @@
   .pane { flex: 1; min-height: 0; padding: 22px 26px; display: flex; flex-direction: column; }
   .chatcard { flex: 1; min-height: 0; background: var(--panel); border: 1px solid var(--line);
               border-radius: 18px; display: flex; flex-direction: column; padding: 24px 28px 22px; }
-  .chathead h2 { margin: 0; font-size: 21px; color: var(--brand); font-weight: 700; }
-  .chathead p { margin: 2px 0 0; font-size: 13.5px; color: var(--muted); }
   #chatView { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column;
               gap: 20px; padding: 12px 4px 18px; }
   .daydiv { display: flex; align-items: center; gap: 16px; color: var(--muted); font-size: 13.5px; margin: 6px 0 2px; }
@@ -207,7 +205,6 @@
   .srcchip { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 500;
              border: 1px solid rgba(255,255,255,.55); border-radius: 10px; padding: 5px 13px; line-height: 1.5; }
   .srcchip .ic { width: 15px; height: 15px; }
-  .srcdate { font-size: 13px; opacity: .9; }
   .typing { padding: 16px 22px; }
   .typing span { display: inline-block; width: 7px; height: 7px; margin: 0 2px; border-radius: 50%;
                  background: #fff; animation: blink 1.2s infinite both; }
@@ -356,7 +353,9 @@
   <main>
     <div class="topbar">
       <div class="titles">
-        <div id="barTitleWrap" class="hidden">
+        <!-- The project the session is locked to, on every screen: the one
+             fact the user must never lose sight of while they chat. -->
+        <div id="barTitleWrap">
           <h2 id="barTitle"></h2>
           <div class="meta" id="barMeta"></div>
         </div>
@@ -379,10 +378,6 @@
     <!-- chat -->
     <div class="pane" id="chatPane">
       <div class="chatcard">
-        <div class="chathead">
-          <h2 id="chatTitle"></h2>
-          <p id="chatSub"></p>
-        </div>
         <div id="chatView" role="log" aria-live="polite"></div>
         <div class="chips hidden" id="chips"></div>
         <form class="composer" id="composer">
@@ -413,7 +408,7 @@ const T = {
     rolelabel:"مدير مشروع", signout:"تسجيل الخروج", notifications:"الإشعارات", send:"إرسال",
     placeholder:"اسأل عن هذا المشروع ...", today:"اليوم",
     grounded:"استخلصت من وثائق هذا المشروع المرفقة", sources:"المصادر",
-    page:"ص", spmrecord:"سجل المشروع في SPM", updated:"آخر تحديث", created:"تاريخ الإنشاء",
+    page:"ص", spmrecord:"سجل المشروع في SPM",
     kbtitle:"قاعدة المعرفة", kbsub:"الوثائق التي يقرأها المساعد الذكي ويستعين بها في هذا المشروع.",
     all:"الكل", indexed:"مفهرسة", processing:"قيد المعالجة", failed:"فشلت",
     docname:"اسم الوثيقة", doctype:"النوع", docstate:"الحالة", kbsearch:"ابحث في الوثائق",
@@ -440,7 +435,7 @@ const T = {
     rolelabel:"Project manager", signout:"Sign out", notifications:"Notifications", send:"Send",
     placeholder:"Ask about this project ...", today:"Today",
     grounded:"Drawn from this project's documents", sources:"Sources",
-    page:"p.", spmrecord:"SPM project record", updated:"Last updated", created:"Created",
+    page:"p.", spmrecord:"SPM project record",
     kbtitle:"Knowledge base", kbsub:"The documents the assistant reads and grounds its answers in for this project.",
     all:"All", indexed:"Indexed", processing:"Processing", failed:"Failed",
     docname:"Document", doctype:"Type", docstate:"Status", kbsearch:"Search documents",
@@ -628,8 +623,6 @@ function renderTopbar() {
   const alt = CURRENT ? (UI === "ar" ? CURRENT.name_en : CURRENT.name_ar) || "" : "";
   $("barTitle").textContent = title;
   $("barMeta").textContent = alt;
-  $("chatTitle").textContent = title;
-  $("chatSub").textContent = alt;
   $("projName").textContent = CURRENT ? projectName(CURRENT, UI) : none;
   $("projCode").textContent = CURRENT ? CURRENT.code : "—";
 }
@@ -761,9 +754,6 @@ $("projectBtn").addEventListener("click", openPicker);
 function showView(name) {
   $("chatPane").classList.toggle("hidden", name !== "chat");
   $("kbView").classList.toggle("hidden", name !== "kb");
-  // The knowledge-base screen carries the project in the top bar; the chat
-  // carries it inside its card. That is where each design puts it.
-  $("barTitleWrap").classList.toggle("hidden", name !== "kb");
   if (name !== "chat") $("chips").classList.add("hidden");
   document.querySelectorAll("nav a.sub").forEach((a) => {
     const active = name === "kb" ? a.dataset.view === "kb"
@@ -801,16 +791,6 @@ function sourceChip(citation) {
   return chip;
 }
 
-function recordDate(citation) {
-  // `as_of` is "record updated 2026-08-04" or "record created …". Only the
-  // date and which of the two it is are shown; the English sentence is not.
-  const match = /(\d{4})-(\d{2})-(\d{2})/.exec(citation.as_of || "");
-  if (!match) return null;
-  const when = new Date(Date.UTC(+match[1], +match[2] - 1, +match[3]));
-  const kind = /updated/.test(citation.as_of) ? t("updated") : t("created");
-  return `${kind}: ${formatDate(when, true)}`;
-}
-
 function bubble(text, kind, { citations = [], grounded = false, lang = "" } = {}) {
   const node = el("div", `msg ${kind}`);
   node.dir = lang === "ar" ? "rtl" : lang === "en" ? "ltr"
@@ -837,10 +817,6 @@ function bubble(text, kind, { citations = [], grounded = false, lang = "" } = {}
       if (seen.has(chip.textContent)) continue;
       seen.add(chip.textContent);
       box.append(chip);
-      if (c.source === "project_record") {
-        const date = recordDate(c);
-        if (date) box.append(el("span", "srcdate", date));
-      }
     }
     node.append(box);
   }

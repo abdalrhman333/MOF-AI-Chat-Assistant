@@ -21,7 +21,7 @@ Run the whole thing, and check it:
 
 ```bash
 cd infra && docker compose up -d                    # everything, the app included → http://localhost:8000
-.venv/Scripts/python -m pytest tests/ -q            # expect 684 passed
+.venv/Scripts/python -m pytest tests/ -q            # expect 686 passed
 ```
 
 The app is the `mof-chat-api` container. After changing its code, rebuild it
@@ -30,7 +30,7 @@ with `docker compose up -d --build chat-api`; its log is
 **off**, so after a reboot open Docker Desktop first.
 
 That single `pytest` covers the frontend too: `tests/test_frontend.py`
-shells out to `node --test` for the 48 JavaScript tests in
+shells out to `node --test` for the 49 JavaScript tests in
 `tests/frontend/`, and **skips rather than fails** where node is absent.
 Sign in with any seeded address (e.g. `noura.alharbi@enjaz.gov.sa`) and
 the demo password from `INFRASTRUCTURE.md` §276.
@@ -49,9 +49,12 @@ do not exist here.
 dismissed: nothing opens until the user picks a project and locks the
 session to it with "تقييد الجلسة بالمشروع". Nothing is pre-selected —
 "recently used" projects are listed first, but choosing is always explicit.
-The assistant then addresses the user by **first name only** ("أهلاً بك يا
-نورة" / "Welcome, Noura"), in the welcome and in its replies; the full name
-stays on the account and in the top bar.
+The locked project's name then stays in the **top bar** on every screen.
+The assistant addresses the user by **first name only** ("أهلاً بك يا نورة" /
+"Welcome, Noura"), and its welcome states what it is for and where it stops
+— this project only, only from its sources, no data changes, no guessing,
+Arabic or English. Each of those limits is one the system enforces; the
+mapping sits beside the text in `Application/backend/messages.py`.
 
 ⚠️ **All three Azure roles share one resource and one key** since
 2026-09-07 (§22). The LLM moved to account #2 when account #1's key stopped

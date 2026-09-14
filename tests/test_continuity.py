@@ -161,6 +161,26 @@ def test_the_welcome_is_bilingual():
         in talk.welcome
 
 
+@pytest.mark.parametrize("language,purpose,limits", [
+    ("ar", "أجيب عن أسئلتك حول هذا المشروع",
+     ["هذا المشروع فقط", "لا أطّلع على غيره", "من خارج مصادره",
+      "لا أعدّل أي بيانات", "بدلاً من التخمين", "بالعربية أو الإنجليزية"]),
+    ("en", "I answer questions about this project",
+     ["this project only", "can't see any", "outside its sources",
+      "don't change any data", "rather than guess", "Arabic or English"]),
+])
+def test_the_welcome_says_what_the_assistant_is_for_and_where_it_stops(
+        language, purpose, limits):
+    """Requested: the user should know the assistant's purpose and its
+    boundaries before asking anything. Each limit stated is one the system
+    enforces — see the comment beside the text in messages.py — so this
+    pins that none quietly disappears from the promise."""
+    text = messages.text("welcome", language, project="PRJ-06", name="نورة")
+    assert purpose in text
+    for limit in limits:
+        assert limit in text, f"the {language} welcome no longer states: {limit}"
+
+
 def test_the_welcome_names_the_session_project_not_caller_input():
     talk = conv.open_conversation(SESSION, settings=SETTINGS)
     assert SESSION.project_code in talk.welcome

@@ -518,7 +518,7 @@ What it walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**684 Python tests, ~30s**, across 25 files — the largest being
+**686 Python tests, ~30s**, across 25 files — the largest being
 `test_answering.py` 53, `test_conversation.py` 46, `test_session_gate.py`
 42, `test_ocr.py` 40, `test_retrieval_eval.py` 39, `test_observability.py`
 39, `test_scanner.py` 38, `test_auth.py` 38, `test_continuity.py` 33.
@@ -526,7 +526,7 @@ What it walks into, flagged in advance:
 correcting three times when it was inferred instead.)*
 
 That one command covers the **frontend** too: `test_frontend.py` shells out
-to `node --test` for the 48 JavaScript tests in `tests/frontend/`. They
+to `node --test` for the 49 JavaScript tests in `tests/frontend/`. They
 stay JavaScript because the thing under test is — testing the real page
 script through a Python approximation would be testing the approximation —
 and they **skip rather than fail** where node is absent, since nothing else
@@ -789,7 +789,7 @@ time.
 
 ## 24. The MOF redesign, content in every trace, and a Docker that kept dying (2026-09-14)
 
-**Tests: 684 Python, plus 48 JavaScript.**
+**Tests: 686 Python, plus 49 JavaScript.**
 
 ### 24a. The UI now follows the MOF design screens
 
@@ -978,6 +978,34 @@ left as it is rather than shortened to nothing.
 Verified live: the picker opened on sign-in with no way out but a choice,
 the welcome read "أهلاً بك يا نورة" / "Welcome, Noura", and the model
 greeted "مرحباً نورة". All twelve mutations of both changes are caught.
+
+### 24g. The project in the header, a quieter source list, a welcome that sets expectations
+
+Three requests from the next review of the chat screen:
+
+- **The project name moved into the top bar, on every screen.** It had sat
+  inside the chat card on the chat and in the top bar only on the
+  knowledge base, following two different design screens. The locked
+  project is the one fact a user must not lose sight of, so it now has one
+  place, always visible. A test checks both the runtime and the markup: the
+  first version checked only what the script toggled, and a `hidden` class
+  written into the HTML passed it — found by mutation.
+- **The SPM record's date is no longer printed beside its source chip.**
+  "تاريخ الإنشاء: الثلاثاء، 4 أغسطس 2026" appeared on every answer that used
+  the record and read as noise. The chip still names the source. The API
+  still returns `as_of` on the citation, so the provenance is not lost — it
+  is simply not shown.
+- **The welcome now says what the assistant is for and where it stops.** It
+  had only introduced itself. It now names what it answers (status, budget,
+  timeline, risks, meetings, from the project's documents and SPM record,
+  with sources) and its limits: this project only, nothing from outside its
+  sources, no data changes, "I'll tell you rather than guess", Arabic or
+  English. ⚠️ **Every limit is one the system enforces** — the AC09 gate,
+  system-prompt rules 1 and 2, the read-only database role, the
+  unsupported-language intent — and the mapping is written beside the text
+  so that changing a rule prompts changing the promise. It stays bilingual,
+  because AC04 requires a bilingual welcome; each half was kept short for
+  that reason.
 
 ---
 
