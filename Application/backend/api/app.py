@@ -372,7 +372,9 @@ def open_conversation(body: schemas.OpenConversationIn,
     """
     session = open_session(found.username, body.project_code, settings=SETTINGS)
     token, conversation = STORE.open(
-        session, settings=SETTINGS, user_name=found.names,
+        # First names: the welcome and every reply address the user the way a
+        # colleague would. The full name stays on the account, and on screen.
+        session, settings=SETTINGS, user_name=found.first_names,
         ui_language=body.ui_language)
     log.info("conversation opened user=%s project=%s",
              found.username, session.project_code)

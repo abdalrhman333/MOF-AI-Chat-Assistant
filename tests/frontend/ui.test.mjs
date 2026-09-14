@@ -428,19 +428,90 @@ test("blocked storage never breaks the page", () => {
   a.rememberProject("PRJ-01");   // must not throw
 });
 
-test("a remembered project the user is no longer assigned is not opened", async () => {
-  // Browser memory only orders the list. What may be opened is the server's.
-  const storage = memoryStorage({ seed: { "enjaz.recentProjects": '["PRJ-99","PRJ-02"]' } });
+// ---------------------------------------------------------------------------
+// Sign-in lands on the project list — the session is locked by choice
+// ---------------------------------------------------------------------------
+
+const PRJ02 = { code: "PRJ-02", name_ar: "خدماتي", name_en: "Khadamati", display_name: "" };
+
+async function signedIn({ projects = [PROJECT, PRJ02], storage } = {}) {
   const s = stub({
-    "/api/projects": { status: 200, body: [PROJECT, { code: "PRJ-02", name_ar: "خدماتي",
-                                                      name_en: "Khadamati", display_name: "" }] },
+    "/api/projects": { status: 200, body: projects },
     "/api/conversations": { status: 200, body: OPENED },
     "/api/auth/me": { status: 403, body: {} },
   });
   const a = load({ fetch: s.fetch, storage });
-  a.set("ME", { full_name_ar: "نورة", full_name_en: "Noura" });
+  a.calls = s.calls;
+  a.set("ME", { full_name_ar: "نورة بنت عبدالعزيز الحربي", full_name_en: "Noura" });
   await a.get("enterApp")();
-  assert.equal(a.get("CURRENT").code, "PRJ-02", "PRJ-99 was remembered but is not assigned");
+  return a;
+}
+
+const walk = (node, out = []) => { out.push(node); (node.children || []).forEach((c) => walk(c, out)); return out; };
+const picker = (a) => a.document.body.children.find((n) => n.className === "backdrop" && !n.removed);
+const inPicker = (a, predicate) => walk(picker(a)).filter(predicate);
+const confirmBtn = (a) => inPicker(a, (n) => n.className === "btn")[0];
+const pickRow = (a, code) => inPicker(a, (n) => n.className === "pick" && n.textContent.includes(code))[0];
+
+test("after sign-in the project list is the first thing shown", async () => {
+  const a = await signedIn();
+  assert.ok(picker(a), "the picker must open straight after sign-in");
+  assert.equal(a.get("CURRENT"), null, "no project is chosen on the user's behalf");
+});
+
+test("no conversation is opened until a project is chosen", async () => {
+  // Opening one would lock the session to a project the user never picked.
+  const a = await signedIn();
+  assert.equal(a.calls.filter((c) => c.path === "/api/conversations").length, 0);
+});
+
+test("the first choice cannot be dismissed, only made", async () => {
+  // There is no session yet, so there is nothing to go back to.
+  const a = await signedIn();
+  assert.equal(inPicker(a, (n) => n.className === "btn ghost").length, 0, "no cancel");
+  assert.equal(inPicker(a, (n) => n.className === "iconbtn").length, 0, "no close");
+  await picker(a).dispatch("click", { target: picker(a) });
+  assert.ok(picker(a), "clicking outside must not close it");
+});
+
+test("nothing is pre-selected, so locking the session is always explicit", async () => {
+  const storage = memoryStorage({ seed: { "enjaz.recentProjects": '["PRJ-02"]' } });
+  const a = await signedIn({ storage });
+  assert.equal(confirmBtn(a).disabled, true, "confirm stays disabled until a project is picked");
+  assert.equal(inPicker(a, (n) => n.className === "pick" && n["aria-pressed"] === "true").length, 0);
+});
+
+test("choosing and confirming a project locks the session to it and opens the chat", async () => {
+  const a = await signedIn();
+  await pickRow(a, "PRJ-02").dispatch("click");
+  assert.equal(confirmBtn(a).disabled, false);
+  await confirmBtn(a).dispatch("click");
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(a.get("CURRENT").code, "PRJ-02");
+  assert.ok(!picker(a), "the picker closes once the choice is made");
+  const opened = a.calls.find((c) => c.path === "/api/conversations");
+  assert.equal(JSON.parse(opened.body).project_code, "PRJ-02");
+});
+
+test("a remembered project the user is no longer assigned is not offered", async () => {
+  // Browser memory only orders the list. What may be opened is the server's.
+  const storage = memoryStorage({ seed: { "enjaz.recentProjects": '["PRJ-99","PRJ-02"]' } });
+  const a = await signedIn({ storage });
+  const text = walk(picker(a)).map((n) => n._text || "").join(" ");
+  assert.ok(!text.includes("PRJ-99"), "PRJ-99 was remembered but is not assigned");
+  assert.ok(text.includes(a.t("recent")), "PRJ-02 is still offered first");
+});
+
+test("a user with no projects is told so, with no picker to get stuck in", async () => {
+  const a = await signedIn({ projects: [] });
+  assert.ok(!picker(a));
+  assert.ok(a.el("chatView").textContent.includes(a.t("noProjects")));
+});
+
+test("before a choice, the header asks for one rather than claiming there are none", async () => {
+  const a = await signedIn();
+  assert.equal(a.el("chatTitle").textContent, a.t("pickFirst"));
 });
 
 // ---------------------------------------------------------------------------

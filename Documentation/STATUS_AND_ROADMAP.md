@@ -518,7 +518,7 @@ What it walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**672 Python tests, ~30s**, across 25 files — the largest being
+**684 Python tests, ~30s**, across 25 files — the largest being
 `test_answering.py` 53, `test_conversation.py` 46, `test_session_gate.py`
 42, `test_ocr.py` 40, `test_retrieval_eval.py` 39, `test_observability.py`
 39, `test_scanner.py` 38, `test_auth.py` 38, `test_continuity.py` 33.
@@ -526,7 +526,7 @@ What it walks into, flagged in advance:
 correcting three times when it was inferred instead.)*
 
 That one command covers the **frontend** too: `test_frontend.py` shells out
-to `node --test` for the 41 JavaScript tests in `tests/frontend/`. They
+to `node --test` for the 48 JavaScript tests in `tests/frontend/`. They
 stay JavaScript because the thing under test is — testing the real page
 script through a Python approximation would be testing the approximation —
 and they **skip rather than fail** where node is absent, since nothing else
@@ -789,7 +789,7 @@ time.
 
 ## 24. The MOF redesign, content in every trace, and a Docker that kept dying (2026-09-14)
 
-**Tests: 672 Python, plus 41 JavaScript.**
+**Tests: 684 Python, plus 48 JavaScript.**
 
 ### 24a. The UI now follows the MOF design screens
 
@@ -950,6 +950,34 @@ exit 0); after a real full ingest — which ran classify, billed 0 pages and
 classified 0 documents — it reported the run as ok with no problems. All
 thirteen mutations of the new logic are caught, after one test that
 measured staleness *relative to* the threshold was pinned to a fixed age.
+
+### 24f. Sign-in lands on the project list; the assistant uses first names
+
+Two requests from reviewing the chat screen.
+
+**The session is locked by the user's choice, first.** Sign-in used to open
+the chat straight away on the most recently used project. Now the project
+list appears immediately and cannot be dismissed — no close, no cancel,
+clicking outside does nothing — and no conversation is opened until a
+project is chosen. Nothing is pre-selected either: "recently used" still
+lists those projects first, so the choice is one click, but locking the
+session to a project is always something the user did, never something the
+page did on their behalf. A user with no assigned projects is told so,
+rather than shown a picker with nothing in it to choose.
+
+**First names.** The welcome and the model's replies addressed the user by
+their full formal name — "أهلاً بك يا نورة بنت عبدالعزيز الحربي". The
+account now offers `first_names`, and that is what reaches the welcome, the
+system prompt and the conversation store; the full name stays on the
+account and in the top bar. Each language is shortened on its own, and two
+cases would otherwise go wrong: a title is skipped ("م. سلطان" → "سلطان"),
+and an "Abd" compound written with a space is kept whole ("عبد الله", not
+"عبد" — which on its own means "servant"). A name that is only a title is
+left as it is rather than shortened to nothing.
+
+Verified live: the picker opened on sign-in with no way out but a choice,
+the welcome read "أهلاً بك يا نورة" / "Welcome, Noura", and the model
+greeted "مرحباً نورة". All twelve mutations of both changes are caught.
 
 ---
 

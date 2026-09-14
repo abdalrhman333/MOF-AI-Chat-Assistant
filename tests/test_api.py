@@ -253,6 +253,26 @@ def test_opening_a_conversation_returns_the_bilingual_welcome(client):
     assert "Smart Assistant" in body["welcome"]
 
 
+def test_the_welcome_addresses_the_user_by_first_name_only(client):
+    """Requested: "أهلاً بك يا نورة", not the full formal name — in Arabic
+    and in English. The full name stays on the account and on screen."""
+    from Application.backend.api import credentials
+
+    api_app.app.dependency_overrides[api_app.account] = lambda: credentials.Account(
+        username=OWNER, email="noura.alharbi@enjaz.gov.sa",
+        full_name_ar="نورة بنت عبدالعزيز الحربي",
+        full_name_en="Noura Abdulaziz Al-Harbi")
+    try:
+        welcome = client.post("/api/conversations",
+                              json={"project_code": "PRJ-06"}).json()["welcome"]
+    finally:
+        api_app.app.dependency_overrides.pop(api_app.account, None)
+
+    assert "نورة" in welcome and "Noura" in welcome
+    for surname in ("عبدالعزيز", "الحربي", "Abdulaziz", "Al-Harbi"):
+        assert surname not in welcome, f"the welcome still uses the full name: {surname}"
+
+
 def test_the_transcript_accumulates_across_turns(client):
     token = open_chat(client)
     for text in ("first question", "second question"):

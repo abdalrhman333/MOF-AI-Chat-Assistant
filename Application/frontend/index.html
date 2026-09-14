@@ -602,13 +602,16 @@ async function enterApp() {
   $("app").classList.remove("hidden");
   renderWho();
   PROJECTS = await api("/api/projects");
-  // Open on the project used most recently in this browser, if it is still
-  // assigned; otherwise the first. The server decides what is assigned.
-  const recent = recentProjects().find((code) => PROJECTS.some((p) => p.code === code));
-  CURRENT = PROJECTS.find((p) => p.code === recent) || PROJECTS[0] || null;
-  if (CURRENT) rememberProject(CURRENT.code);
+  // Nothing opens until the user chooses. The session is locked to ONE
+  // project, and that is a choice the user makes on purpose each time they
+  // sign in — never one the page makes for them from what was used last.
+  // "Recently used" still lists those first, so the choice is one click.
+  CURRENT = null; CONV = null;
+  $("chatView").innerHTML = "";
+  $("chips").classList.add("hidden");
   renderTopbar();
-  showView("chat");
+  if (!PROJECTS.length) { bubble(t("noProjects"), "refusal"); return; }
+  openPicker({ required: true });
 }
 
 /* ---------------------------- project names ---------------------------- */
@@ -620,13 +623,14 @@ function projectName(project, lang) {
 function renderTopbar() {
   // The title leads with the UI language and the subtitle carries the other
   // one, as in the design: "مشروع التحول الرقمي - PRJ-…" over "Digital …".
-  const title = CURRENT ? `${projectName(CURRENT, UI)} - ${CURRENT.code}` : t("noProjects");
+  const none = PROJECTS.length ? t("pickFirst") : t("noProjects");
+  const title = CURRENT ? `${projectName(CURRENT, UI)} - ${CURRENT.code}` : none;
   const alt = CURRENT ? (UI === "ar" ? CURRENT.name_en : CURRENT.name_ar) || "" : "";
   $("barTitle").textContent = title;
   $("barMeta").textContent = alt;
   $("chatTitle").textContent = title;
   $("chatSub").textContent = alt;
-  $("projName").textContent = CURRENT ? projectName(CURRENT, UI) : t("noProjects");
+  $("projName").textContent = CURRENT ? projectName(CURRENT, UI) : none;
   $("projCode").textContent = CURRENT ? CURRENT.code : "—";
 }
 
@@ -649,9 +653,12 @@ function rememberProject(code) {
 }
 
 /* ---------------------------- project picker ---------------------------- */
-function openPicker() {
+function openPicker({ required = false } = {}) {
+  // `required` is the picker shown right after sign-in: there is no session
+  // yet, so there is nothing to go back to — no close, no cancel, and nothing
+  // pre-selected, so locking the session is always an explicit choice.
   if (!PROJECTS.length) return;
-  let chosen = CURRENT ? CURRENT.code : PROJECTS[0].code;
+  let chosen = required ? null : (CURRENT ? CURRENT.code : PROJECTS[0].code);
   let query = "";
 
   const backdrop = el("div", "backdrop");
@@ -664,7 +671,8 @@ function openPicker() {
   const closeBtn = el("button", "iconbtn"); closeBtn.type = "button";
   closeBtn.title = t("close"); closeBtn.setAttribute("aria-label", t("close"));
   closeBtn.append(icon("x"));
-  head.append(heading, closeBtn);
+  head.append(heading);
+  if (!required) head.append(closeBtn);
 
   const search = el("label", "searchbox");
   const input = el("input"); input.type = "search"; input.placeholder = t("pickSearch");
@@ -675,7 +683,9 @@ function openPicker() {
   const foot = el("div", "modalfoot");
   const okBtn = el("button", "btn", t("pickConfirm")); okBtn.type = "button";
   const cancelBtn = el("button", "btn ghost", t("cancel")); cancelBtn.type = "button";
-  foot.append(el("span", "hint", t("pickHint")), cancelBtn, okBtn);
+  foot.append(el("span", "hint", t("pickHint")));
+  if (!required) foot.append(cancelBtn);
+  foot.append(okBtn);
 
   modal.append(head, search, body, foot);
   backdrop.append(modal);
@@ -695,6 +705,7 @@ function openPicker() {
   };
 
   const render = () => {
+    okBtn.disabled = !chosen;
     body.innerHTML = "";
     const q = query.trim().toLowerCase();
     const matches = PROJECTS.filter((p) => !q ||
@@ -715,14 +726,15 @@ function openPicker() {
   render();
 
   const close = () => { backdrop.remove(); document.removeEventListener("keydown", onKey); };
-  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const onKey = (e) => { if (e.key === "Escape" && !required) close(); };
   input.addEventListener("input", () => { query = input.value; render(); });
   closeBtn.addEventListener("click", close);
   cancelBtn.addEventListener("click", close);
-  backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
+  backdrop.addEventListener("click", (e) => { if (e.target === backdrop && !required) close(); });
   document.addEventListener("keydown", onKey);
   okBtn.addEventListener("click", () => {
     const next = PROJECTS.find((p) => p.code === chosen);
+    if (!next) return;                       // nothing chosen yet: stay open
     close();
     if (!next || (CURRENT && next.code === CURRENT.code)) return;
     // A conversation is bound to one project for its lifetime, so switching

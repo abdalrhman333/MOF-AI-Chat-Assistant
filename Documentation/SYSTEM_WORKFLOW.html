@@ -355,12 +355,12 @@
   <div class="strip">
     <div class="cell"><span class="n">14</span><span class="k">containers running</span></div>
     <div class="cell"><span class="n">17</span><span class="k">migrations applied, 0 drifted</span></div>
-    <div class="cell"><span class="n">713</span><span class="k">tests passing</span></div>
+    <div class="cell"><span class="n">732</span><span class="k">tests passing</span></div>
     <div class="cell"><span class="n">58</span><span class="k">documents, all indexed</span></div>
     <div class="cell"><span class="n">678</span><span class="k">vectors in 9 collections</span></div>
     <div class="cell"><span class="n">0</span><span class="k">failed · 0 pending</span></div>
   </div>
-  <p class="stamp">Every number above was read from the running system, not from a document — <b>docker compose ps</b>, <b>apply_migrations.py --status</b>, <b>pytest</b> (672 Python + 41 JavaScript), <b>pipeline.status</b> (exit 0, HEALTHY) and <b>pipeline.scanner --dry-run</b> (rows written 0).</p>
+  <p class="stamp">Every number above was read from the running system, not from a document — <b>docker compose ps</b>, <b>apply_migrations.py --status</b>, <b>pytest</b> (684 Python + 48 JavaScript), <b>pipeline.status</b> (exit 0, HEALTHY) and <b>pipeline.scanner --dry-run</b> (rows written 0).</p>
 
   <!-- ============================================================= -->
   <section>
@@ -1440,7 +1440,7 @@
     <div class="shead"><span class="snum">16</span><h2>How any of this is known to work</h2></div>
     <div class="srule"></div>
 
-    <p class="lead">713 automated tests, running in about twenty seconds. But the tests are not the interesting part — the method used to check the tests themselves is.</p>
+    <p class="lead">732 automated tests, running in about twenty seconds. But the tests are not the interesting part — the method used to check the tests themselves is.</p>
 
     <p><strong>Every safety feature was proved by deliberately breaking it</strong> and confirming that the intended test caught the break. 74 such breakages were run across the pipeline and the access gate, and everything added since has been held to the same standard — the frontend, for instance, was checked against twelve, all caught. The ones that slip through are the valuable ones: each has exposed a real gap that was invisible on inspection, including a test that quietly passed against broken code because it imported the very constant it was supposed to be checking, and a security check that no test was watching at all.</p>
 

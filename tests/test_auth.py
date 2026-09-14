@@ -274,3 +274,42 @@ def test_the_cookie_carries_no_secret_material():
     token = cookies.sign("noura.alharbi", SECRET, max_age_seconds=60)
     assert SECRET not in token
     assert base64.b64encode(SECRET.encode()).decode().rstrip("=") not in token
+
+
+# ---------------------------------------------------------------------------
+# How the assistant addresses the user
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("full,first", [
+    ("نورة بنت عبدالعزيز الحربي", "نورة"),
+    ("Noura Abdulaziz Al-Harbi", "Noura"),
+    ("عبدالله بن محمد الشهري", "عبدالله"),     # joined: already one word
+    # Written with a space, "Abd" alone would address the user as "servant".
+    ("عبد الله بن محمد الشهري", "عبد الله"),
+    ("Abdul Rahman Al-Saud", "Abdul Rahman"),
+    # A title is not a name.
+    ("م. سلطان العتيبي", "سلطان"),
+    ("Eng. Sultan Al-Otaibi", "Sultan"),
+    ("Dr Reem Al-Dosari", "Reem"),
+    ("فهد", "فهد"),
+])
+def test_the_first_name_is_how_a_colleague_would_address_them(full, first):
+    assert credentials.first_name(full) == first
+
+
+def test_a_name_that_is_only_a_title_is_not_shortened_to_nothing():
+    """An empty greeting — "أهلاً بك يا ." — is worse than a formal one."""
+    assert credentials.first_name("Dr.") == "Dr."
+    assert credentials.first_name("") == ""
+
+
+def test_the_account_offers_first_names_in_both_languages_separately():
+    """Each language is shortened on its own: the Arabic and English full
+    names are not word-for-word transliterations of each other."""
+    conn = StubConn(account_row(make_hash(PASSWORD)))
+    found = credentials.authenticate("noura.alharbi@enjaz.gov.sa", PASSWORD,
+                                     connection=conn)
+    assert found.first_names == (credentials.first_name(found.full_name_ar),
+                                 credentials.first_name(found.full_name_en))
+    assert found.names == (found.full_name_ar, found.full_name_en), \
+        "the full names stay on the account for the screen"

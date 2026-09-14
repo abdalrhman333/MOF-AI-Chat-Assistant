@@ -53,8 +53,43 @@ class Account:
 
     @property
     def names(self) -> tuple[str, str]:
-        """(Arabic, English), for the prompt and the welcome."""
+        """(Arabic, English) full names — what the account screen shows."""
         return self.full_name_ar, self.full_name_en
+
+    @property
+    def first_names(self) -> tuple[str, str]:
+        """(Arabic, English) first names — how the assistant addresses the user.
+
+        "أهلاً بك يا نورة", not "أهلاً بك يا نورة بنت عبدالعزيز الحربي": the
+        full name is the formal record, the first name is how a colleague
+        speaks. Each language is shortened on its own, because the two are
+        not transliterations of each other token by token.
+        """
+        return first_name(self.full_name_ar), first_name(self.full_name_en)
+
+
+# Titles written before a name. Kept out of the first name: "Eng. Sultan"
+# is addressed as "Sultan", and "م." alone is not a name at all.
+_TITLES = {"م", "د", "أ", "أ.د", "eng", "dr", "mr", "mrs", "ms", "prof"}
+
+# "Abd" forms a single first name with the word after it. Written with a
+# space — "عبد الله", "Abdul Rahman" — the first word alone would address
+# the user as "عبد", which means "servant". Written joined ("عبدالله")
+# there is nothing to do.
+_COMPOUND_PREFIXES = {"عبد", "abd", "abdul", "abdel", "abdal", "abdol"}
+
+
+def first_name(full_name: str) -> str:
+    """The name a person is addressed by: the first word, minus titles,
+    with "Abd"-compounds kept whole. The full name if nothing is left."""
+    words = (full_name or "").split()
+    while words and words[0].rstrip(".").lower() in _TITLES:
+        words = words[1:]
+    if not words:
+        return (full_name or "").strip()
+    if len(words) > 1 and words[0].lower() in _COMPOUND_PREFIXES:
+        return f"{words[0]} {words[1]}"
+    return words[0]
 
 
 def verify_password(password: str, stored: str | None) -> bool:
