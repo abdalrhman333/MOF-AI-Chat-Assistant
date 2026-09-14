@@ -21,7 +21,7 @@ Run the whole thing, and check it:
 
 ```bash
 cd infra && docker compose up -d                    # everything, the app included → http://localhost:8000
-.venv/Scripts/python -m pytest tests/ -q            # expect 686 passed
+.venv/Scripts/python -m pytest tests/ -q            # expect 699 passed
 ```
 
 The app is the `mof-chat-api` container. After changing its code, rebuild it
@@ -30,7 +30,7 @@ with `docker compose up -d --build chat-api`; its log is
 **off**, so after a reboot open Docker Desktop first.
 
 That single `pytest` covers the frontend too: `tests/test_frontend.py`
-shells out to `node --test` for the 49 JavaScript tests in
+shells out to `node --test` for the 53 JavaScript tests in
 `tests/frontend/`, and **skips rather than fails** where node is absent.
 Sign in with any seeded address (e.g. `noura.alharbi@enjaz.gov.sa`) and
 the demo password from `INFRASTRUCTURE.md` §276.

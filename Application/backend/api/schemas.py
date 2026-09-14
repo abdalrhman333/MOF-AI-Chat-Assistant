@@ -121,6 +121,12 @@ class KnowledgeBaseOut(BaseModel):
     documents: list[DocumentOut]
     indexed: int
     total: int
+    # When the daily sync last SUCCEEDED (ISO 8601, UTC), or null if it
+    # never has or cannot be read. The same for every project — the sync runs
+    # over the whole corpus — so it discloses nothing about any one project.
+    # Not the newest document date: an unchanged project is still checked
+    # every day, and "last changed 33 days ago" would read as stale data.
+    last_sync: str | None = None
 
 
 class HealthOut(BaseModel):

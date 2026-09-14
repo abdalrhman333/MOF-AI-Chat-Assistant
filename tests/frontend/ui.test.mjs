@@ -418,6 +418,49 @@ test("a file name is inserted as text", () => {
   assert.equal(cell.innerHTML, "", "…and never parsed");
 });
 
+test("a last-sync card sits between the filters and the search box", () => {
+  // Requested: beside the search box.
+  const a = kb(DOCS);
+  a.set("KB_DATA", { ...a.get("KB_DATA"), last_sync: "2026-09-14T10:00:00+00:00" });
+  a.renderKb();
+  const bar = find(a.el("kbView"), (n) => n.className === "kbbar");
+  assert.deepEqual(bar.children.map((c) => c.className), ["filters", "kbtools"]);
+  // One group, so a narrow screen cannot separate the card from the search
+  // box — at 1200px they came apart before they were grouped.
+  assert.deepEqual(bar.children[1].children.map((c) => c.className), ["synccard", "searchbox"]);
+});
+
+test("the card shows the sync's date and time", () => {
+  const a = kb(DOCS);
+  a.set("KB_DATA", { ...a.get("KB_DATA"), last_sync: "2026-09-14T10:00:00+00:00" });
+  a.renderKb();
+  const card = find(a.el("kbView"), (n) => n.className === "synccard");
+  assert.ok(card.textContent.includes(a.t("lastsync")));
+  assert.ok(card.textContent.includes("2026"), card.textContent);
+  assert.ok(/\d{2}:\d{2}/.test(card.textContent), "the time matters for a daily sync: " + card.textContent);
+});
+
+test("no sync, or a date that does not parse, says unavailable rather than inventing one", () => {
+  for (const last_sync of [null, undefined, "not a date"]) {
+    const a = kb(DOCS);
+    a.set("KB_DATA", { ...a.get("KB_DATA"), last_sync });
+    a.renderKb();
+    const card = find(a.el("kbView"), (n) => n.className === "synccard");
+    assert.ok(card.textContent.includes(a.t("syncunknown")), String(last_sync));
+    assert.ok(!card.textContent.includes("Invalid"), "never 'Invalid Date' on screen");
+  }
+});
+
+test("the card is not the newest document's date", () => {
+  // An unchanged project is checked daily; its documents can be weeks old.
+  const a = kb([{ filename: "old.docx", doc_type: "Project Charter",
+                  indexing_status: "indexed", indexed_at: "2026-08-12T10:05:00+00:00" }]);
+  a.set("KB_DATA", { ...a.get("KB_DATA"), last_sync: null });
+  a.renderKb();
+  const card = find(a.el("kbView"), (n) => n.className === "synccard");
+  assert.ok(!card.textContent.includes("12"), "fell back to a document date: " + card.textContent);
+});
+
 test("an empty search says so rather than showing an empty table", () => {
   const a = kb(DOCS);
   a.set("KB_QUERY", "nothing matches this");

@@ -475,4 +475,22 @@ def knowledge_base(project_code: str,
         documents=documents,
         indexed=sum(1 for d in documents if d.indexing_status == "indexed"),
         total=len(documents),
+        last_sync=_last_sync(),
     )
+
+
+def _last_sync() -> str | None:
+    """When the daily sync last succeeded, from the pipeline's run record.
+
+    Fails soft: the knowledge base is still worth showing when this one
+    date cannot be read, and the page says "unavailable" rather than
+    refusing to load.
+    """
+    try:
+        from pipeline import run_record
+        _run, success = run_record.read()
+    except Exception as exc:                            # noqa: BLE001
+        log.warning("could not read the last sync time (%s: %s)",
+                    type(exc).__name__, exc)
+        return None
+    return success["finished_at"].isoformat() if success else None

@@ -306,6 +306,45 @@ def test_the_knowledge_base_is_scoped_by_the_gate(client):
     assert client.get("/api/projects/PRJ-01/documents").status_code == 403
 
 
+def test_the_knowledge_base_reports_the_last_successful_sync(monkeypatch):
+    """The card shows when the daily sync last SUCCEEDED — not the last
+    attempt, which may have failed, and not the newest document, which can
+    be weeks old on a project that is checked every day."""
+    import datetime as dt
+    from pipeline import run_record
+
+    good = dt.datetime(2026, 9, 14, 10, 0, tzinfo=dt.timezone.utc)
+    failed_later = {"finished_at": good + dt.timedelta(hours=14), "ok": False}
+    monkeypatch.setattr(run_record, "read",
+                        lambda **_kw: (failed_later, {"finished_at": good, "ok": True}))
+
+    assert api_app._last_sync() == good.isoformat()
+
+
+def test_no_sync_yet_is_null_not_a_made_up_date(monkeypatch):
+    from pipeline import run_record
+
+    monkeypatch.setattr(run_record, "read", lambda **_kw: (None, None))
+    assert api_app._last_sync() is None
+
+
+def test_an_unreadable_sync_record_never_breaks_the_knowledge_base(monkeypatch):
+    """One date is not worth refusing the page over."""
+    from pipeline import run_record
+
+    def unreachable(**_kw):
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr(run_record, "read", unreachable)
+    assert api_app._last_sync() is None
+
+
+def test_the_sync_date_is_part_of_the_knowledge_base_response():
+    from Application.backend.api import schemas
+
+    assert "last_sync" in schemas.KnowledgeBaseOut.model_fields
+
+
 # ---------------------------------------------------------------------------
 # 5. The store's bounds
 # ---------------------------------------------------------------------------

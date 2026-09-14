@@ -518,7 +518,7 @@ What it walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**686 Python tests, ~30s**, across 25 files — the largest being
+**699 Python tests, ~30s**, across 25 files — the largest being
 `test_answering.py` 53, `test_conversation.py` 46, `test_session_gate.py`
 42, `test_ocr.py` 40, `test_retrieval_eval.py` 39, `test_observability.py`
 39, `test_scanner.py` 38, `test_auth.py` 38, `test_continuity.py` 33.
@@ -526,7 +526,7 @@ What it walks into, flagged in advance:
 correcting three times when it was inferred instead.)*
 
 That one command covers the **frontend** too: `test_frontend.py` shells out
-to `node --test` for the 49 JavaScript tests in `tests/frontend/`. They
+to `node --test` for the 53 JavaScript tests in `tests/frontend/`. They
 stay JavaScript because the thing under test is — testing the real page
 script through a Python approximation would be testing the approximation —
 and they **skip rather than fail** where node is absent, since nothing else
@@ -789,7 +789,7 @@ time.
 
 ## 24. The MOF redesign, content in every trace, and a Docker that kept dying (2026-09-14)
 
-**Tests: 686 Python, plus 49 JavaScript.**
+**Tests: 699 Python, plus 53 JavaScript.**
 
 ### 24a. The UI now follows the MOF design screens
 
@@ -1006,6 +1006,44 @@ Three requests from the next review of the chat screen:
   so that changing a rule prompts changing the promise. It stays bilingual,
   because AC04 requires a bilingual welcome; each half was kept short for
   that reason.
+
+### 24h. The overview as prose, and when the data last synced
+
+**The project overview is one paragraph.** It came back as ten "label:
+value" bullets. The prompt now asks for all ten fields as one flowing
+paragraph, and the general "use bullets for several fields" style rule names
+the overview as its exception, so the two rules cannot pull against each
+other.
+
+⚠️ **The first attempt put a false status in front of the user.** As prose,
+the raw code read badly ("وحالته on-track"), so the prompt asked the model
+to translate it, with examples. On PRJ-02 it wrote "at-risk" as "يسير وفق
+الخطة" — *on track*. The fix removes translation from the model entirely:
+the record block now carries **"Status (Arabic)"** beside the code, the way
+every other field already carries its Arabic form, and the prompt says to
+use it exactly and never translate a status itself. An unknown code gets no
+Arabic row rather than a guess. Verified live across all four real codes
+(on-track, at-risk, delayed, completed) — every status correct, no other
+status mentioned, every overview a single paragraph. The router evaluation
+was re-run after the prompt change: PASS, language 0.966, intent 0.983.
+
+**The knowledge base shows the last data sync.** A card between the filters
+and the search box reads "آخر مزامنة للبيانات" with the date and time the
+daily sync last **succeeded** — from the pipeline's run record, via a new
+`last_sync` on the documents endpoint. Deliberately not the newest document
+date: an unchanged project is checked every day, and its documents can be
+weeks old, which would make current data look stale. It is the same for
+every project, so it discloses nothing about any one; if it cannot be read,
+the card says "غير متوفر" rather than showing a date that is not true.
+
+Two things found along the way:
+- `pipeline/locking._client()` promised "one pooled Redis client per
+  process" but built a new client on every call — `lru_cache` was imported
+  and never applied. The knowledge base would have leaked a connection pool
+  per page view. The decorator is restored.
+- At 1200 px the filter pills wrapped ("فشلت 0" alone on a second line) and
+  the card came apart from the search box. The pills no longer wrap, and the
+  card and search box are one group; checked at 1536, 1280 and 1100 px.
 
 ---
 

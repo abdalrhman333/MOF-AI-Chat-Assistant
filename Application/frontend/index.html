@@ -84,6 +84,7 @@
   .i-grid { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'><rect x='5' y='5' width='4' height='4' rx='1'/><rect x='15' y='5' width='4' height='4' rx='1'/><rect x='5' y='15' width='4' height='4' rx='1'/><rect x='15' y='15' width='4' height='4' rx='1'/></svg>"); }
   .i-logout { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3M14 16l4-4-4-4M18 12H9'/></svg>"); }
   .i-extract { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3v18M6 8H3M6 16H3M18 8h3M18 16h3M6 12h12'/></svg>"); }
+  .i-sync { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'><path d='M20 11a8 8 0 0 0-14.3-4.9L4 8'/><path d='M4 4v4h4'/><path d='M4 13a8 8 0 0 0 14.3 4.9L20 16'/><path d='M20 20v-4h-4'/></svg>"); }
   .i-prev { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 6l6 6-6 6'/></svg>"); }
   .i-next { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M15 6l-6 6 6 6'/></svg>"); }
 
@@ -231,11 +232,22 @@
   .kbtitle h1 { margin: 6px 0 4px; font-size: 28px; color: var(--brand); font-weight: 700; }
   .kbtitle p { margin: 0 0 22px; color: var(--muted); font-size: 14.5px; }
   .kbbar { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-bottom: 18px; }
-  .filters { display: flex; align-items: center; gap: 6px; flex: 1; flex-wrap: wrap; }
+  /* The pills never wrap among themselves: with the sync card beside the
+     search box, "فشلت 0" fell onto a second line on its own. When the row is
+     too narrow, the bar wraps whole items instead — card and search move
+     down together. */
+  .filters { display: flex; align-items: center; gap: 6px; flex: 1 0 auto; flex-wrap: nowrap; }
+  .filters button { white-space: nowrap; }
   .filters button { border: 1px solid transparent; background: transparent; color: var(--muted);
                     border-radius: 999px; padding: 8px 18px; font-size: 14.5px; }
   .filters button[aria-pressed="true"] { border: 1.5px solid var(--brand); color: var(--brand); font-weight: 700; }
   .kbbar .searchbox { width: 230px; }
+  .kbtools { display: flex; align-items: center; gap: 12px; margin-inline-start: auto; }
+  .synccard { display: flex; align-items: center; gap: 10px; background: var(--panel);
+              border: 1px solid var(--line); border-radius: 10px; padding: 5px 14px; }
+  .synccard .ic { color: var(--brand); width: 19px; height: 19px; }
+  .synccard small { display: block; font-size: 12px; color: var(--muted); line-height: 1.3; }
+  .synccard b { display: block; font-size: 14px; color: var(--ink); font-weight: 500; line-height: 1.4; }
   .tablecard { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px; }
   table { border-collapse: collapse; width: 100%; }
   th, td { padding: 13px 18px; text-align: start; font-size: 14.5px; }
@@ -412,6 +424,7 @@ const T = {
     kbtitle:"قاعدة المعرفة", kbsub:"الوثائق التي يقرأها المساعد الذكي ويستعين بها في هذا المشروع.",
     all:"الكل", indexed:"مفهرسة", processing:"قيد المعالجة", failed:"فشلت",
     docname:"اسم الوثيقة", doctype:"النوع", docstate:"الحالة", kbsearch:"ابحث في الوثائق",
+    lastsync:"آخر مزامنة للبيانات", syncunknown:"غير متوفر",
     kbshowing:"عرض {from} إلى {to} من {total}", kbnone:"لا توجد وثائق مطابقة.",
     prevpage:"السابق", nextpage:"التالي",
     pickTitle:"اختيار المشروع", pickBody:"ستُقيَّد جلستك بالمشروع الذي تختاره، وكل ما يذكره المساعد سيكون من هذا المشروع وحده.",
@@ -439,6 +452,7 @@ const T = {
     kbtitle:"Knowledge base", kbsub:"The documents the assistant reads and grounds its answers in for this project.",
     all:"All", indexed:"Indexed", processing:"Processing", failed:"Failed",
     docname:"Document", doctype:"Type", docstate:"Status", kbsearch:"Search documents",
+    lastsync:"Last data sync", syncunknown:"Unavailable",
     kbshowing:"Showing {from} to {to} of {total}", kbnone:"No matching documents.",
     prevpage:"Previous", nextpage:"Next",
     pickTitle:"Select a project", pickBody:"Your session locks to the project you choose. Everything the assistant says will come from that project alone.",
@@ -517,12 +531,13 @@ function icon(name) {
   return node;
 }
 
-function formatDate(value, withWeekday = false) {
-  // Gregorian with Latin digits, which is how the design writes dates.
+function formatDate(value, withTime = false) {
+  // Gregorian with Latin digits, which is how the design writes dates, in
+  // the viewer's own timezone — the server sends UTC.
   try {
     const locale = UI === "ar" ? "ar-SA-u-ca-gregory-nu-latn" : "en-GB";
     const options = { day: "numeric", month: "long", year: "numeric" };
-    if (withWeekday) options.weekday = "long";
+    if (withTime) Object.assign(options, { hour: "2-digit", minute: "2-digit" });
     return new Intl.DateTimeFormat(locale, options).format(value);
   } catch (_) {
     return value.toISOString().slice(0, 10);
@@ -916,6 +931,22 @@ async function loadKb() {
   }
 }
 
+function syncCard(lastSync) {
+  // When the daily sync last succeeded — not when a document last changed.
+  // An unchanged project is still checked every day; its newest document
+  // date would make current data look weeks stale. Missing or unreadable
+  // is said as such, never shown as a date that is not true.
+  const card = el("div", "synccard");
+  card.append(icon("sync"));
+  const text = el("div");
+  const when = lastSync ? new Date(lastSync) : null;
+  const valid = when && !Number.isNaN(when.getTime());
+  text.append(el("small", "", t("lastsync")),
+              el("b", "", valid ? formatDate(when, true) : t("syncunknown")));
+  card.append(text);
+  return card;
+}
+
 function statusOf(doc) {
   // Anything not finished and not failed is still in the pipeline.
   return doc.indexing_status === "indexed" ? "indexed"
@@ -961,7 +992,11 @@ function renderKb() {
     if (again && again.focus) { again.focus(); again.setSelectionRange?.(KB_QUERY.length, KB_QUERY.length); }
   });
   search.append(icon("search"), input);
-  bar.append(filters, search);
+  // The card and the search box are one group, so a narrow screen moves
+  // them down together instead of separating them.
+  const tools = el("div", "kbtools");
+  tools.append(syncCard(KB_DATA.last_sync), search);
+  bar.append(filters, tools);
   view.append(bar);
 
   const card = el("div", "tablecard");

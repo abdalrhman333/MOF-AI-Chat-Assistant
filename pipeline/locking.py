@@ -47,6 +47,7 @@ class AlreadyRunning(RuntimeError):
 
 
 @lru_cache(maxsize=1)
+@lru_cache(maxsize=1)
 def _client():
     """One pooled Redis client per process.
 
