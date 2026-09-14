@@ -62,6 +62,17 @@ _SELECT = """
     WHERE code = %s
 """
 
+# SPM status codes in Arabic, for the record block the model reads. Held
+# here, beside the record, because the status is SPM's vocabulary: a live
+# SPM integration that adds a code adds it here, and until it does the code
+# is shown without an Arabic form rather than translated by guesswork.
+STATUS_AR = {
+    "on-track": "يسير وفق الخطة",
+    "at-risk": "معرّض للمخاطر",
+    "delayed": "متأخر",
+    "completed": "مكتمل",
+}
+
 
 @dataclass(frozen=True)
 class ProjectRecord:
@@ -124,6 +135,13 @@ class ProjectRecord:
             ("Name (English)", self.name_en),
             ("Status", self.status),
         ]
+        # The status is a code, and every other field already arrives with
+        # its Arabic form. Left to translate it, the model wrote "at-risk" as
+        # "يسير وفق الخطة" (on track) — a false statement about the project,
+        # found live. Supplying the Arabic here turns translation into
+        # copying. An unknown code gets no Arabic row rather than a guess.
+        if STATUS_AR.get(self.status or ""):
+            rows.append(("Status (Arabic)", STATUS_AR[self.status]))
         if self.start_date:
             rows.append(("Start date", f"{self.start_date:%Y-%m-%d}"))
         if self.planned_end_date:

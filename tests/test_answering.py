@@ -561,6 +561,34 @@ def test_the_record_block_omits_fields_that_are_empty():
     assert "Status: at-risk" in block
 
 
+@pytest.mark.parametrize("code,arabic", [
+    ("on-track", "يسير وفق الخطة"), ("at-risk", "معرّض للمخاطر"),
+    ("delayed", "متأخر"), ("completed", "مكتمل"),
+])
+def test_the_record_gives_the_model_the_status_in_arabic(code, arabic):
+    """REGRESSION: asked to translate the status itself, the model wrote
+    PRJ-02's "at-risk" as "يسير وفق الخطة" — on track — in an Arabic overview.
+    Every other field arrives with its Arabic form; the status now does too,
+    so the model copies rather than translates."""
+    block = dataclasses.replace(RECORD, status=code).as_prompt_block()
+    assert f"Status: {code}" in block
+    assert f"Status (Arabic): {arabic}" in block
+
+
+def test_an_unknown_status_gets_no_guessed_arabic():
+    """A code SPM adds before this map does is shown as the code, not
+    translated by guesswork — a wrong status is worse than an untranslated one."""
+    block = dataclasses.replace(RECORD, status="on-hold").as_prompt_block()
+    assert "Status: on-hold" in block
+    assert "Status (Arabic)" not in block
+
+
+def test_the_prompt_forbids_translating_a_status():
+    flat = " ".join(ans.SYSTEM_PROMPT.split())
+    assert 'use the record\'s "Status (Arabic)" exactly as given' in flat
+    assert "never translate a status yourself" in flat
+
+
 def test_a_record_without_a_timestamp_says_so_rather_than_guessing():
     undated = dataclasses.replace(RECORD, recorded_at=None)
     assert undated.as_of == "date unknown"
