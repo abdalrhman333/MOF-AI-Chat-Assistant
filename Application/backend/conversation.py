@@ -189,9 +189,17 @@ def handle_question(
             "enjaz.turn_index": turn_index,
         },
     ) as turn_span:
+        capture = settings.observability.capture_content
+        # The turn's input and output are the trace's, so a trace in the
+        # Langfuse list reads as the question that was asked, not "null".
+        tracing.record_content(turn_span, capture, input=text, trace=True)
         reply = _handle(session, text, settings=settings,
                         history=history, previous_question=previous_question,
                         user_name=user_name, **answer_kwargs)
+        tracing.record_content(turn_span, capture, trace=True, output={
+            "answer": reply.text,
+            "citations": [c.label for c in reply.citations],
+        })
         # Recorded after the fact, because the interesting attributes are
         # outcomes rather than inputs: what a turn *did* is what makes a
         # trace searchable.

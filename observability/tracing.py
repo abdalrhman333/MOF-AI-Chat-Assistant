@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import json
 import logging
 import sys
 import threading
@@ -69,6 +70,11 @@ LF_USER_ID = "langfuse.user.id"
 LF_TRACE_NAME = "langfuse.trace.name"
 LF_INPUT = "langfuse.observation.input"
 LF_OUTPUT = "langfuse.observation.output"
+# The trace's own input and output — what Langfuse shows at the top of a
+# trace and in its session view. Observation-level content alone leaves the
+# trace itself reading "null", however much its children recorded.
+LF_TRACE_INPUT = "langfuse.trace.input"
+LF_TRACE_OUTPUT = "langfuse.trace.output"
 
 # HTTP semantic conventions. Standard names rather than our own, so Grafana's
 # built-in RED views and Tempo's service graph understand them without
@@ -265,6 +271,45 @@ def span(name: str, **attributes):
             manager.__exit__(None, None, None)
         except Exception:                                     # noqa: BLE001
             log.debug("tracing: could not close span %r", name, exc_info=True)
+
+
+def record_content(current, enabled: bool, *, input=None, output=None,
+                   trace: bool = False) -> None:
+    """Attach what a step received and produced, if content capture is on.
+
+    ⚠️ **`enabled` is `ObservabilitySettings.capture_content`, and every
+    caller must pass it.** The content is the point — passages, the project
+    record, the question, the answer — and it is also exactly what AC09
+    protects: a trace store has no notion of project assignment, so anyone
+    who can read it can read every project's material. One switch has to
+    turn all of it off, which is why the check lives here rather than being
+    repeated, and possibly forgotten, at each call site.
+
+    `None` means "not recorded", so a step can record only an input or only
+    an output. `trace=True` also sets the trace-level fields, for the one
+    span per turn whose input and output ARE the turn's.
+
+    Values that are not strings are JSON-encoded without escaping, so Arabic
+    stays readable in the UI instead of becoming `\\u0645\\u0627`.
+    """
+    if not enabled:
+        return
+    try:
+        for value, observation_key, trace_key in (
+            (input, LF_INPUT, LF_TRACE_INPUT),
+            (output, LF_OUTPUT, LF_TRACE_OUTPUT),
+        ):
+            if value is None:
+                continue
+            text = value if isinstance(value, str) else json.dumps(
+                value, ensure_ascii=False, default=str)
+            current.set_attribute(observation_key, text)
+            if trace:
+                current.set_attribute(trace_key, text)
+    except Exception:                                         # noqa: BLE001
+        # Fail open, like every other tracing call: a trace that could not
+        # carry its content is still a trace, and the answer still goes out.
+        log.debug("tracing: could not record content", exc_info=True)
 
 
 def mark_failed(current, message: str) -> None:

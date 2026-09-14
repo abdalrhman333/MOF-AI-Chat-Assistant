@@ -42,13 +42,15 @@ it does, dated comparison between this source and a document is weaker than
 """
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 from dataclasses import dataclass
 
 import observability
+from observability import tracing
 from Application.backend.errors import BackendUnavailable
 from Application.backend.session import Session
-from pipeline.config import Settings
+from pipeline.config import Settings, get_settings
 
 _SELECT = """
     SELECT code, name_ar, name_en, description_ar, description_en, status,
@@ -177,22 +179,32 @@ def fetch(session: Session, *, settings: Settings | None = None,
 
     A database that cannot be reached is different, and raises.
     """
+    capture = (settings or get_settings()).observability.capture_content
     try:
         with (
-            observability.span("spm.fetch", project=session.project_code),
+            observability.span("spm.fetch", project=session.project_code) as current,
             session.scoped(settings=settings, connection=connection) as cursor,
         ):
             # The project code comes from the Session — the gate's own
             # output — never from a caller argument, so this filter cannot
             # be pointed at a project the user was not granted.
+            tracing.record_content(current, capture,
+                                   input={"project": session.project_code})
             row = cursor.execute(_SELECT, (session.project_code,)).fetchone()
+            record = _to_record(row) if row is not None else None
+            # "No record" is recorded as such, so an empty result reads as
+            # an answer rather than as tracing having failed to capture one.
+            tracing.record_content(
+                current, capture,
+                output=dataclasses.asdict(record) if record else "no project record")
     except BackendUnavailable:
         raise
     except Exception as exc:                                # noqa: BLE001
         raise BackendUnavailable(f"could not read the project record: {exc}") from exc
+    return record
 
-    if row is None:
-        return None
+
+def _to_record(row) -> ProjectRecord:
     (code, name_ar, name_en, desc_ar, desc_en, status, start, end,
      budget, sponsor_ar, sponsor_en, created,
      owner_ar, owner_en, manager_ar, manager_en, completion,

@@ -26,6 +26,7 @@ from Application.backend.session import Session
 from pipeline.config import Settings, get_settings
 
 import observability
+from observability import tracing
 
 
 @dataclass(frozen=True)
@@ -114,12 +115,18 @@ def search(
     embedder = embedder or _build_embedder(settings)
     qdrant = qdrant or _build_qdrant(settings)
 
+    capture = settings.observability.capture_content
     started = time.perf_counter()
     with observability.span("retrieval.embed",
                             **{"gen_ai.request.model":
-                               settings.models.embedding_deployment}):
+                               settings.models.embedding_deployment}) as current:
+        # The vector itself is 1,536 floats nobody can read; its size is
+        # what tells you the right model answered.
+        tracing.record_content(current, capture, input=question.strip())
         try:
             vector = embed_question(question.strip(), settings, embedder)
+            tracing.record_content(current, capture,
+                                   output={"dimensions": len(vector)})
         except BackendUnavailable:
             raise
         except Exception as exc:                            # noqa: BLE001
@@ -133,7 +140,10 @@ def search(
 
     started = time.perf_counter()
     with observability.span("retrieval.search", collection=collection,
-                            limit=limit):
+                            limit=limit) as current:
+        tracing.record_content(current, capture, input={
+            "question": question.strip(), "collection": collection,
+            "limit": limit})
         try:
             response = qdrant.query_points(
                 collection_name=collection, query=vector,
@@ -144,20 +154,29 @@ def search(
                 f"could not search the knowledge base for "
                 f"{session.project_code}: {exc}"
             ) from exc
-    search_ms = int((time.perf_counter() - started) * 1000)
 
-    passages = []
-    for index, point in enumerate(response.points):
-        payload = point.payload or {}
-        passages.append(Passage(
-            rank=index + 1,
-            score=float(point.score),
-            filename=payload.get("filename", ""),
-            doc_type=payload.get("doc_type", ""),
-            page=payload.get("page"),
-            section=payload.get("section", ""),
-            text=payload.get("text", ""),
-        ))
+        passages = []
+        for index, point in enumerate(response.points):
+            payload = point.payload or {}
+            passages.append(Passage(
+                rank=index + 1,
+                score=float(point.score),
+                filename=payload.get("filename", ""),
+                doc_type=payload.get("doc_type", ""),
+                page=payload.get("page"),
+                section=payload.get("section", ""),
+                text=payload.get("text", ""),
+            ))
+        # What was found, in rank order, with the score that decides whether
+        # the model is called at all. This is the first place to look when
+        # an answer is wrong: if the right passage is not here, the problem
+        # is retrieval; if it is here, the problem is the prompt or model.
+        tracing.record_content(current, capture, output=[
+            {"rank": p.rank, "score": round(p.score, 4), "file": p.filename,
+             "type": p.doc_type, "page": p.page, "section": p.section,
+             "text": p.text}
+            for p in passages])
+    search_ms = int((time.perf_counter() - started) * 1000)
     return RetrievalResult(passages=passages, embed_ms=embed_ms, search_ms=search_ms)
 
 

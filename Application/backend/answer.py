@@ -541,11 +541,10 @@ def answer_question(
             "enjaz.history_turns": len(history or []),
         },
     ) as current:
-        if settings.observability.capture_content:
-            # Gated: the prompt carries document passages. The reasoning is
-            # in ObservabilitySettings — a trace store has no notion of AC09.
-            current.set_attribute(tracing.LF_INPUT,
-                                  json.dumps(messages, ensure_ascii=False))
+        # Gated: the prompt carries document passages. The reasoning is in
+        # ObservabilitySettings — a trace store has no notion of AC09.
+        tracing.record_content(current, settings.observability.capture_content,
+                               input=messages)
         try:
             response = llm.chat.completions.create(
                 model=settings.models.llm_deployment,
@@ -568,8 +567,8 @@ def answer_question(
                 tracing.GEN_AI_USAGE_OUTPUT:
                     getattr(usage, "completion_tokens", 0) or 0,
             })
-        if settings.observability.capture_content:
-            current.set_attribute(tracing.LF_OUTPUT, raw)
+        tracing.record_content(current, settings.observability.capture_content,
+                               output=raw)
     timings.llm_ms = int((time.perf_counter() - started) * 1000)
 
     parsed = parse_response(raw, context, record)

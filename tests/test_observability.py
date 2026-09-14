@@ -18,6 +18,7 @@ span to a real collector — the exporter is in-memory.
 from __future__ import annotations
 
 import dataclasses
+import json
 
 import pytest
 
@@ -401,6 +402,123 @@ def test_capture_content_on_records_the_prompt_and_completion(spans):
     assert chat, "the LLM call must produce a span"
     assert "SECRET-PASSAGE-TEXT" in chat[0].attributes[tracing.LF_INPUT]
     assert "22,900,000" in chat[0].attributes[tracing.LF_OUTPUT]
+
+
+class _StubEmbedder:
+    def __init__(self):
+        self.embeddings = self
+
+    def create(self, **_kwargs):
+        item = type("E", (), {"index": 0, "embedding": [0.1] * 1536})()
+        return type("R", (), {"data": [item]})()
+
+
+class _StubQdrant:
+    def query_points(self, **_kwargs):
+        point = type("P", (), {"score": 0.61234, "payload": {
+            "filename": "charter.docx", "doc_type": "Project Charter",
+            "page": 2, "section": "الميزانية",
+            "text": "SECRET-PASSAGE-TEXT الميزانية 22,900,000"}})()
+        return type("R", (), {"points": [point]})()
+
+
+def _search_once(settings, spans_sink):
+    ret.search(SESSION, "ما الميزانية؟", settings=settings,
+               embedder=_StubEmbedder(), qdrant=_StubQdrant())
+    tracing.shutdown()
+    return {s.name: s for s in spans_sink.get_finished_spans()}
+
+
+def _turn_once(settings, spans_sink):
+    from Application.backend import conversation as conv
+    from tests.test_conversation import StubLLM, passage, result
+
+    conv.handle_question(
+        SESSION, "ما الميزانية؟", settings=settings,
+        llm=StubLLM(answer="22,900,000"),
+        retrieval=result(passage(text="SECRET-PASSAGE-TEXT")),
+        project_record=None)
+    tracing.shutdown()
+    return {s.name: s for s in spans_sink.get_finished_spans()}
+
+
+def _fetch_once(settings, spans_sink):
+    from Application.backend import spm
+    from tests.test_answering import ROW, StubConn
+
+    spm.fetch(SESSION, settings=settings, connection=StubConn(ROW))
+    tracing.shutdown()
+    return {s.name: s for s in spans_sink.get_finished_spans()}
+
+
+def test_search_records_what_it_found(spans):
+    """The first place to look when an answer is wrong. If the right passage
+    is not in this output, the fault is retrieval; if it is, the fault is
+    the prompt or the model. Until this was recorded, Langfuse showed the
+    step as `null` and the question could not be answered from a trace."""
+    search = _search_once(traced(capture_content=True), spans)["retrieval.search"]
+    found = json.loads(search.attributes[tracing.LF_OUTPUT])
+    assert found[0]["rank"] == 1
+    assert found[0]["file"] == "charter.docx"
+    assert found[0]["score"] == 0.6123, "scores decide whether the model is called"
+    assert "SECRET-PASSAGE-TEXT" in found[0]["text"]
+    assert "ما الميزانية؟" in search.attributes[tracing.LF_INPUT]
+
+
+def test_embedding_records_the_question_but_never_the_vector(spans):
+    embed = _search_once(traced(capture_content=True), spans)["retrieval.embed"]
+    assert embed.attributes[tracing.LF_INPUT] == "ما الميزانية؟"
+    assert json.loads(embed.attributes[tracing.LF_OUTPUT]) == {"dimensions": 1536}
+
+
+def test_a_turn_gives_the_trace_its_question_and_answer(spans):
+    """Without the TRACE-level fields, every row in Langfuse's trace list
+    and session view reads `null`, however much the children recorded."""
+    turn = _turn_once(traced(capture_content=True), spans)["chat.turn"]
+    assert turn.attributes[tracing.LF_TRACE_INPUT] == "ما الميزانية؟"
+    output = json.loads(turn.attributes[tracing.LF_TRACE_OUTPUT])
+    assert "22,900,000" in output["answer"]
+    assert output["citations"], "the answer's sources belong with it"
+
+
+def test_the_project_record_fetch_records_the_record(spans):
+    fetch = _fetch_once(traced(capture_content=True), spans)["spm.fetch"]
+    record = json.loads(fetch.attributes[tracing.LF_OUTPUT])
+    assert record["code"] == "PRJ-TEST"
+    assert record["budget_sar"] == 22900000
+
+
+def test_captured_arabic_stays_readable(spans):
+    """`json.dumps` escapes non-ASCII by default, which turns an Arabic
+    passage into a wall of \\u0645 in the Langfuse UI."""
+    search = _search_once(traced(capture_content=True), spans)["retrieval.search"]
+    assert "الميزانية" in search.attributes[tracing.LF_OUTPUT]
+    assert "\\u0627" not in search.attributes[tracing.LF_OUTPUT]
+
+
+@pytest.mark.parametrize("run", [_search_once, _turn_once, _fetch_once],
+                         ids=["search", "turn", "spm"])
+def test_capture_content_off_records_no_content_on_any_step(spans, run):
+    """⚠️ The one switch must cover every step, not only the model call.
+
+    Each new step that records content is a new place document text or the
+    project record could reach a trace store that has no notion of AC09.
+    One helper enforces the switch, and this checks every caller uses it."""
+    recorded = run(traced(capture_content=False), spans)
+    blob = repr([dict(s.attributes) for s in recorded.values()])
+    for key in (tracing.LF_INPUT, tracing.LF_OUTPUT,
+                tracing.LF_TRACE_INPUT, tracing.LF_TRACE_OUTPUT):
+        assert key not in blob, f"{key} recorded with capture_content off"
+    assert "SECRET-PASSAGE-TEXT" not in blob
+    assert "22900000" not in blob and "22,900,000" not in blob
+
+
+def test_record_content_fails_open():
+    """A span that rejects an attribute must not take the answer with it."""
+    class Refusing:
+        def set_attribute(self, *_a):
+            raise RuntimeError("exporter broken")
+    tracing.record_content(Refusing(), True, input="q", output={"a": 1}, trace=True)
 
 
 def test_token_usage_is_recorded_even_when_content_is_not(spans):
