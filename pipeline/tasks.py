@@ -30,7 +30,7 @@ from celery import Celery
 from celery.schedules import crontab
 from celery.signals import setup_logging
 
-from pipeline import classify, indexer, ocr, scanner
+from pipeline import classify, indexer, ocr, run_record, scanner
 from pipeline.config import get_settings
 from pipeline.locking import AlreadyRunning, stage_lock
 
@@ -230,16 +230,84 @@ def do_ingest(project: str | None = None) -> dict:
         for name, fn in (("scan", do_scan), ("ocr", do_ocr),
                          ("classify", do_classify), ("index", do_index))
     ]
-    return {"ok": all(r.get("ok") for r in results), "stages": results}
+    result = {"ok": all(r.get("ok") for r in results), "stages": results}
+    # Only a full-corpus run speaks for the schedule — see run_record.py.
+    if project is None:
+        run_record.record(result)
+    return result
+
+
+# A stage that cannot even CONNECT is retried inside `ingest`, because the
+# stage tasks' own autoretry never applies here: `ingest` calls the stage
+# functions directly. Found in production: Docker came back at 00:17, beat
+# fired the run it had missed, and Postgres answered "the database system is
+# starting up" — so all three stages failed instantly and the run was lost.
+#
+# Connection failures only. A query error, a bad setting or a failed document
+# is not going to fix itself in a minute, and retrying it would only delay
+# the report. Every stage is idempotent, so a retry repeats nothing that
+# already completed. About a minute in total — longer than a database takes
+# to start, short enough that a real outage is reported the same hour.
+TRANSIENT_DELAYS = (10, 20, 40)
+_sleep = time.sleep
+
+
+def _is_transient(exc: BaseException) -> bool:
+    """True if the failure was reaching a service, not what it answered.
+
+    Walks the exception chain, because a stage often re-raises a connection
+    error wrapped in its own.
+    """
+    import psycopg
+
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, ConnectionError):             # includes refused/reset
+            return True
+        if isinstance(exc, psycopg.OperationalError) and                 _is_connection_sqlstate(getattr(exc, "sqlstate", None)):
+            return True
+        if type(exc).__module__.startswith(("redis", "httpx", "httpcore")) and                 type(exc).__name__ in ("ConnectionError", "TimeoutError",
+                                       "ConnectError", "ConnectTimeout"):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+def _is_connection_sqlstate(sqlstate: str | None) -> bool:
+    """psycopg's OperationalError also covers real query failures — a
+    cancelled statement, a deadlock — which must not be retried as though
+    the server were unreachable. The SQLSTATE separates them:
+
+    - None      the client never got an answer (refused, reset, no route)
+    - 08xxx     connection exception
+    - 57P01/02  the server is shutting down; 57P03 "cannot connect now",
+                which is exactly "the database system is starting up"
+    """
+    return sqlstate is None or sqlstate.startswith("08") or         sqlstate in ("57P01", "57P02", "57P03")
 
 
 def _safe(name: str, fn, project: str | None) -> dict:
-    try:
-        return fn(project)
-    except Exception as exc:                           # noqa: BLE001
-        log.exception("ingest: stage %s raised", name)
-        return {"stage": name, "ok": False,
-                "error": f"{type(exc).__name__}: {exc}"}
+    attempt = 1
+    while True:
+        try:
+            result = fn(project)
+            if attempt > 1:
+                result = {**result, "attempts": attempt}
+            return result
+        except Exception as exc:                       # noqa: BLE001
+            if _is_transient(exc) and attempt <= len(TRANSIENT_DELAYS):
+                delay = TRANSIENT_DELAYS[attempt - 1]
+                log.warning("ingest: stage %s could not connect (%s: %s); "
+                            "retrying in %ss (attempt %s of %s)",
+                            name, type(exc).__name__, exc, delay,
+                            attempt + 1, len(TRANSIENT_DELAYS) + 1)
+                _sleep(delay)
+                attempt += 1
+                continue
+            log.exception("ingest: stage %s raised", name)
+            return {"stage": name, "ok": False, "attempts": attempt,
+                    "error": f"{type(exc).__name__}: {exc}"}
 
 
 @app.task(name="pipeline.scan", **_RETRY)
@@ -285,10 +353,17 @@ app.conf.beat_schedule = {
             minute=_settings.celery.schedule_minute,
         ),
         "args": (),
-        # If beat was down when the tick was due, run once on return rather
-        # than firing a run that is now most of a day stale. 6 hours is
-        # generous enough to cover a restart, short enough that a machine
-        # switched on the next morning does not trigger yesterday's job.
+        # ⚠️ What this does NOT do: stop a missed run firing late. `expires`
+        # counts from when beat SENDS the task, not from when it was due. If
+        # beat itself was down at 13:00, it sends the missed run as soon as it
+        # starts — observed: the 13:00 run of 2026-09-13 fired at 00:17 the
+        # next day. That catch-up is harmless and useful (an unchanged corpus
+        # costs nothing), so it is kept, and ingest now retries connections
+        # because a run fired at startup meets services still starting.
+        #
+        # What it DOES do: a task that sits in the queue because the worker
+        # is down is discarded after 6 hours, instead of piling up and
+        # running several times over when the worker returns.
         "options": {"expires": 6 * 60 * 60},
     }
 }

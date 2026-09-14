@@ -34,10 +34,13 @@ from dataclasses import dataclass, field
 from pipeline.config import Settings, get_settings
 from pipeline.db import admin_connection
 
-# A corpus that has not been touched in this long is suspicious rather than
-# broken — the schedule is daily, so two missed days means something is
-# wrong with beat, the worker, or the lock.
-STALE_AFTER_HOURS = 48
+# The schedule is daily, so a day plus a margin for a long run without a
+# successful full ingest means beat, the worker or Docker is not doing its
+# job. Judged on the last successful RUN, not on the newest indexed document:
+# an unchanged corpus is processed correctly every day and indexes nothing,
+# and judging by documents raised "nothing indexed for 33 days" while both
+# processes were fine. See run_record.py.
+STALE_AFTER_HOURS = 26
 
 
 @dataclass
@@ -50,6 +53,9 @@ class Problem:
 class Status:
     corpus: dict = field(default_factory=dict)
     last_indexed_at: dt.datetime | None = None
+    last_run: dict | None = None
+    last_success: dict | None = None
+    runs_unreadable: bool = False
     failures: list[dict] = field(default_factory=list)
     consistency: list[dict] = field(default_factory=list)
     locks: list[dict] = field(default_factory=list)
@@ -97,9 +103,15 @@ _PER_PROJECT_SQL = """
 """
 
 
+_UNREAD = object()
+
+
 def collect(settings: Settings | None = None, connection=None,
-            qdrant=None) -> Status:
-    """Gather everything, then judge. Injectable for tests."""
+            qdrant=None, runs=_UNREAD) -> Status:
+    """Gather everything, then judge. Injectable for tests.
+
+    `runs` is `(last_run, last_success)`; left out, it is read from Redis.
+    """
     settings = settings or get_settings()
     status = Status()
 
@@ -110,6 +122,7 @@ def collect(settings: Settings | None = None, connection=None,
             _collect_db(conn, status)
 
     _collect_locks(settings, status)
+    _collect_runs(status, runs)
     _collect_consistency(settings, status, qdrant)
     _judge(settings, status)
     return status
@@ -156,6 +169,22 @@ def _collect_locks(settings: Settings, status: Status) -> None:
     except Exception as exc:                            # noqa: BLE001
         status.add("error", f"Redis unreachable ({type(exc).__name__}: {exc}) — "
                             "the worker cannot run and stage locks are unavailable")
+
+
+def _collect_runs(status: Status, runs) -> None:
+    """The last full ingest attempt and the last success.
+
+    An unreachable Redis is already reported by `_collect_locks`, so it is
+    not reported twice — and not mistaken for "no run recorded".
+    """
+    if runs is _UNREAD:
+        try:
+            from pipeline import run_record
+            runs = run_record.read()
+        except Exception:                                # noqa: BLE001
+            status.runs_unreadable = True
+            return
+    status.last_run, status.last_success = runs
 
 
 def _collect_consistency(settings: Settings, status: Status, qdrant) -> None:
@@ -240,13 +269,38 @@ def _judge(settings: Settings, status: Status) -> None:
                    f"{corpus['in_progress']} document(s) stuck in 'indexing' — a run "
                    f"died mid-flight; the next run will pick them up")
 
-    last = status.last_indexed_at
-    if last is not None:
-        age = dt.datetime.now(dt.timezone.utc) - last
-        if age > dt.timedelta(hours=STALE_AFTER_HOURS):
-            status.add("warning",
-                       f"Nothing has been indexed for {age.days} day(s). The schedule is "
-                       f"daily, so check that beat and the worker are running")
+    _judge_runs(status)
+
+
+def _judge_runs(status: Status) -> None:
+    if status.runs_unreadable:
+        return                          # Redis already reported as unreachable
+    run, success = status.last_run, status.last_success
+    now = dt.datetime.now(dt.timezone.utc)
+
+    if run is None:
+        status.add("warning",
+                   "No full ingest run has been recorded yet. Runs are recorded "
+                   "since 2026-09-14; the next scheduled run will create the record")
+        return
+
+    if not run.get("ok"):
+        failed = [s for s in run.get("stages", []) if not s.get("ok")]
+        reason = failed[0].get("error", "unknown error") if failed else "unknown error"
+        status.add("error",
+                   f"The last ingest run ({_when(run['finished_at'])}) failed: "
+                   f"{', '.join(s['stage'] for s in failed) or 'a stage'} — {reason}")
+
+    if success is None:
+        status.add("warning", "No full ingest run has succeeded since runs began "
+                              "being recorded")
+        return
+
+    age = now - success["finished_at"]
+    if age > dt.timedelta(hours=STALE_AFTER_HOURS):
+        status.add("warning",
+                   f"No ingest run has succeeded for {_age(age)}. The schedule is "
+                   f"daily, so check that Docker, beat and the worker are running")
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +325,10 @@ def format_status(status: Status, settings: Settings) -> str:
         f"  pending     : {corpus.get('pending', 0)}"
         f"   failed: {corpus.get('failed', 0)}"
         f"   in-progress: {corpus.get('in_progress', 0)}",
-        f"  last indexed: {_ago(status.last_indexed_at)}",
+        f"  last run    : {_run_line(status.last_run)}",
+        f"  last success: {_run_line(status.last_success)}",
+        f"  last indexed: {_ago(status.last_indexed_at)}"
+        f"   (when a document last changed — not a health signal)",
         f"  schedule    : daily at {schedule}",
     ]
 
@@ -309,6 +366,22 @@ def format_status(status: Status, settings: Settings) -> str:
     return "\n".join(lines)
 
 
+def _age(delta: dt.timedelta) -> str:
+    hours = delta.total_seconds() / 3600
+    return f"{hours:.0f} hours" if hours < 48 else f"{delta.days} days"
+
+
+def _when(when: dt.datetime) -> str:
+    return f"{when.astimezone(dt.timezone.utc):%Y-%m-%d %H:%M UTC}"
+
+
+def _run_line(run: dict | None) -> str:
+    if run is None:
+        return "never recorded"
+    verdict = "ok" if run.get("ok") else "FAILED"
+    return f"{_ago(run['finished_at'])} — {verdict}"
+
+
 def _ago(when: dt.datetime | None) -> str:
     if when is None:
         return "never"
@@ -321,11 +394,19 @@ def _ago(when: dt.datetime | None) -> str:
     return f"{when:%Y-%m-%d %H:%M UTC} ({delta.days} days ago)"
 
 
+def _run_json(run: dict | None) -> dict | None:
+    if run is None:
+        return None
+    return {**run, "finished_at": run["finished_at"].isoformat()}
+
+
 def to_dict(status: Status) -> dict:
     return {
         "healthy": status.healthy,
         "corpus": status.corpus,
         "last_indexed_at": status.last_indexed_at.isoformat() if status.last_indexed_at else None,
+        "last_run": _run_json(status.last_run),
+        "last_success": _run_json(status.last_success),
         "consistency": status.consistency,
         "locks": status.locks,
         "failures": status.failures,

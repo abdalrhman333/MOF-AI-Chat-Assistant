@@ -518,7 +518,7 @@ What it walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**648 Python tests, ~30s**, across 24 files — the largest being
+**672 Python tests, ~30s**, across 25 files — the largest being
 `test_answering.py` 53, `test_conversation.py` 46, `test_session_gate.py`
 42, `test_ocr.py` 40, `test_retrieval_eval.py` 39, `test_observability.py`
 39, `test_scanner.py` 38, `test_auth.py` 38, `test_continuity.py` 33.
@@ -789,7 +789,7 @@ time.
 
 ## 24. The MOF redesign, content in every trace, and a Docker that kept dying (2026-09-14)
 
-**Tests: 648 Python, plus 41 JavaScript.**
+**Tests: 672 Python, plus 41 JavaScript.**
 
 ### 24a. The UI now follows the MOF design screens
 
@@ -901,6 +901,55 @@ Verified live: the rebuild recreated the whole stack (every container
 created fresh, no VM restart), data intact at 9 projects / 58 documents, a
 real question answered through the container with citations in 2.8 s, and
 the turn arriving in both Langfuse and Tempo from inside the network.
+
+### 24e. The schedule ran — the health check just could not tell
+
+Asked "what about the pipeline schedule?", the answer was that it worked:
+beat's own store showed the 13:00 run firing, 15 runs in total, and today's
+succeeding with nothing to do. Looking closely found three real faults.
+
+**1. The health check judged the wrong thing.** `pipeline.status` used the
+newest `indexed_at` — when a *document* last changed — so an unchanged
+corpus, processed correctly every day, warned "nothing indexed for 33 days,
+check that beat and the worker are running" while both were. Each full run
+now leaves a record in Redis (`pipeline/run_record.py`: last attempt and
+last success, kept separately), and the check reports an **error** if the
+latest run failed — naming the stage and the reason — and a **warning** if
+nothing has succeeded for 26 hours. Single-project runs are not recorded:
+a manual repair must not hide that the scheduled run has stopped.
+
+**2. A run fired as Docker started failed with no retry.** At 00:17 on
+2026-09-14 beat sent the run it had missed while Docker was down; Postgres
+answered "the database system is starting up", and all three stages failed
+at once. The stage tasks' autoretry never applied — `ingest` calls the
+stage functions directly. `ingest` now retries a stage that cannot
+*connect*, at 10, 20 and 40 seconds. Connection failures only, identified
+by SQLSTATE: psycopg's `OperationalError` also covers a cancelled query and
+a deadlock, which must not be retried as though the server were away.
+
+The comment that claimed `expires` stopped a missed run firing the next
+morning was wrong — `expires` counts from dispatch, and beat dispatches the
+missed run the moment it starts. The catch-up is kept (an unchanged corpus
+costs nothing), and the comment and its test now say what it actually does.
+
+**3. The worker ran week-old code.** The classify stage was added on
+2026-09-07, but the pipeline image was not rebuilt, so every scheduled run
+skipped it until today's rebuild. Containers run the code in their image,
+not the repository. The rebuild command is now beside the run instructions.
+
+⚠️ **The fix's own tests nearly reproduced the problem.** The live check
+showed a successful run recorded "0 min ago" that the worker never
+received: the suite's existing ingest tests, running fake stages against
+the real Redis, had written a fake success. A test making the health check
+lie is precisely the failure this work removes. Every task test now gets a
+recorder in place of the real record, the fake keys were deleted, and a
+full test run was confirmed to leave the record untouched.
+
+Verified live: before a run the check reported "never recorded" (a warning,
+exit 0); after a real full ingest — which ran classify, billed 0 pages and
+classified 0 documents — it reported the run as ok with no problems. All
+thirteen mutations of the new logic are caught, after one test that
+measured staleness *relative to* the threshold was pinned to a fixed age.
 
 ---
 

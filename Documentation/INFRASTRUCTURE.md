@@ -61,9 +61,13 @@ Docker Desktop auto-start is on (§4.4). Two things worth knowing:
   documented password, so publishing it on every interface would let anyone
   on the network sign in. To demo from another device, change the mapping
   to `"8000:8000"` deliberately.
-- **Code changes need a rebuild:** `docker compose up -d --build chat-api`.
-  One Dockerfile builds two targets (`pipeline`, `app`) on a shared base, so
-  rebuilding the app does not recreate the pipeline containers.
+- **Code changes need a rebuild:** `docker compose up -d --build chat-api`
+  for the app, `docker compose up -d --build pipeline-worker pipeline-beat`
+  for the pipeline. One Dockerfile builds two targets (`pipeline`, `app`) on
+  a shared base, so rebuilding one does not recreate the other.
+  ⚠️ Forgetting this is silent: the classify stage, added 2026-09-07, was
+  skipped by every scheduled run until the pipeline image was rebuilt on
+  2026-09-14.
 
 Running it on the host instead (`.venv/Scripts/python -m Application.backend.api`)
 still works for development — stop the container first, since both want

@@ -21,7 +21,7 @@ Run the whole thing, and check it:
 
 ```bash
 cd infra && docker compose up -d                    # everything, the app included → http://localhost:8000
-.venv/Scripts/python -m pytest tests/ -q            # expect 648 passed
+.venv/Scripts/python -m pytest tests/ -q            # expect 672 passed
 ```
 
 The app is the `mof-chat-api` container. After changing its code, rebuild it
@@ -182,20 +182,49 @@ docker compose exec pipeline-worker python -m pipeline.tasks ingest --wait
 # one project only
 docker compose exec pipeline-worker python -m pipeline.tasks ingest --project PRJ-05 --wait
 
-# just one stage: scan | ocr | index | ingest
+# just one stage: scan | ocr | classify | index | ingest
 docker compose exec pipeline-worker python -m pipeline.tasks scan --wait
 
 docker logs -f mof-pipeline-worker      # per-document progress
 ```
 
+⚠️ **Pipeline code changes do nothing until the containers are rebuilt.**
+The worker and beat run the code baked into their image, not the files in
+the repository:
+
+```bash
+cd infra && docker compose up -d --build pipeline-worker pipeline-beat
+```
+
+This is not hypothetical: the classify stage was added on 2026-09-07, and
+every scheduled run skipped it until the image was rebuilt on 2026-09-14.
+
+**A missed run fires late, on purpose.** If Docker was off at 13:00, beat
+sends the missed run as soon as it starts again — even the next morning. On
+an unchanged corpus that costs nothing, so it is kept. Services are often
+still starting at that moment, so a full run retries a stage that cannot
+*connect* (10 s, 20 s, 40 s) before reporting it failed; any other error
+fails at once.
+
 **Is it healthy?** One command answers the operational questions —
 when ingestion last succeeded, whether anything failed, and whether Qdrant
 still agrees with Postgres. **Exit 0 healthy, 1 needs attention**, so it
-works as a cron check without parsing the output:
+works as a cron check without parsing the output.
+
+It judges the schedule by the **last recorded full run**, kept in Redis by
+every full-corpus ingest: an error if the latest run failed, a warning if
+none has succeeded for 26 hours. (Until 2026-09-14 it judged by the newest
+*indexed document*, so an unchanged corpus processed correctly every day
+warned "nothing indexed for 33 days — check beat and the worker" while both
+were running.) "last indexed" is still shown, labelled as what it is — when
+a document last changed. Run it inside the worker, where the settings match
+the container:
 
 ```bash
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status --json
+cd infra && docker compose exec pipeline-worker python -m pipeline.status
+docker compose exec pipeline-worker python -m pipeline.status --json
+#   last run    : 2026-09-14 12:42 UTC (0 min ago) — ok
+#   last success: 2026-09-14 12:42 UTC (0 min ago) — ok
 ```
 
 The Postgres↔Qdrant comparison is the part nothing else does: the two are
@@ -207,9 +236,10 @@ A healthy no-op run looks like this — every stage reporting nothing to do:
 
 ```json
 {"ok": true, "stages": [
-  {"stage": "scan",  "skipped": false, "files": 58, "written": 0},
-  {"stage": "ocr",   "skipped": false, "succeeded": 0, "pages_billed": 0},
-  {"stage": "index", "skipped": false, "indexed": 0, "chunks": 0}]}
+  {"stage": "scan",     "skipped": false, "files": 58, "written": 0},
+  {"stage": "ocr",      "skipped": false, "succeeded": 0, "pages_billed": 0},
+  {"stage": "classify", "skipped": false, "candidates": 0, "classified": 0},
+  {"stage": "index",    "skipped": false, "indexed": 0, "chunks": 0}]}
 ```
 
 **Failure modes worth recognising:**

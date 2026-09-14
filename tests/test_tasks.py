@@ -33,6 +33,21 @@ def redis_available():
         pytest.skip(f"Redis not reachable — is mof-redis up? ({exc})")
 
 
+@pytest.fixture(autouse=True)
+def recorded(monkeypatch):
+    """No test may write the REAL run record.
+
+    Found by the live check after this record was introduced: the suite's
+    ingest tests, running fake stages against the real Redis, wrote a fake
+    "success" that `pipeline.status` then reported as a genuine run — a
+    test making the health check lie. Every test gets a recorder instead;
+    the ones about recording read it.
+    """
+    runs: list[dict] = []
+    monkeypatch.setattr(tasks.run_record, "record", lambda result, **_kw: runs.append(result))
+    return runs
+
+
 @pytest.fixture
 def fake_stages(monkeypatch):
     """Replace the three stage entry points with recorders."""
@@ -235,9 +250,16 @@ def test_the_schedule_timezone_is_applied_to_the_app():
     assert str(tasks.app.conf.timezone) != "UTC" or         get_settings().celery.schedule_timezone == "UTC"
 
 
-def test_a_missed_tick_expires_rather_than_firing_a_stale_run():
-    """A machine switched on the next morning must not trigger yesterday's
-    job as though it were due now."""
+def test_a_queued_run_expires_if_the_worker_is_down():
+    """What `expires` actually guarantees: a run left in the queue while the
+    worker is away is discarded, not replayed once per missed day on its
+    return.
+
+    It was previously documented as stopping a missed run from firing late.
+    It does not — `expires` counts from dispatch, and beat dispatches a
+    missed run as soon as beat itself starts (the 13:00 run of 2026-09-13
+    fired at 00:17 the next day). That catch-up is kept on purpose; the
+    retry tests below are what make it survive services still starting."""
     entry = tasks.app.conf.beat_schedule["ingest-corpus"]
     assert 0 < entry["options"]["expires"] <= 12 * 60 * 60
 
@@ -283,6 +305,117 @@ def test_ingest_does_not_retry_the_whole_pipeline():
     the stages retry internally. Retrying ingest would repeat work that
     already succeeded — including paid OCR."""
     assert not getattr(tasks.app.tasks["pipeline.ingest"], "autoretry_for", ())
+
+
+# ---------------------------------------------------------------------------
+# Connection retries inside ingest
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def slept(monkeypatch):
+    """Record the waits instead of performing them."""
+    delays: list[float] = []
+    monkeypatch.setattr(tasks, "_sleep", delays.append)
+    return delays
+
+
+def pg_error(sqlstate, message="the database system is starting up"):
+    """The exception psycopg itself raises for a SQLSTATE — the real class,
+    so the test exercises the attribute the code actually reads."""
+    import psycopg
+
+    if sqlstate is None:
+        return psycopg.OperationalError(message)
+    return psycopg.errors.lookup(sqlstate)(message)
+
+
+def flaky(failures: list[BaseException]):
+    """A stage that raises each given error once, then succeeds."""
+    calls = {"n": 0}
+
+    def stage(_project):
+        calls["n"] += 1
+        if failures:
+            raise failures.pop(0)
+        return {"stage": "scan", "ok": True}
+    stage.calls = calls
+    return stage
+
+
+def test_a_stage_that_cannot_connect_is_retried_until_it_can(slept):
+    """REGRESSION: at 00:17 on 2026-09-14 beat fired the missed run as Docker
+    came back, Postgres said "the database system is starting up", and all
+    three stages failed instantly with no retry — the stage tasks' autoretry
+    never applies inside ingest, which calls the stage functions directly."""
+    stage = flaky([ConnectionError("refused"), ConnectionError("refused")])
+
+    result = tasks._safe("scan", stage, None)
+
+    assert result["ok"] is True
+    assert result["attempts"] == 3
+    assert slept == list(tasks.TRANSIENT_DELAYS[:2]), "waits grow between attempts"
+
+
+def test_a_stage_that_never_connects_gives_up_and_says_how_hard_it_tried(slept):
+    """About a minute, not forever: a real outage must still be reported."""
+    stage = flaky([ConnectionError("refused")] * 10)
+
+    result = tasks._safe("scan", stage, None)
+
+    assert result["ok"] is False
+    assert result["attempts"] == len(tasks.TRANSIENT_DELAYS) + 1
+    assert "refused" in result["error"]
+    assert sum(slept) <= 120
+
+
+def test_a_real_error_is_not_retried(slept):
+    """A bug or a bad setting will not fix itself in a minute. Retrying it
+    only delays the report."""
+    stage = flaky([ValueError("DOCUMENT_ROOT does not exist")])
+
+    result = tasks._safe("scan", stage, None)
+
+    assert result["ok"] is False
+    assert slept == [] and stage.calls["n"] == 1
+
+
+@pytest.mark.parametrize("sqlstate,retried", [
+    (None, True),       # the client never got an answer: refused, reset
+    ("57P03", True),    # cannot_connect_now — "the database system is starting up"
+    ("08006", True),    # connection_failure
+    ("57014", False),   # query_canceled — an OperationalError, but not a connection problem
+    ("40P01", False),   # deadlock_detected — likewise
+])
+def test_only_database_connection_failures_count_as_transient(sqlstate, retried):
+    """psycopg's OperationalError also covers real query failures, which
+    must not be retried as though the server were unreachable."""
+    assert tasks._is_transient(pg_error(sqlstate)) is retried
+
+
+def test_a_connection_error_wrapped_by_a_stage_is_still_recognised():
+    try:
+        try:
+            raise ConnectionError("refused")
+        except ConnectionError as inner:
+            raise RuntimeError("could not read the corpus") from inner
+    except RuntimeError as outer:
+        assert tasks._is_transient(outer)
+
+
+# ---------------------------------------------------------------------------
+# Recording the run for the status check
+# ---------------------------------------------------------------------------
+
+def test_a_full_ingest_records_its_outcome(fake_stages, recorded):
+    result = tasks.do_ingest()
+    assert recorded == [result]
+
+
+def test_a_single_project_ingest_does_not_speak_for_the_schedule(fake_stages, recorded):
+    """A manual repair over one project must not hide that the scheduled
+    run over all of them has stopped."""
+    tasks.do_ingest(project="PRJ-01")
+    assert recorded == []
 
 
 # ---------------------------------------------------------------------------

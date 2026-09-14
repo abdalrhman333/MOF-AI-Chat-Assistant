@@ -98,8 +98,22 @@ def add(db, name, *, status="indexed", chunks=10, ocr=True, error=None, hashed=T
     return link_id
 
 
-def collect(db, qdrant):
-    return status_mod.collect(settings=get_settings(), connection=db, qdrant=qdrant)
+def run(hours_ago: float, ok: bool = True, error: str | None = None) -> dict:
+    """A recorded full ingest run, as run_record.read() returns it."""
+    stages = [{"stage": "scan", "ok": ok, **({"error": error} if error else {})},
+              {"stage": "index", "ok": True}]
+    return {"finished_at": dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours_ago),
+            "ok": ok, "stages": stages}
+
+
+RECENT = run(2)
+
+
+def collect(db, qdrant, runs=(RECENT, RECENT)):
+    """Runs are passed explicitly, so the real Redis record — whatever the
+    worker last wrote — cannot change what these tests see."""
+    return status_mod.collect(settings=get_settings(), connection=db, qdrant=qdrant,
+                              runs=runs)
 
 
 def messages(status):
@@ -228,16 +242,87 @@ def test_an_unreachable_qdrant_is_an_error_not_a_crash(db):
     assert "Qdrant unreachable" in messages(status)
 
 
-def test_stale_indexing_is_flagged(db):
-    """The schedule is daily, so two days of nothing means beat, the worker
-    or the lock is broken."""
+def test_an_unchanged_corpus_is_not_mistaken_for_a_stopped_schedule(db):
+    """REGRESSION: the check used to judge the schedule by the newest
+    indexed document, so a corpus processed correctly every day — and simply
+    unchanged — reported "nothing indexed for 33 days, check beat and the
+    worker" while both were running. Old documents are not a symptom."""
     link_id = add(db, "old.docx", chunks=10)
-    db.execute("UPDATE document_links SET indexed_at = now() - interval '5 days' "
+    db.execute("UPDATE document_links SET indexed_at = now() - interval '33 days' "
                "WHERE id=%s", (link_id,))
 
     status = collect(db, StubQdrant({f"project_{TEST_CODE}": 10}))
 
-    assert "has been indexed for" in messages(status) or "days" in messages(status)
+    assert status.healthy
+    assert not status.problems, messages(status)
+
+
+def test_no_successful_run_for_over_a_day_is_flagged(db):
+    """The schedule is daily; a day and a margin without a success means
+    Docker, beat or the worker is not doing its job."""
+    add(db, "a.docx", chunks=10)
+    # A fixed age, not STALE_AFTER_HOURS + n: measured against the constant,
+    # the test would loosen along with it, and a threshold of 30 days passed.
+    stale = run(40)     # yesterday's run AND today's run both missed
+
+    status = collect(db, StubQdrant({f"project_{TEST_CODE}": 10}), runs=(stale, stale))
+
+    assert "No ingest run has succeeded for" in messages(status)
+
+
+def test_a_success_inside_a_day_is_not_flagged(db):
+    """The boundary must not fire on a normal day: 13:00 checked at 12:59
+    tomorrow is a day minus a minute, not a missed run."""
+    add(db, "a.docx", chunks=10)
+    yesterday = run(23.9)
+
+    status = collect(db, StubQdrant({f"project_{TEST_CODE}": 10}),
+                     runs=(yesterday, yesterday))
+
+    assert not status.problems, messages(status)
+
+
+def test_a_failed_last_run_is_an_error_that_names_the_stage_and_reason(db):
+    """The report that would have explained 00:17 on 2026-09-14: which
+    stage, and the database's own words."""
+    add(db, "a.docx", chunks=10)
+    failed = run(1, ok=False, error="OperationalError: the database system is starting up")
+
+    status = collect(db, StubQdrant({f"project_{TEST_CODE}": 10}),
+                     runs=(failed, run(12)))
+
+    assert not status.healthy, "a failed run needs attention: exit code 1"
+    assert "failed: scan" in messages(status)
+    assert "starting up" in messages(status)
+
+
+def test_no_run_recorded_is_a_warning_not_an_error(db):
+    """A fresh install, or the first day after this check changed, has no
+    record yet. That is worth saying, not worth failing a healthcheck on."""
+    add(db, "a.docx", chunks=10)
+
+    status = collect(db, StubQdrant({f"project_{TEST_CODE}": 10}), runs=(None, None))
+
+    assert status.healthy
+    assert "No full ingest run has been recorded yet" in messages(status)
+
+
+def test_an_unreadable_run_record_is_not_reported_as_no_run(db, monkeypatch):
+    """If Redis is down, that is the diagnosis — and _collect_locks already
+    gives it. "No run recorded" would send an operator looking at the
+    schedule instead of at Redis."""
+    from pipeline import run_record
+
+    def unreachable(**_kw):
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr(run_record, "read", unreachable)
+    add(db, "a.docx", chunks=10)
+
+    status = status_mod.collect(settings=get_settings(), connection=db,
+                                qdrant=StubQdrant({f"project_{TEST_CODE}": 10}))
+
+    assert "No full ingest run has been recorded" not in messages(status)
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +345,8 @@ def test_json_output_is_serialisable(db):
 
     add(db, "a.docx", chunks=10)
     status = collect(db, StubQdrant({f"project_{TEST_CODE}": 10}))
-    json.dumps(status_mod.to_dict(status), default=str)
+    data = json.loads(json.dumps(status_mod.to_dict(status)))
+    assert data["last_success"]["ok"] is True
 
 
 def test_the_rendered_report_names_the_schedule(db):
@@ -273,3 +359,15 @@ def test_the_rendered_report_names_the_schedule(db):
     settings = get_settings()
     assert settings.celery.schedule_timezone in text
     assert f"{settings.celery.schedule_hour:02d}:" in text
+
+
+def test_the_report_shows_the_last_run_and_says_what_last_indexed_means(db):
+    add(db, "a.docx", chunks=10)
+    status = collect(db, StubQdrant({f"project_{TEST_CODE}": 10}),
+                     runs=(run(1, ok=False, error="x"), run(20)))
+
+    text = status_mod.format_status(status, get_settings())
+
+    assert "last run    :" in text and "FAILED" in text
+    assert "last success:" in text
+    assert "not a health signal" in text,         "an old 'last indexed' date must not read as an alarm"
