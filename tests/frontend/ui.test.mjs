@@ -350,6 +350,16 @@ test("the filters count every state, and anything unfinished is 'processing'", (
   assert.deepEqual(filters, ["الكل 7", "مفهرسة 5", "قيد المعالجة 1", "فشلت 1"]);
 });
 
+test("the columns run name, type, status — and each row matches its header", () => {
+  const a = kb(DOCS);
+  a.renderKb();
+  const header = find(a.el("kbView"), (n) => n.tagName === "THEAD").children[0].children
+    .map((th) => th.textContent);
+  assert.deepEqual(header, ["اسم الوثيقة", "النوع", "الحالة"]);
+  const cells = rowsOf(a)[0].children.map((td) => td.textContent);
+  assert.deepEqual(cells, ["charter.docx", "ميثاق المشروع", "مفهرسة"]);
+});
+
 test("the table pages five at a time and says where it is", () => {
   const a = kb(DOCS);
   a.renderKb();

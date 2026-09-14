@@ -980,7 +980,7 @@ function renderKb() {
   const table = el("table");
   const thead = el("thead");
   const hr = el("tr");
-  for (const key of ["docstate", "doctype", "docname"]) hr.append(el("th", "", t(key)));
+  for (const key of ["docname", "doctype", "docstate"]) hr.append(el("th", "", t(key)));
   thead.append(hr);
   const tbody = el("tbody");
   if (!shown.length) {
@@ -992,7 +992,7 @@ function renderKb() {
     const state = el("td");
     const status = statusOf(d);
     state.append(el("span", `status ${status}`, t(status)));
-    tr.append(state, el("td", "", docType(d.doc_type)), el("td", "docname", d.filename));
+    tr.append(el("td", "docname", d.filename), el("td", "", docType(d.doc_type)), state);
     tbody.append(tr);
   }
   table.append(thead, tbody);
