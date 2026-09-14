@@ -8,7 +8,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { load, stub, source } from "./harness.mjs";
+import { load, memoryStorage, stub, source } from "./harness.mjs";
 
 const OPENED = { conversation_id: "c1", welcome: "أهلاً نورة" };
 const REPLY = { text: "الميزانية 12 مليون", outcome: "answered",
@@ -220,36 +220,217 @@ test("the chips are translated, not raw keys", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The indexed-document count
+// The project header — both names, as the design writes them
 // ---------------------------------------------------------------------------
 
-test("the header shows the indexed count once it is known", async () => {
-  const a = app({ "/documents": { status: 200, body: { indexed: 14, total: 16 } } });
-  a.set("CURRENT", { code: "PRJ-06", display_name: "مشروع" });
-  await a.refreshDocCount();
-  assert.match(a.el("barMeta").textContent, /PRJ-06/);
-  assert.match(a.el("barMeta").textContent, /14/);
-});
+const PROJECT = { code: "PRJ-06", name_ar: "مشروع التحول الرقمي",
+                  name_en: "Digital Transformation", display_name: "PRJ-06 display" };
 
-test("a failed lookup leaves the code standing rather than claiming zero", async () => {
-  const a = app({ "/documents": { status: 500, body: {} } });
-  a.set("CURRENT", { code: "PRJ-06", display_name: "مشروع" });
-  a.renderTopbar();
-  await a.refreshDocCount();
-  assert.equal(a.el("barMeta").textContent, "PRJ-06",
-    "'0 documents' would read as an answer about the project");
-});
-
-test("switching project does not carry the old count across", () => {
+test("the header leads with the UI language and carries the other name below", () => {
   const a = load();
-  a.set("CURRENT", { code: "PRJ-06", display_name: "أ" });
-  a.set("DOC_COUNT", 14);
+  a.set("CURRENT", PROJECT);
   a.renderTopbar();
-  assert.match(a.el("barMeta").textContent, /14/);
-  a.set("CURRENT", { code: "PRJ-02", display_name: "ب" });
-  a.set("DOC_COUNT", null);
+  assert.equal(a.el("chatTitle").textContent, "مشروع التحول الرقمي - PRJ-06");
+  assert.equal(a.el("chatSub").textContent, "Digital Transformation");
+  a.set("UI", "en");
   a.renderTopbar();
-  assert.equal(a.el("barMeta").textContent, "PRJ-02");
+  assert.equal(a.el("chatTitle").textContent, "Digital Transformation - PRJ-06");
+  assert.equal(a.el("chatSub").textContent, "مشروع التحول الرقمي");
+});
+
+test("a project missing a name falls back to its display name, not to blank", () => {
+  const a = load();
+  a.set("CURRENT", { code: "PRJ-09", name_ar: null, name_en: null, display_name: "Legacy" });
+  a.renderTopbar();
+  assert.equal(a.el("chatTitle").textContent, "Legacy - PRJ-09");
+  assert.equal(a.el("chatSub").textContent, "", "no second name is invented");
+});
+
+test("switching project replaces every place the old one was named", () => {
+  const a = load();
+  a.set("CURRENT", PROJECT);
+  a.renderTopbar();
+  a.set("CURRENT", { code: "PRJ-02", name_ar: "خدماتي", name_en: "Khadamati", display_name: "" });
+  a.renderTopbar();
+  for (const id of ["chatTitle", "chatSub", "barTitle", "barMeta", "projName", "projCode"]) {
+    assert.ok(!a.el(id).textContent.includes("PRJ-06"), `${id} still names PRJ-06`);
+    assert.ok(!a.el(id).textContent.includes("التحول"), `${id} still names the old project`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Source chips
+// ---------------------------------------------------------------------------
+
+test("a document source reads as its Arabic type and page", async () => {
+  const a = await chatting({ "/messages": { status: 200, body: { ...REPLY, grounded: true,
+    citations: [{ source: "document", label: "Risk Register — page 14",
+                  doc_type: "Risk Register", filename: "risks.docx", page: 14 }] } } });
+  await a.ask("hi");
+  assert.ok(a.el("chatView").children.at(-1).textContent.includes("سجل المخاطر - ص 14"));
+});
+
+test("each source is listed once, however many passages came from it", async () => {
+  // Found live: five passages from page 1 of one risk register produced five
+  // identical chips. Distinct pages are still distinct sources.
+  const page = (n) => ({ source: "document", label: "x", doc_type: "Risk Register", page: n });
+  const a = await chatting({ "/messages": { status: 200, body: { ...REPLY, grounded: true,
+    citations: [page(1), page(1), page(1), page(2)] } } });
+  await a.ask("hi");
+  const shown = a.el("chatView").children.at(-1).textContent;
+  assert.equal(shown.split("سجل المخاطر - ص 1").length - 1, 1);
+  assert.equal(shown.split("سجل المخاطر - ص 2").length - 1, 1);
+});
+
+test("an unknown document type is shown as it arrives, never dropped", async () => {
+  // A label added to the pipeline must not make a source disappear.
+  const a = await chatting({ "/messages": { status: 200, body: { ...REPLY, grounded: true,
+    citations: [{ source: "document", label: "x", doc_type: "Board Paper", page: 2 }] } } });
+  await a.ask("hi");
+  assert.ok(a.el("chatView").children.at(-1).textContent.includes("Board Paper - ص 2"));
+});
+
+test("the SPM record shows its date, not the English provenance sentence", async () => {
+  const a = await chatting({ "/messages": { status: 200, body: { ...REPLY,
+    citations: [{ source: "project_record", label: "SPM project record (record updated 2026-08-04)",
+                  as_of: "record updated 2026-08-04" }] } } });
+  await a.ask("hi");
+  const shown = a.el("chatView").children.at(-1).textContent;
+  assert.ok(shown.includes("سجل المشروع في SPM"));
+  assert.ok(shown.includes("آخر تحديث"), "updated and created are different claims");
+  assert.ok(shown.includes("2026"));
+  assert.ok(!shown.includes("record updated"), "the English sentence must not leak");
+});
+
+test("'drawn from this project's documents' appears only when documents were used", async () => {
+  const onlyRecord = await chatting({ "/messages": { status: 200, body: { ...REPLY, grounded: true,
+    citations: [{ source: "project_record", label: "SPM", as_of: "record created 2026-08-01" }] } } });
+  await onlyRecord.ask("hi");
+  assert.ok(!onlyRecord.el("chatView").children.at(-1).textContent.includes(onlyRecord.t("grounded")),
+    "an answer from the SPM record alone was not drawn from documents");
+
+  const withDoc = await chatting({ "/messages": { status: 200, body: { ...REPLY, grounded: true,
+    citations: [{ source: "document", label: "c", doc_type: "Project Charter", page: 1 }] } } });
+  await withDoc.ask("hi");
+  assert.ok(withDoc.el("chatView").children.at(-1).textContent.includes(withDoc.t("grounded")));
+});
+
+// ---------------------------------------------------------------------------
+// Knowledge base
+// ---------------------------------------------------------------------------
+
+function kb(documents) {
+  const a = load();
+  a.set("CURRENT", PROJECT);
+  a.set("KB_DATA", { project_code: "PRJ-06", documents, indexed: 0, total: documents.length });
+  return a;
+}
+
+const DOCS = [
+  { filename: "charter.docx", doc_type: "Project Charter", indexing_status: "indexed" },
+  { filename: "risks.docx", doc_type: "Risk Register", indexing_status: "indexed" },
+  { filename: "budget.xlsx", doc_type: "Budget/Financial Report", indexing_status: "failed" },
+  { filename: "minutes.pdf", doc_type: "Meeting Minutes", indexing_status: "pending" },
+  { filename: "handover.docx", doc_type: "Handover Document", indexing_status: "indexed" },
+  { filename: "lessons.docx", doc_type: "Lessons Learned", indexing_status: "indexed" },
+  { filename: "<img src=x onerror=alert(1)>.pdf", doc_type: "Weekly Status Report", indexing_status: "indexed" },
+];
+
+const find = (node, predicate) => {
+  if (predicate(node)) return node;
+  for (const child of node.children || []) { const hit = find(child, predicate); if (hit) return hit; }
+  return null;
+};
+const rowsOf = (a) => find(a.el("kbView"), (n) => n.tagName === "TBODY").children;
+
+test("the filters count every state, and anything unfinished is 'processing'", () => {
+  const a = kb(DOCS);
+  a.renderKb();
+  const filters = find(a.el("kbView"), (n) => n.className === "filters").children.map((b) => b.textContent);
+  assert.deepEqual(filters, ["الكل 7", "مفهرسة 5", "قيد المعالجة 1", "فشلت 1"]);
+});
+
+test("the table pages five at a time and says where it is", () => {
+  const a = kb(DOCS);
+  a.renderKb();
+  assert.equal(rowsOf(a).length, 5);
+  assert.ok(a.el("kbView").textContent.includes("عرض 1 إلى 5 من 7"));
+  a.set("KB_PAGE", 1);
+  a.renderKb();
+  assert.equal(rowsOf(a).length, 2);
+  assert.ok(a.el("kbView").textContent.includes("عرض 6 إلى 7 من 7"));
+});
+
+test("search matches a file name or the Arabic type the user can see", () => {
+  const a = kb(DOCS);
+  a.set("KB_QUERY", "سجل المخاطر");
+  a.renderKb();
+  assert.equal(rowsOf(a).length, 1);
+  assert.ok(rowsOf(a)[0].textContent.includes("risks.docx"));
+});
+
+test("a failed document shows its state, and no retry the app cannot perform", () => {
+  const a = kb(DOCS);
+  a.set("KB_FILTER", "failed");
+  a.renderKb();
+  assert.ok(rowsOf(a)[0].textContent.includes("فشلت"));
+  assert.ok(!a.el("kbView").textContent.includes("إعادة المحاولة"),
+    "the app's database role is read-only; a retry button would be a lie");
+});
+
+test("a file name is inserted as text", () => {
+  const a = kb(DOCS);
+  a.set("KB_PAGE", 1);
+  a.renderKb();
+  const cell = find(a.el("kbView"), (n) => n.className === "docname" && n.textContent.includes("<img"));
+  assert.ok(cell, "shown verbatim…");
+  assert.equal(cell.innerHTML, "", "…and never parsed");
+});
+
+test("an empty search says so rather than showing an empty table", () => {
+  const a = kb(DOCS);
+  a.set("KB_QUERY", "nothing matches this");
+  a.renderKb();
+  assert.ok(a.el("kbView").textContent.includes(a.t("kbnone")));
+  assert.ok(a.el("kbView").textContent.includes("عرض 0 إلى 0 من 0"));
+});
+
+// ---------------------------------------------------------------------------
+// Recently used projects
+// ---------------------------------------------------------------------------
+
+test("recent projects are most-recent first, unique, and capped at three", () => {
+  const a = load({ storage: memoryStorage() });
+  for (const code of ["PRJ-01", "PRJ-02", "PRJ-03", "PRJ-01", "PRJ-04"]) a.rememberProject(code);
+  assert.deepEqual([...a.recentProjects()], ["PRJ-04", "PRJ-01", "PRJ-03"]);
+});
+
+test("corrupt stored data is ignored, not trusted", () => {
+  const a = load({ storage: memoryStorage({ seed: { "enjaz.recentProjects": '{"not":"a list"}' } }) });
+  assert.deepEqual([...a.recentProjects()], []);
+  const b = load({ storage: memoryStorage({ seed: { "enjaz.recentProjects": "not json" } }) });
+  assert.deepEqual([...b.recentProjects()], []);
+});
+
+test("blocked storage never breaks the page", () => {
+  const a = load({ storage: memoryStorage({ broken: true }) });
+  assert.deepEqual([...a.recentProjects()], []);
+  a.rememberProject("PRJ-01");   // must not throw
+});
+
+test("a remembered project the user is no longer assigned is not opened", async () => {
+  // Browser memory only orders the list. What may be opened is the server's.
+  const storage = memoryStorage({ seed: { "enjaz.recentProjects": '["PRJ-99","PRJ-02"]' } });
+  const s = stub({
+    "/api/projects": { status: 200, body: [PROJECT, { code: "PRJ-02", name_ar: "خدماتي",
+                                                      name_en: "Khadamati", display_name: "" }] },
+    "/api/conversations": { status: 200, body: OPENED },
+    "/api/auth/me": { status: 403, body: {} },
+  });
+  const a = load({ fetch: s.fetch, storage });
+  a.set("ME", { full_name_ar: "نورة", full_name_en: "Noura" });
+  await a.get("enterApp")();
+  assert.equal(a.get("CURRENT").code, "PRJ-02", "PRJ-99 was remembered but is not assigned");
 });
 
 // ---------------------------------------------------------------------------

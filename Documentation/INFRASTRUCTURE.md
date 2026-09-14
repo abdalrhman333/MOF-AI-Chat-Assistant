@@ -273,7 +273,7 @@ a blank value.
 | Postgres (SPM) | `localhost:5432` | SPM data — `projects`, `users`, `project_assignments`, `document_links` (see §8) | `POSTGRES_SPM_USER` / `POSTGRES_SPM_PASSWORD`, db `POSTGRES_SPM_DB` |
 | Qdrant | http://localhost:6333/dashboard | Vector DB, one collection per project | `QDRANT_API_KEY` |
 | Redis | `localhost:6379` | Celery broker + result backend for the ingestion worker, and the store behind the cross-process stage locks | `REDIS_PASSWORD` |
-| **الوكيل الذكي / Smart Agent Platform** | **http://localhost:8000** | **The application itself** — sign-in, dashboard, project switcher, assistant chat, knowledge base. `/docs` for the OpenAPI UI. Not a container: `python -m Application.backend.api` | **Demo sign-in:** any seeded address (e.g. `noura.alharbi@enjaz.gov.sa`) with password `Enjaz@2026` |
+| **الوكيل الذكي / Smart Agent Platform** | **http://localhost:8000** | **The application itself** — sign-in, project picker, assistant chat, knowledge base, styled to the MOF design (DIN Next LT Arabic, #005459). `/docs` for the OpenAPI UI. Not a container: `python -m Application.backend.api` | **Demo sign-in:** any seeded address (e.g. `noura.alharbi@enjaz.gov.sa`) with password `Enjaz@2026` |
 
 ⚠️ **That password is a demo credential for four fictional users in a mock
 dataset, not a secret in the sense of `infra/.env`.** It is written here

@@ -1,6 +1,6 @@
 # Status & Roadmap — MOF Enjaz Chatbot
 
-**Last verified:** 2026-09-07
+**Last verified:** 2026-09-14
 
 ---
 
@@ -507,7 +507,7 @@ What it walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**620 Python tests, ~20s**, across 23 files — the largest being
+**629 Python tests, ~30s**, across 23 files — the largest being
 `test_answering.py` 53, `test_conversation.py` 46, `test_session_gate.py`
 42, `test_ocr.py` 40, `test_retrieval_eval.py` 39, `test_observability.py`
 39, `test_scanner.py` 38, `test_auth.py` 38, `test_continuity.py` 33.
@@ -515,7 +515,7 @@ What it walks into, flagged in advance:
 correcting three times when it was inferred instead.)*
 
 That one command covers the **frontend** too: `test_frontend.py` shells out
-to `node --test` for the 25 JavaScript tests in `tests/frontend/`. They
+to `node --test` for the 40 JavaScript tests in `tests/frontend/`. They
 stay JavaScript because the thing under test is — testing the real page
 script through a Python approximation would be testing the approximation —
 and they **skip rather than fail** where node is absent, since nothing else
@@ -773,6 +773,85 @@ What is real, and belongs to the chat backend: Arabic scores ~0.40 against
 English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
 That is **ranking**, not retrieval — the answer is in the results every
 time.
+
+---
+
+## 24. The MOF redesign, content in every trace, and a Docker that kept dying (2026-09-14)
+
+**Tests: 629 Python, plus 40 JavaScript.**
+
+### 24a. The UI now follows the MOF design screens
+
+Rebuilt to the three design screens the user supplied (chat, knowledge base,
+project picker): DIN Next LT Arabic, the ministry teal `#005459`, the brand
+logo, the sidebar with the project card and agents, source chips under each
+answer, a paginated knowledge-base table, and a picker with search and
+"recently used".
+
+Every element with no data behind it was put to the user as a decision
+rather than faked, and the answers were:
+
+| Design shows | Built as | Why |
+|---|---|---|
+| Counts on the other agents; a notification dot | No numbers, agents marked "قريباً", bell without a dot | Nothing produces those numbers. "What are these 4 risks?" has no answer in a demo |
+| Follow-up chips tailored to the last answer | Three fixed starters | Real follow-ups change the system prompt and need the router eval re-run — its own step |
+| "إعادة المحاولة" on a failed document | Status only | The app's database role is read-only by design, and a retry re-runs paid OCR |
+| "المستخدمة مؤخرًا" | Remembered in the browser | Orders the list only; what may be opened is still the server's decision on every request |
+| No sign-in or landing screen | Sign-in restyled; no dashboard | Sign-in lands straight in the chat, as the screens imply |
+
+⚠️ **The font is licensed, so it is not in git.** `Application/frontend/
+assets/fonts/` is gitignored apart from a README naming the three files. A
+fresh clone serves 404 for them and falls back to a system font, which is
+why the static mount uses `check_dir=False` rather than refusing to start.
+Windows has no MIME entry for `.ttf`, so fonts went out as `text/plain`
+until the type was declared explicitly.
+
+Two real defects surfaced only in the browser, not in the tests:
+
+- **A bilingual welcome put the English full stop at the start of its line**
+  (".each time"), because one direction was applied to both paragraphs.
+  `unicode-bidi: plaintext` lets each paragraph find its own.
+- **Five passages from page 1 of one risk register produced five identical
+  source chips.** The reader needs each source once; chips that read the
+  same are now shown once, with a test.
+
+The API gained `as_of` on citations so the SPM chip can show its date in
+the reader's language instead of the English "record updated …" sentence.
+All ten mutations of the new logic were caught.
+
+### 24b. Every traced step now carries its input and output
+
+Only the model call had recorded content, so in Langfuse the trace itself,
+`retrieval.search`, `retrieval.embed` and `spm.fetch` all read `null` —
+including the step you look at first when an answer is wrong. They now
+record the question and answer, the passages found with their scores, and
+the project record, through one helper that takes `capture_content` as a
+required argument. Verified in Langfuse on a live question.
+
+⚠️ **Correction on the record: Grafana receives the same content.** It was
+described as holding only timings. It never was — the one instrumentation
+exports identical attributes to both backends, and the model prompt with its
+passages had been reaching Tempo all along. With `LANGFUSE_CAPTURE_CONTENT`
+on, anyone who can sign in to *either* tool can read every project's
+passages. Stripping content from the Grafana exporter was proposed and not
+yet decided.
+
+### 24c. Docker
+
+- **A Docker Desktop update reset its disk location to C:**, presenting an
+  empty engine — 0 images, 0 containers — while the real 43 GB disk sat
+  untouched on D:. Restored by editing `settings-store.json` with Docker
+  quit. ⚠️ Never through the Settings GUI, which *moves* the current (empty)
+  disk to the new location and would overwrite the real one.
+- **Force-quitting Docker left Unix-socket files** in
+  `%LOCALAPPDATA%\Docker\run` that crashed the next start, and left the
+  vhdx attached to Windows so WSL could not mount it. Use `docker desktop
+  stop` / `start`.
+- **The VM restarted itself every few minutes on 4 GB.** Containers showed
+  "Up" while Postgres, Qdrant and Grafana were unreachable from Windows —
+  the symptom was `server closed the connection unexpectedly`, not a crash
+  report. The stack uses ~2.9 GB a minute after start. Raised to 8 GB in
+  `.wslconfig`; stable since.
 
 ---
 

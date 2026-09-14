@@ -21,11 +21,11 @@ Run the whole thing, and check it:
 
 ```bash
 .venv/Scripts/python -m Application.backend.api     # then open http://localhost:8000
-.venv/Scripts/python -m pytest tests/ -q            # expect 620 passed
+.venv/Scripts/python -m pytest tests/ -q            # expect 629 passed
 ```
 
 That single `pytest` covers the frontend too: `tests/test_frontend.py`
-shells out to `node --test` for the 25 JavaScript tests in
+shells out to `node --test` for the 40 JavaScript tests in
 `tests/frontend/`, and **skips rather than fails** where node is absent.
 Sign in with any seeded address (e.g. `noura.alharbi@enjaz.gov.sa`) and
 the demo password from `INFRASTRUCTURE.md` §276.

@@ -56,6 +56,10 @@ class CitationOut(BaseModel):
     doc_type: str = ""
     page: int | None = None
     section: str = ""
+    # The SPM record's provenance, e.g. "record updated 2026-08-04". §3.3
+    # asks for each source WITH its date; the label carries it too, but
+    # only in English, so the UI needs the fact rather than the sentence.
+    as_of: str = ""
 
 
 class TimingsOut(BaseModel):

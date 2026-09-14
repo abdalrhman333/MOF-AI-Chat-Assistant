@@ -75,7 +75,8 @@ export class El {
 
 /** Load the page's script into a fresh context. `fetch` is supplied by the
  *  test, so every network answer in these tests is one the test chose. */
-export function load({ fetch = async () => ({ ok: true, status: 200, json: async () => ({}) }) } = {}) {
+export function load({ fetch = async () => ({ ok: true, status: 200, json: async () => ({}) }),
+                       storage = undefined } = {}) {
   const html = source();
   const script = html.slice(html.lastIndexOf("<script>") + 8,
                            html.lastIndexOf("</script>"));
@@ -94,19 +95,36 @@ export function load({ fetch = async () => ({ ok: true, status: 200, json: async
     },
     createElement: (tag) => new El(tag),
     querySelectorAll: () => [],
+    addEventListener() {}, removeEventListener() {},
     body: new El("body"),
   };
 
+  // `localStorage` is only present when a test supplies one, so the page's
+  // "storage unavailable" path — private windows, blocked site data — is
+  // what every other test exercises.
   const ctx = vm.createContext({
-    document, fetch, console,
+    document, fetch, console, ...(storage ? { localStorage: storage } : {}),
     confirm: () => true, alert: () => {},
     setTimeout, clearTimeout, encodeURIComponent, JSON, Promise, Error, Math, Date,
   });
   vm.runInContext(`${script}\n;globalThis.__ = { t, api, ask, bubble, ` +
-    `renderChips, endSession, toLogin, renderTopbar, refreshDocCount, ` +
-    `startConversation, showView, applyLanguage, ` +
+    `renderChips, endSession, toLogin, renderTopbar, renderKb, openPicker, ` +
+    `switchProject, recentProjects, rememberProject, startConversation, ` +
+    `showView, applyLanguage, ` +
     `set: (k, v) => { eval(k + " = v"); }, get: (k) => eval(k) };`, ctx);
   return { ...ctx.__, document, el: (id) => document.getElementById(id) };
+}
+
+/** A minimal Web Storage, or one that refuses every call. */
+export function memoryStorage({ broken = false, seed = {} } = {}) {
+  const data = new Map(Object.entries(seed));
+  const guard = () => { if (broken) throw new Error("storage blocked"); };
+  return {
+    getItem: (k) => { guard(); return data.has(k) ? data.get(k) : null; },
+    setItem: (k, v) => { guard(); data.set(k, String(v)); },
+    removeItem: (k) => { guard(); data.delete(k); },
+    data,
+  };
 }
 
 /** A fetch that answers with a fixed status/body, and records what it saw. */

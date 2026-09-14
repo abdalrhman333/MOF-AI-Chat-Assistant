@@ -26,12 +26,14 @@ Run it:
 from __future__ import annotations
 
 import logging
+import mimetypes
 import pathlib
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 import observability
 from Application.backend import clients, db
@@ -108,7 +110,8 @@ if SETTINGS.api.cors_origins:
 # Paths that would drown the trace view without saying anything: a liveness
 # probe and the static UI. Excluded by prefix, not by exact match, so the
 # docs assets go too.
-UNTRACED = ("/health", "/docs", "/redoc", "/openapi.json", "/favicon.ico")
+UNTRACED = ("/health", "/docs", "/redoc", "/openapi.json", "/favicon.ico",
+            "/assets/")
 
 
 @app.middleware("http")
@@ -210,6 +213,7 @@ def _reply_out(reply: Reply) -> schemas.ReplyOut:
             schemas.CitationOut(
                 source=c.source, label=c.label, filename=c.filename,
                 doc_type=c.doc_type, page=c.page, section=c.section,
+                as_of=c.as_of,
             ) for c in reply.citations
         ],
         timings=schemas.TimingsOut(**reply.timings.as_dict()),
@@ -230,6 +234,19 @@ def _conversation_or_denied(token: str, who: identity_module.Identity):
 
 FRONTEND = (pathlib.Path(__file__).resolve().parents[2] / "frontend"
             / "index.html")
+ASSETS = FRONTEND.parent / "assets"
+
+# The logo and the brand font. Static and public — nothing here depends on
+# who is signed in, and StaticFiles refuses any path outside the directory.
+# ⚠️ The font files are licensed (DIN Next LT Arabic) and gitignored, so a
+# fresh clone serves 404 for them and the page falls back to a system font
+# rather than failing. `check_dir=False` is what lets it start without them.
+# StaticFiles guesses types from the OS registry, and Windows has no entry
+# for .ttf, so fonts were served as text/plain. Declared, not guessed.
+mimetypes.add_type("font/ttf", ".ttf")
+mimetypes.add_type("image/svg+xml", ".svg")
+app.mount("/assets", StaticFiles(directory=ASSETS, check_dir=False),
+          name="assets")
 
 
 @app.get("/", include_in_schema=False)

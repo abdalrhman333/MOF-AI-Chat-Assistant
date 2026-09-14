@@ -32,3 +32,8 @@ htmlcov/
 .idea/
 Thumbs.db
 desktop.ini
+
+# Licensed brand font (DIN Next LT Arabic, Monotype) — kept out of source
+# control. The page falls back to a system font without it; see the README.
+Application/frontend/assets/fonts/*
+!Application/frontend/assets/fonts/README.md
