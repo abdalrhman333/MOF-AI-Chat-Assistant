@@ -339,8 +339,9 @@ username. Missing means sign-in refuses.
 
 ⚠️ **A conversation id is a handle, not a credential.** Every lookup is
 owner-checked; without that, a leaked id bypasses AC09 entirely, because
-the gate validated the *owner's* assignment. The store is in memory and
-per-process, so run the API single-process until it moves to Redis.
+the gate validated the *owner's* assignment. Conversations are kept in
+Redis, so they survive a restart and a second worker, and every read
+re-runs the gate — a stored project code is a claim, not a permission.
 
 Holding a real conversation end to end, today. **Use `open_conversation`**
 — it applies AC01 and AC02 before spending anything, carries history for

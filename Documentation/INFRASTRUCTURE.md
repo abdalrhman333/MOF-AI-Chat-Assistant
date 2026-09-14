@@ -548,12 +548,12 @@ written* to *one gate that can be reviewed and tested once*.
 
 ---
 
-## 8. SPM database schema (as of migrations 001–014)
+## 8. SPM database schema (as of migrations 001–017)
 
 | Table | Purpose | Key columns |
 |---|---|---|
-| `projects` | Project entity data | `code` (PK), `name_ar`/`name_en`, `status`, `start_date`, `planned_end_date`, `budget_sar`, `sponsoring_department_ar`/`_en` |
-| `users` | Mock AD accounts | `username` (PK), `full_name_ar`/`_en`, `email` |
+| `projects` | Project entity data | `code` (PK), `name_ar`/`name_en`, `status` (`on-track`/`at-risk`/`delayed`/`completed`; its Arabic form is supplied to the model from `Application/backend/spm.py`), `start_date`, `planned_end_date`, `budget_sar`, `sponsoring_department_ar`/`_en`. **016** — the ten-field overview: `owner_ar`/`_en`, `manager_ar`/`_en`, `completion_percent`, `phase_ar`/`_en`, `stage_ar`/`_en`. **017** — `updated_at`, maintained by a trigger and backfilled to `created_at`, so the record's date is honest |
+| `users` | Mock AD accounts | `username` (PK), `full_name_ar`/`_en`, `email`. **015** — `password_hash` (PBKDF2) for the demo sign-in. The assistant addresses users by the first word of each name, titles skipped and "Abd" compounds kept whole |
 | `project_assignments` | **The access-control boundary** — a project with no row here is invisible to every user, by construction, not application logic (BRD AC09) | `username`, `project_code` (composite PK, both FKs) |
 | `document_links` | Structured project↔document relationship (AC11), source for the knowledge-base page's type + indexing-status columns (AC10) | `project_code` (FK), `filename`, `file_path`, `doc_type` (**free text, not an enum** — real documents don't fit a closed category set), `language`, `contains_table`, `indexing_status` (`pending`/`indexing`/`indexed`/`failed`). Pipeline diagnostics: `error_message` (why it failed; cleared on later success), `indexed_at` (last successful index — lets AC10 show "indexed 3 days ago", not just "indexed"), `chunk_count` (sanity check — a 20-page doc yielding 1 chunk means the chunker broke). Change detection: `file_hash` (SHA-256; `NULL` = never scanned, treated as new) + `file_size_bytes` (cheap `stat`-based pre-check before hashing) — lets the scanner tell new/unchanged/modified apart so unchanged files are skipped free and edited ones are re-indexed |
 | `document_content` | OCR output cache, 1:1 with `document_links`. Exists so a chunking-strategy change never forces a re-OCR (which costs money per page). **The presence of a row here is the "OCR done" marker** — deliberately avoids a separate `ocr_status` column, so a failed embed/index step never re-pays for OCR | `document_link_id` (PK + FK, cascade), `markdown` (feeds chunking), `raw_response` (JSONB — full DI response, keeps structured tables/geometry that markdown drops), `page_count`, `ocr_model`, `ocr_api_version`, `extracted_at` |

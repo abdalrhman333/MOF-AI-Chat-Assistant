@@ -1,6 +1,6 @@
 # Solution Architecture — MOF Enjaz Chatbot
 
-**Last verified:** 2026-08-12
+**Last verified:** 2026-09-14
 
 This document describes **what the solution must do** (derived from the
 BRD) and **how we decided to build it** — the retrieval architecture, the
@@ -57,13 +57,24 @@ project-ID metadata filter. See §4.2 for why.
 
 ### 3.2 Session flow
 
+The flow the BRD specifies, and the flow the demo actually runs:
+
 ```
-AD login (SSO + OTP)
+AD login (SSO + OTP)                    DEMO: email + password against the users
+                                        seeded in SPM, then a signed session cookie
   → system fetches the user's project list from SPM
-  → user must select exactly one project
-  → session is locked to that project for its duration
-  → user converses (multi-turn, no restart needed — BRD AC03)
+  → user must select exactly one project      a required choice after every
+                                              sign-in — nothing pre-selected,
+                                              no way to dismiss it
+  → session is locked to that project        project name held in the top bar
+  → bilingual welcome (AC04)                 first name only; states what the
+                                              assistant answers and its limits
+  → user converses (multi-turn — AC03)
+  → a page refresh RESUMES the project, the conversation and the screen;
+    switching is done only from the project selector; sign-out forgets it
 ```
+
+Real SSO/OTP replaces the sign-in step and nothing below it — see §4.12.
 
 ### 3.3 Three-way answer composition per query
 
@@ -709,12 +720,96 @@ Langfuse *what the model saw*. The code does not yet enforce that split:
 stripping content attributes from the Grafana exporter alone would make it
 true, and is an open decision (`STATUS_AND_ROADMAP.md` §3).
 
+**What each step records.** Every step of a turn records its input and
+output when content capture is on: the question and answer on the turn
+itself (trace level, so the trace list reads as questions rather than
+`null`), the passages retrieval found with their scores, the embedding's
+question, the project record, and the full prompt. All of it passes through
+one helper that takes `capture_content` as a required argument, so a new
+step cannot record content while ignoring the switch.
+
 **AC08 is a percentile claim.** "Does not exceed 5 seconds under normal
 conditions" is about the tail, so `evaluation/latency_bench.py` reports
 p50/p95/max and judges on p95 — a mean hides the turns that break it, and
 a max would fail a run on one slow upstream response. Measured, the LLM
 call is ~80% of a turn; retrieval and SPM together are under 400 ms. The
 remaining lever on latency is therefore the model, not our code.
+
+### 4.14 Every component is a container, the app included (2026-09-14)
+
+The chat application ran on the Windows host, started by hand, until it
+stopped with the session that had started it while every container kept
+running — the one component outside Docker was the one that failed. It is
+now the `chat-api` service in the same Compose file, with
+`restart: unless-stopped` and a `/health` healthcheck.
+
+- **One Dockerfile, two targets on a shared base.** `pipeline` and `app`
+  install the same dependencies once, but each copies only its own code, so
+  rebuilding the app does not recreate the pipeline containers. Every
+  service names its target — one that does not silently builds the *last*
+  stage.
+- **Bound to `127.0.0.1`.** The demo sign-in shares one documented password;
+  publishing the port on every interface would open it to the network.
+- **Dependencies by service name, not localhost.** `.env` holds localhost
+  values for host runs; inside a container localhost is the container.
+- **No startup dependency on tracing.** Tracing fails open (§4.13); waiting
+  on Langfuse or Grafana to start would let a tracing outage stop the app.
+- **Secrets never enter an image**, and neither image runs as root.
+
+⚠️ **Containers run the code in their image, not the repository.** A code
+change does nothing until the image is rebuilt — the classify stage, added
+2026-09-07, was skipped by every scheduled run until 2026-09-14. The stack
+also needs **8 GB** for its VM: on 4 GB it restarted itself every few
+minutes while containers still reported "Up" (`INFRASTRUCTURE.md` §4.4d).
+
+These decisions are pinned by `tests/test_deployment.py`, which reads the
+real Compose file and Dockerfile.
+
+### 4.15 The interface renders decisions; it never makes them
+
+The UI follows the MOF design screens (DIN Next LT Arabic, `#005459`, the
+ministry logo) in one static file with no build step. The principles that
+survived the redesign matter more than its look:
+
+- **Identity is the server's.** No request carries a username; a signed,
+  HttpOnly cookie does.
+- **Server text is text.** Every answer, citation and file name is inserted
+  as text, never markup, and a test checks that `innerHTML` only ever
+  receives a constant. Icons are CSS masks so no markup is built at runtime.
+- **Nothing on screen is invented.** The design shows counts on unbuilt
+  agents and a notification dot; with no data behind them they are omitted,
+  and the agents are marked "قريباً". A failed document shows its status but
+  no retry, because the app's database role is read-only.
+- **Browser memory orders; the server decides.** "Recently used" projects
+  and the resumed selection after a refresh live in the browser, tied to the
+  signed-in username. They decide what is listed first and where the page
+  resumes — never what may be opened, which the server authorises on every
+  request.
+- **Sources are named, once each, without noise.** Chips are built from the
+  citation's own fields, deduplicated, and the SPM record's date is not
+  printed beside its chip.
+
+The model-facing wording follows the same honesty rule. The welcome states
+only limits the system enforces, with the mapping written beside the text;
+the overview is one paragraph; and the Arabic status is **supplied in the
+record** rather than translated by the model — asked to translate, it wrote
+"at-risk" as "on track".
+
+### 4.16 The pipeline's health is judged by its runs (2026-09-14)
+
+`pipeline.status` once judged the schedule by the newest indexed document,
+so an unchanged corpus, processed correctly every day, warned that nothing
+had been indexed for weeks. Each full-corpus run now records its outcome in
+Redis — last attempt and last success, kept apart — and the check reports an
+**error** when the latest run failed and a **warning** when nothing has
+succeeded for 26 hours. The knowledge-base page shows the same fact as
+"آخر مزامنة للبيانات".
+
+A run fired while services are still starting — which beat does on purpose
+when it missed a tick while Docker was off — retries a stage that cannot
+*connect*, at 10, 20 and 40 seconds. Connection failures only, identified
+by SQLSTATE: a cancelled query or a deadlock is an `OperationalError` too,
+and must not be retried as though the server were away.
 
 ---
 
