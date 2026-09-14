@@ -102,6 +102,9 @@ class TurnOut(BaseModel):
 class TranscriptOut(BaseModel):
     conversation_id: str
     project_code: str
+    # The greeting the conversation opened with, so a page refresh can show
+    # the exchange exactly as it was rather than without its first message.
+    welcome: str = ""
     turns: list[TurnOut]
 
 

@@ -282,6 +282,16 @@ def test_the_transcript_accumulates_across_turns(client):
                                                       "second question"]
 
 
+def test_the_transcript_carries_the_welcome_so_a_refresh_can_restore_it(client):
+    """A page refresh rebuilds the chat from this. Without the welcome the
+    restored exchange would open mid-conversation, missing its first message
+    — including the assistant's statement of its own limits."""
+    opened = client.post("/api/conversations", json={"project_code": "PRJ-06"}).json()
+    body = client.get(f"/api/conversations/{opened['conversation_id']}").json()
+    assert body["welcome"] == opened["welcome"]
+    assert body["welcome"].strip()
+
+
 def test_an_over_long_question_is_truncated_not_rejected(client, monkeypatch):
     seen = []
     monkeypatch.setattr(

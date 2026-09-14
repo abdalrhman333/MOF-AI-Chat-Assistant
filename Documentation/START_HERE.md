@@ -21,7 +21,7 @@ Run the whole thing, and check it:
 
 ```bash
 cd infra && docker compose up -d                    # everything, the app included → http://localhost:8000
-.venv/Scripts/python -m pytest tests/ -q            # expect 699 passed
+.venv/Scripts/python -m pytest tests/ -q            # expect 700 passed
 ```
 
 The app is the `mof-chat-api` container. After changing its code, rebuild it
@@ -30,7 +30,7 @@ with `docker compose up -d --build chat-api`; its log is
 **off**, so after a reboot open Docker Desktop first.
 
 That single `pytest` covers the frontend too: `tests/test_frontend.py`
-shells out to `node --test` for the 53 JavaScript tests in
+shells out to `node --test` for the 64 JavaScript tests in
 `tests/frontend/`, and **skips rather than fails** where node is absent.
 Sign in with any seeded address (e.g. `noura.alharbi@enjaz.gov.sa`) and
 the demo password from `INFRASTRUCTURE.md` §276.
@@ -47,7 +47,10 @@ do not exist here.
 
 **After signing in, the project list comes first**, and it cannot be
 dismissed: nothing opens until the user picks a project and locks the
-session to it with "تقييد الجلسة بالمشروع". Nothing is pre-selected —
+session to it with "تقييد الجلسة بالمشروع". **Only a sign-in asks.** A page
+refresh resumes the same project, the conversation under way and the screen
+the user was on; switching is done from the project selector; signing out
+forgets the selection. Nothing is pre-selected —
 "recently used" projects are listed first, but choosing is always explicit.
 The locked project's name then stays in the **top bar** on every screen.
 The assistant addresses the user by **first name only** ("أهلاً بك يا نورة" /

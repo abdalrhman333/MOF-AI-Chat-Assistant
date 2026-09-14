@@ -579,6 +579,124 @@ test("before a choice, the header asks for one rather than claiming there are no
 });
 
 // ---------------------------------------------------------------------------
+// A refresh resumes; only a sign-in asks
+// ---------------------------------------------------------------------------
+
+const NOURA = { username: "noura.alharbi", full_name_ar: "نورة", full_name_en: "Noura" };
+const TRANSCRIPT = {
+  conversation_id: "c-old", project_code: "PRJ-02", welcome: "أهلاً بك يا نورة",
+  turns: [{ question: "ما الميزانية؟", reply: { ...REPLY, text: "28,750,000 ريال" } }],
+};
+
+function savedAs(entry) {
+  return memoryStorage({ seed: { "enjaz.session": JSON.stringify(entry) } });
+}
+
+async function boot({ fresh, storage, transcript = { status: 200, body: TRANSCRIPT },
+                      projects = [PROJECT, PRJ02], me = NOURA }) {
+  const s = stub({
+    "/api/projects": { status: 200, body: projects },
+    "/api/conversations/c-old": transcript,
+    "/api/conversations": { status: 200, body: OPENED },
+    "/documents": { status: 200, body: { project_code: "PRJ-02", documents: [], indexed: 0, total: 0 } },
+    "/api/auth/me": { status: 403, body: {} },
+  });
+  const a = load({ fetch: s.fetch, storage });
+  a.calls = s.calls;
+  a.set("ME", me);
+  await a.get("enterApp")({ fresh });
+  await new Promise((r) => setTimeout(r, 0));
+  return a;
+}
+
+const SAVED = { user: "noura.alharbi", project: "PRJ-02", conversation: "c-old", view: "chat" };
+
+test("a refresh resumes the chosen project without asking again", async () => {
+  // Requested: the picker belongs to signing in, not to every page load.
+  const a = await boot({ fresh: false, storage: savedAs(SAVED) });
+  assert.ok(!picker(a), "a refresh must not ask for the project again");
+  assert.equal(a.get("CURRENT").code, "PRJ-02");
+  assert.equal(a.el("barTitle").textContent.includes("PRJ-02"), true);
+});
+
+test("a refresh brings back the conversation as it was, instead of starting over", async () => {
+  const a = await boot({ fresh: false, storage: savedAs(SAVED) });
+  const shown = a.el("chatView").textContent;
+  assert.ok(shown.includes("أهلاً بك يا نورة"), "the welcome is restored");
+  assert.ok(shown.includes("ما الميزانية؟") && shown.includes("28,750,000"), "and every turn");
+  assert.equal(a.get("CONV"), "c-old");
+  assert.equal(a.calls.filter((c) => c.path === "/api/conversations").length, 0,
+    "no new conversation is opened over the old one");
+});
+
+test("a sign-in always asks, even with a selection saved", async () => {
+  const a = await boot({ fresh: true, storage: savedAs(SAVED) });
+  assert.ok(picker(a), "signing in is when the session gets locked, on purpose");
+  assert.equal(a.get("CURRENT"), null);
+});
+
+test("another user's saved selection is never resumed", async () => {
+  // A shared machine: Fahad signs in where Noura was working.
+  const fahad = { username: "fahad.alqahtani", full_name_ar: "فهد", full_name_en: "Fahad" };
+  const a = await boot({ fresh: false, storage: savedAs(SAVED), me: fahad });
+  assert.ok(picker(a));
+  assert.equal(a.get("CURRENT"), null);
+});
+
+test("a saved project no longer assigned is not resumed", async () => {
+  const a = await boot({ fresh: false, storage: savedAs({ ...SAVED, project: "PRJ-99" }) });
+  assert.ok(picker(a), "the server's project list decides, not browser memory");
+});
+
+test("an expired conversation resumes the project with a new conversation", async () => {
+  // Conversations idle out; the project choice still stands.
+  const a = await boot({ fresh: false, storage: savedAs(SAVED),
+                         transcript: { status: 404, body: {} } });
+  assert.ok(!picker(a));
+  assert.equal(a.get("CURRENT").code, "PRJ-02");
+  assert.equal(a.get("CONV"), "c1", "a fresh conversation replaced the expired one");
+  assert.equal(a.el("login").classList.contains("hidden"), true, "and nobody was signed out");
+});
+
+test("a transcript for a different project is never shown under this one", async () => {
+  const a = await boot({ fresh: false, storage: savedAs(SAVED),
+                         transcript: { status: 200, body: { ...TRANSCRIPT, project_code: "PRJ-06" } } });
+  assert.ok(!a.el("chatView").textContent.includes("28,750,000"));
+  assert.equal(a.get("CONV"), "c1");
+});
+
+test("a refresh returns to the screen the user was on", async () => {
+  const a = await boot({ fresh: false, storage: savedAs({ ...SAVED, view: "kb" }) });
+  assert.equal(a.el("kbView").classList.contains("hidden"), false);
+  assert.equal(a.el("chatPane").classList.contains("hidden"), true);
+});
+
+test("choosing and switching keep the saved selection current", async () => {
+  const storage = memoryStorage();
+  const a = await boot({ fresh: true, storage });
+  await pickRow(a, "PRJ-02").dispatch("click");
+  await confirmBtn(a).dispatch("click");
+  await new Promise((r) => setTimeout(r, 0));
+  const saved = JSON.parse(storage.data.get("enjaz.session"));
+  assert.deepEqual([saved.user, saved.project, saved.conversation], ["noura.alharbi", "PRJ-02", "c1"]);
+});
+
+test("signing out forgets the saved selection", async () => {
+  const storage = savedAs(SAVED);
+  const a = await boot({ fresh: false, storage });
+  a.toLogin();
+  assert.equal(storage.data.has("enjaz.session"), false);
+});
+
+test("corrupt or blocked storage falls back to asking, never to a broken page", async () => {
+  for (const storage of [memoryStorage({ seed: { "enjaz.session": "{not json" } }),
+                         memoryStorage({ broken: true }), undefined]) {
+    const a = await boot({ fresh: false, storage });
+    assert.ok(picker(a));
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Housekeeping
 // ---------------------------------------------------------------------------
 

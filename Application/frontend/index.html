@@ -495,6 +495,7 @@ const RTL = /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/;
 const KB_PAGE_SIZE = 5;
 const RECENT_KEY = "enjaz.recentProjects";
 const RECENT_MAX = 3;
+const SESSION_KEY = "enjaz.session";
 let UI = "ar", ME = null, PROJECTS = [], CURRENT = null, CONV = null, BUSY = false;
 let KB_FILTER = "all", KB_QUERY = "", KB_PAGE = 0, KB_DATA = null;
 
@@ -569,7 +570,7 @@ $("loginForm").addEventListener("submit", async (event) => {
     ME = await api("/api/auth/login", { method: "POST", body: JSON.stringify({
       email: $("email").value.trim(), password: $("password").value }) });
     $("password").value = "";
-    await enterApp();
+    await enterApp({ fresh: true });
   } catch (error) {
     // One message for a wrong password and an unknown address — the server
     // does not distinguish them, and neither should the screen.
@@ -584,6 +585,9 @@ $("logoutBtn").addEventListener("click", async () => {
 });
 
 function toLogin() {
+  // Signing out, or a session that ended, forgets the saved selection: the
+  // next sign-in on this browser — perhaps by someone else — chooses afresh.
+  clearSession();
   ME = null; CONV = null; CURRENT = null; PROJECTS = [];
   KB_DATA = null; KB_FILTER = "all"; KB_QUERY = ""; KB_PAGE = 0;
   $("chatView").innerHTML = "";
@@ -607,21 +611,92 @@ function renderWho() {
   $("avatar").textContent = (name || "?").trim()[0];
 }
 
-async function enterApp() {
+async function enterApp({ fresh = false } = {}) {
   $("login").classList.add("hidden");
   $("app").classList.remove("hidden");
   renderWho();
   PROJECTS = await api("/api/projects");
-  // Nothing opens until the user chooses. The session is locked to ONE
-  // project, and that is a choice the user makes on purpose each time they
-  // sign in — never one the page makes for them from what was used last.
-  // "Recently used" still lists those first, so the choice is one click.
   CURRENT = null; CONV = null;
   $("chatView").innerHTML = "";
   $("chips").classList.add("hidden");
   renderTopbar();
-  if (!PROJECTS.length) { bubble(t("noProjects"), "refusal"); return; }
+  if (!PROJECTS.length) { clearSession(); bubble(t("noProjects"), "refusal"); return; }
+  // A SIGN-IN always asks: the session is locked to one project, and that is
+  // a choice the user makes on purpose each time — never one the page makes
+  // from what was used last. A REFRESH is not a sign-in: the user already
+  // chose, so the page picks up where they were, and asks only if there is
+  // nothing valid to pick up. Switching is the project selector's job.
+  if (fresh) clearSession();
+  else if (await restoreSession()) return;
   openPicker({ required: true });
+}
+
+/* ---------------------------- surviving a refresh ---------------------------- */
+/* The project the session is locked to, the conversation under way, and the
+   screen, kept in this browser. It decides only where the page resumes: the
+   server still authorises the project and the conversation's owner on every
+   request, so a stale or tampered entry resumes nothing it should not. It is
+   tied to the signed-in username, so one user's selection never carries over
+   to another's session on a shared machine. */
+function readSession() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+    if (!saved || typeof saved !== "object" || !ME || !ME.username
+        || saved.user !== ME.username || typeof saved.project !== "string") return null;
+    return { project: saved.project,
+             conversation: typeof saved.conversation === "string" ? saved.conversation : null,
+             view: saved.view === "kb" ? "kb" : "chat" };
+  } catch (_) { return null; }
+}
+
+function saveSession() {
+  if (!ME || !ME.username || !CURRENT) return;
+  const view = $("kbView").classList.contains("hidden") ? "chat" : "kb";
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(
+      { user: ME.username, project: CURRENT.code, conversation: CONV, view }));
+  } catch (_) {}
+}
+
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch (_) {}
+}
+
+async function restoreSession() {
+  const saved = readSession();
+  // Still assigned? The project list is the server's answer to that.
+  const project = saved && PROJECTS.find((p) => p.code === saved.project);
+  if (!project) { clearSession(); return false; }
+  CURRENT = project;
+  renderTopbar();
+  if (saved.conversation) await restoreConversation(saved.conversation);
+  showView(saved.view);          // opens a new conversation only if none came back
+  return true;
+}
+
+async function restoreConversation(token) {
+  try {
+    const transcript = await api(`/api/conversations/${encodeURIComponent(token)}`);
+    // Never show one project's exchange under another project's name.
+    if (transcript.project_code !== CURRENT.code) return;
+    $("chatView").innerHTML = "";
+    CONV = transcript.conversation_id;
+    dayDivider();
+    if (transcript.welcome) bubble(transcript.welcome, "welcome");
+    for (const turn of transcript.turns) {
+      bubble(turn.question, "user");
+      const reply = turn.reply;
+      bubble(reply.text, STYLE[reply.outcome] || "assistant", {
+        citations: reply.citations, grounded: reply.grounded, lang: reply.reply_language,
+      });
+    }
+    if (!transcript.turns.length) renderChips();
+  } catch (_) {
+    // Expired, or no longer this user's: not an error worth showing. A new
+    // conversation on the same project opens in its place.
+    CONV = null;
+    $("chatView").innerHTML = "";
+  }
 }
 
 /* ---------------------------- project names ---------------------------- */
@@ -758,6 +833,7 @@ function openPicker({ required = false } = {}) {
 function switchProject(next) {
   CURRENT = next; CONV = null; KB_DATA = null; KB_PAGE = 0; KB_QUERY = ""; KB_FILTER = "all";
   rememberProject(next.code);
+  saveSession();
   $("chatView").innerHTML = "";
   renderTopbar();
   if (!$("chatPane").classList.contains("hidden")) startConversation();
@@ -777,6 +853,7 @@ function showView(name) {
   });
   if (name === "chat" && !CONV) startConversation();
   if (name === "kb") loadKb();
+  saveSession();
 }
 document.querySelectorAll("nav a").forEach((a) =>
   a.addEventListener("click", (e) => {
@@ -847,6 +924,7 @@ async function startConversation() {
     const opened = await api("/api/conversations", { method: "POST",
       body: JSON.stringify({ project_code: CURRENT.code, ui_language: UI }) });
     CONV = opened.conversation_id;
+    saveSession();
     dayDivider();
     // AC04 — shown before anything is typed, so it is bilingual: with no
     // message there is no language to reply in.
@@ -1047,7 +1125,7 @@ document.querySelectorAll(".langtoggle button").forEach((b) =>
   applyLanguage();
   try {
     ME = await api("/api/auth/me");
-    await enterApp();
+    await enterApp({ fresh: false });      // a refresh with a live session
   } catch (_) {
     // Not signed in — the sign-in screen is already the visible one.
   }

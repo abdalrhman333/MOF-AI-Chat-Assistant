@@ -428,6 +428,7 @@ def transcript(token: str, who: identity_module.Identity = Depends(caller)):
     return schemas.TranscriptOut(
         conversation_id=token,
         project_code=conversation.project_code,
+        welcome=conversation.welcome,
         turns=[
             schemas.TurnOut(question=t.question, reply=_reply_out(t.reply))
             for t in conversation.turns

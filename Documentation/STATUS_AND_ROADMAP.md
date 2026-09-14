@@ -518,7 +518,7 @@ What it walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**699 Python tests, ~30s**, across 25 files — the largest being
+**700 Python tests, ~30s**, across 25 files — the largest being
 `test_answering.py` 53, `test_conversation.py` 46, `test_session_gate.py`
 42, `test_ocr.py` 40, `test_retrieval_eval.py` 39, `test_observability.py`
 39, `test_scanner.py` 38, `test_auth.py` 38, `test_continuity.py` 33.
@@ -526,7 +526,7 @@ What it walks into, flagged in advance:
 correcting three times when it was inferred instead.)*
 
 That one command covers the **frontend** too: `test_frontend.py` shells out
-to `node --test` for the 53 JavaScript tests in `tests/frontend/`. They
+to `node --test` for the 64 JavaScript tests in `tests/frontend/`. They
 stay JavaScript because the thing under test is — testing the real page
 script through a Python approximation would be testing the approximation —
 and they **skip rather than fail** where node is absent, since nothing else
@@ -789,7 +789,7 @@ time.
 
 ## 24. The MOF redesign, content in every trace, and a Docker that kept dying (2026-09-14)
 
-**Tests: 699 Python, plus 53 JavaScript.**
+**Tests: 700 Python, plus 64 JavaScript.**
 
 ### 24a. The UI now follows the MOF design screens
 
@@ -1044,6 +1044,34 @@ Two things found along the way:
 - At 1200 px the filter pills wrapped ("فشلت 0" alone on a second line) and
   the card came apart from the search box. The pills no longer wrap, and the
   card and search box are one group; checked at 1536, 1280 and 1100 px.
+
+### 24i. A refresh resumes; only a sign-in asks
+
+§24f made the project list the first thing after sign-in — but the page ran
+the same code on a refresh as on a sign-in, so **every refresh asked for the
+project again** and threw the open conversation away. The two are now told
+apart:
+
+- **Sign-in** clears any saved selection and asks, as before.
+- **Refresh** resumes the project, the conversation — rebuilt from the
+  transcript, which now also returns the welcome — and the screen (chat or
+  knowledge base). It asks only when there is nothing valid to resume.
+- **Switching** stays with the project selector, which can be dismissed.
+- **Sign-out**, or a session that ended, forgets the selection.
+
+The selection is kept in the browser and decides only *where the page
+resumes*. It is tied to the signed-in username, so one user's choice never
+carries into another's session on a shared machine; a saved project is
+resumed only if the server still lists it as assigned; a restored transcript
+is shown only if it belongs to that project; and the server still
+authorises the conversation's owner on every read. An expired conversation
+resumes the project with a new conversation and signs nobody out; corrupt
+or blocked storage falls back to asking.
+
+Verified live end to end — sign in (asked), choose and chat, refresh
+(resumed, three messages restored), switch from the selector, refresh
+(stayed on the new project), sign out (selection cleared), sign in (asked
+again). Nine mutations, the original bug among them, are all caught.
 
 ---
 
