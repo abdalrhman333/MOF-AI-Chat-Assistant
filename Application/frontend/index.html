@@ -75,6 +75,7 @@
   .i-bulb { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.7.6 1.1 1.4 1.1 2.2h5c0-.8.4-1.6 1.1-2.2A6 6 0 0 0 12 3z'/></svg>"); }
   .i-book { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z'/><path d='M4 19V5M9 8h6'/></svg>"); }
   .i-chat { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-7l-5 4v-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z'/><path d='M8 9h8M8 12.5h5'/></svg>"); }
+  .i-clipboard { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M9 4h6v3H9z'/><path d='M15 5.5h2A1.5 1.5 0 0 1 18.5 7v12A1.5 1.5 0 0 1 17 20.5H7A1.5 1.5 0 0 1 5.5 19V7A1.5 1.5 0 0 1 7 5.5h2'/><path d='M9 13.5l2 2 4-4'/></svg>"); }
   .i-bell { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M6 16v-5a6 6 0 1 1 12 0v5l2 2H4z'/><path d='M10 21a2 2 0 0 0 4 0'/></svg>"); }
   .i-search { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'><circle cx='11' cy='11' r='7'/><path d='M20 20l-3.5-3.5'/></svg>"); }
   .i-file { --i: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z'/><path d='M14 3v5h5'/></svg>"); }
@@ -349,11 +350,14 @@
         <span class="ic i-target" aria-hidden="true"></span>
         <span class="grow" data-t="riskradar"></span><span class="soonpill" data-t="soon"></span></a>
       <a href="#" class="agent soon" aria-disabled="true">
-        <span class="ic i-bulb" aria-hidden="true"></span>
+        <span class="ic i-book" aria-hidden="true"></span>
         <span class="grow" data-t="lessons"></span><span class="soonpill" data-t="soon"></span></a>
       <a href="#" class="agent soon" aria-disabled="true">
-        <span class="ic i-book" aria-hidden="true"></span>
+        <span class="ic i-bulb" aria-hidden="true"></span>
         <span class="grow" data-t="lessonsassistant"></span><span class="soonpill" data-t="soon"></span></a>
+      <a href="#" class="agent soon" aria-disabled="true">
+        <span class="ic i-clipboard" aria-hidden="true"></span>
+        <span class="grow" data-t="qualityassistant"></span><span class="soonpill" data-t="soon"></span></a>
       <a href="#" class="agent active" data-view="chat" id="navAssistant">
         <span class="ic i-chat" aria-hidden="true"></span>
         <span class="grow" data-t="assistant"></span></a>
@@ -416,6 +420,7 @@ const T = {
     ssonote:"في بيئة الإنتاج سيتم تسجيل الدخول عبر الدخول الموحد SSO وActive Directory. هذه نسخة تجريبية.",
     project:"المشروع", agents:"الوكلاء", soon:"قريباً",
     riskradar:"رادار المخاطر", lessons:"محرك الدروس", lessonsassistant:"المساعد الذكي للدروس المستفادة",
+    qualityassistant:"مساعد مراجعة الجودة الذكي",
     assistant:"المساعد الذكي", conversation:"المحادثة", knowledgebase:"قاعدة المعرفة",
     rolelabel:"مدير مشروع", signout:"تسجيل الخروج", notifications:"الإشعارات", send:"إرسال",
     placeholder:"اسأل عن هذا المشروع ...", today:"اليوم",
@@ -444,6 +449,7 @@ const T = {
     ssonote:"In production, sign-in goes through SSO and Active Directory. This is a demo build.",
     project:"Project", agents:"Agents", soon:"Soon",
     riskradar:"Risk Radar", lessons:"Lessons Engine", lessonsassistant:"Lessons Learned Assistant",
+    qualityassistant:"Smart Quality Review Assistant",
     assistant:"Smart Assistant", conversation:"Conversation", knowledgebase:"Knowledge base",
     rolelabel:"Project manager", signout:"Sign out", notifications:"Notifications", send:"Send",
     placeholder:"Ask about this project ...", today:"Today",

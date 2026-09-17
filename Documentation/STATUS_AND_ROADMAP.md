@@ -526,7 +526,7 @@ What it walks into, flagged in advance:
 correcting three times when it was inferred instead.)*
 
 That one command covers the **frontend** too: `test_frontend.py` shells out
-to `node --test` for the 64 JavaScript tests in `tests/frontend/`. They
+to `node --test` for the 68 JavaScript tests in `tests/frontend/`. They
 stay JavaScript because the thing under test is — testing the real page
 script through a Python approximation would be testing the approximation —
 and they **skip rather than fail** where node is absent, since nothing else
@@ -789,7 +789,7 @@ time.
 
 ## 24. The MOF redesign, content in every trace, and a Docker that kept dying (2026-09-14)
 
-**Tests: 700 Python, plus 64 JavaScript.**
+**Tests: 700 Python, plus 68 JavaScript.**
 
 ### 24a. The UI now follows the MOF design screens
 
@@ -1072,6 +1072,42 @@ Verified live end to end — sign in (asked), choose and chat, refresh
 (resumed, three messages restored), switch from the selector, refresh
 (stayed on the new project), sign out (selection cleared), sign in (asked
 again). Nine mutations, the original bug among them, are all caught.
+
+### 24j. A fourth agent in the sidebar, and the icons the design actually shows (2026-09-17)
+
+From a design screen supplied on the day: **مساعد مراجعة الجودة الذكي**
+("Smart Quality Review Assistant") joins the agent list, immediately above
+المساعد الذكي, with a clipboard-and-check icon (`.i-clipboard`, a new CSS
+mask alongside the others). Like the other three it is marked **قريباً** and
+`aria-disabled` — nothing is behind it, and §24a's rule holds: a link that
+navigated nowhere would be a worse answer than one that says it is not ready.
+
+The same screen showed the two lessons agents wearing **each other's icons**:
+محرك الدروس had the lightbulb and المساعد الذكي للدروس المستفادة had the
+book. They are now the right way round — book for the engine, lightbulb for
+the assistant.
+
+⚠️ **The design screen also shows count badges (4, 2, 1) and these were
+again not built.** Nothing produces those numbers. §24a refused them once
+already for the same reason; a fabricated count on a ministry screen is a
+claim, not a decoration. A test now pins that refusal rather than leaving it
+to memory — no element in the nav may carry a bare number.
+
+Four tests were added (the suite is 68 JavaScript tests, from 64). The order
+and the icons are pinned **in one assertion on purpose**: an icon moved to the
+neighbouring agent still renders a perfectly plausible sidebar, so a test
+checking only the order — or only the set of icons in use — would have passed
+with exactly the bug this change fixes.
+
+All nine mutations are caught, among them the original icon swap, the agent
+dropped, the agent placed after المساعد الذكي instead of before, a misspelt
+icon class that would leave it silently blank, a missing `soon`, a
+fabricated badge, and each half of the new dictionary entry.
+
+Verified in the browser in both languages: all five agents render, the new
+mask resolves rather than falling back to a filled square, and the active
+assistant keeps its larger circular treatment while the other four stay
+muted.
 
 ---
 

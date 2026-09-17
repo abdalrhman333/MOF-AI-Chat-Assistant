@@ -220,6 +220,64 @@ test("the chips are translated, not raw keys", () => {
 });
 
 // ---------------------------------------------------------------------------
+// The agents in the sidebar — order and icon, pinned together
+// ---------------------------------------------------------------------------
+
+/* The design screen fixes both which agents are listed and which icon each
+ * one carries. They are pinned in one test on purpose: an icon moved to the
+ * neighbouring agent still renders a perfectly plausible sidebar, so a test
+ * that checked only the order — or only the set of icons used — would pass
+ * with the two lessons agents wearing each other's icon. */
+const AGENTS = [
+  ["riskradar", "i-target"],
+  ["lessons", "i-book"],
+  ["lessonsassistant", "i-bulb"],
+  ["qualityassistant", "i-clipboard"],
+  ["assistant", "i-chat"],
+];
+
+function navAgents() {
+  const nav = source().match(/<nav>([\s\S]*?)<\/nav>/)[1];
+  return [...nav.matchAll(
+    /<a\s[^>]*>\s*<span class="ic (i-[a-z]+)"[^>]*><\/span>\s*<span class="grow" data-t="([a-z]+)">/g)]
+    .map((m) => [m[2], m[1]]);
+}
+
+test("the agents are listed in the design's order, each with its own icon", () => {
+  assert.deepEqual(navAgents(), AGENTS);
+});
+
+test("every agent icon the sidebar names is actually defined", () => {
+  // A typo in an icon class is silent: the mask resolves to nothing and the
+  // agent simply has no icon, which reads as a design choice.
+  const src = source();
+  for (const [, icon] of AGENTS) {
+    assert.ok(src.includes(`.${icon} { --i: url(`), `${icon} has no definition`);
+  }
+});
+
+test("only the smart assistant is reachable; the rest say 'soon'", () => {
+  // Nothing behind the other four. A link that navigated nowhere would be a
+  // worse answer than one that says it is not ready.
+  const nav = source().match(/<nav>([\s\S]*?)<\/nav>/)[1];
+  const links = [...nav.matchAll(/<a\s([^>]*)>/g)].map((m) => m[1]);
+  const agents = links.filter((l) => l.includes("agent"));
+  assert.equal(agents.length, AGENTS.length);
+  assert.equal(agents.filter((l) => l.includes("soon")).length, AGENTS.length - 1);
+  for (const l of agents.filter((l) => l.includes("soon"))) {
+    assert.match(l, /aria-disabled="true"/);
+  }
+});
+
+test("no agent carries a count, because nothing produces one", () => {
+  // The design screens show badges (4, 2, 1). No number behind them exists,
+  // and a fabricated one on a ministry screen is a claim, not a decoration.
+  const nav = source().match(/<nav>([\s\S]*?)<\/nav>/)[1];
+  assert.ok(!/\bcount|badge\b/.test(nav), "a count appeared in the sidebar");
+  assert.ok(!/>\s*\d+\s*</.test(nav), "a bare number appeared in the sidebar");
+});
+
+// ---------------------------------------------------------------------------
 // The project header — both names, as the design writes them
 // ---------------------------------------------------------------------------
 
