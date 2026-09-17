@@ -273,6 +273,31 @@ def test_the_welcome_addresses_the_user_by_first_name_only(client):
         assert surname not in welcome, f"the welcome still uses the full name: {surname}"
 
 
+def test_the_account_payload_carries_the_short_name_beside_the_full_one(client):
+    """The top bar shows "نورة الحربي"; the full name stays available. Both
+    travel, because shortening is the server's job — one implementation of
+    the rules, not one per language of the stack."""
+    from Application.backend.api import credentials, schemas
+
+    account = credentials.Account(
+        username=OWNER, email="noura.alharbi@enjaz.gov.sa",
+        full_name_ar="نورة بنت عبدالعزيز الحربي",
+        full_name_en="Noura Abdulaziz Al-Harbi")
+    short_ar, short_en = account.short_names
+    out = schemas.AccountOut(username=account.username, email=account.email,
+                             full_name_ar=account.full_name_ar,
+                             full_name_en=account.full_name_en,
+                             short_name_ar=short_ar, short_name_en=short_en)
+
+    assert out.short_name_ar == "نورة الحربي"
+    assert out.short_name_en == "Noura Al-Harbi"
+    assert out.full_name_ar == "نورة بنت عبدالعزيز الحربي", "the record survives"
+    # The patronymic is what the top bar drops; it must not survive in the
+    # field the page actually renders.
+    assert "عبدالعزيز" not in out.short_name_ar
+    assert "Abdulaziz" not in out.short_name_en
+
+
 def test_the_transcript_accumulates_across_turns(client):
     token = open_chat(client)
     for text in ("first question", "second question"):

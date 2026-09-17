@@ -21,7 +21,7 @@ Run the whole thing, and check it:
 
 ```bash
 cd infra && docker compose up -d                    # everything, the app included → http://localhost:8000
-.venv/Scripts/python -m pytest tests/ -q            # expect 700 passed
+.venv/Scripts/python -m pytest tests/ -q            # expect 723 passed
 ```
 
 The app is the `mof-chat-api` container. After changing its code, rebuild it
@@ -30,7 +30,7 @@ with `docker compose up -d --build chat-api`; its log is
 **off**, so after a reboot open Docker Desktop first.
 
 That single `pytest` covers the frontend too: `tests/test_frontend.py`
-shells out to `node --test` for the 68 JavaScript tests in
+shells out to `node --test` for the 79 JavaScript tests in
 `tests/frontend/`, and **skips rather than fails** where node is absent.
 Sign in with any seeded address (e.g. `noura.alharbi@enjaz.gov.sa`) and
 the demo password from `INFRASTRUCTURE.md` §276.
@@ -52,7 +52,10 @@ refresh resumes the same project, the conversation under way and the screen
 the user was on; switching is done from the project selector; signing out
 forgets the selection. Nothing is pre-selected —
 "recently used" projects are listed first, but choosing is always explicit.
-The locked project's name then stays in the **top bar** on every screen.
+The locked project's name then stays in the **top bar** on every screen,
+beside the signed-in user's **first and family name** ("نورة الحربي" — the
+full formal name stays on the account, as the avatar's label). **Sign-out
+lives in a menu behind the avatar**, not as a bare icon in the bar.
 The assistant addresses the user by **first name only** ("أهلاً بك يا نورة" /
 "Welcome, Noura"), and its welcome states what it is for and where it stops
 — this project only, only from its sources, no data changes, no guessing,

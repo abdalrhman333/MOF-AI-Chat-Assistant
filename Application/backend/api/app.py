@@ -306,9 +306,11 @@ def login(body: schemas.LoginIn, response: Response):
         path="/",
     )
     log.info("signed in user=%s", found.username)
+    short_ar, short_en = found.short_names
     return schemas.AccountOut(username=found.username, email=found.email,
                               full_name_ar=found.full_name_ar,
-                              full_name_en=found.full_name_en)
+                              full_name_en=found.full_name_en,
+                              short_name_ar=short_ar, short_name_en=short_en)
 
 
 @app.post("/api/auth/logout", status_code=204, tags=["auth"])
@@ -321,9 +323,11 @@ def logout(response: Response):
 @app.get("/api/auth/me", response_model=schemas.AccountOut, tags=["auth"])
 def me(found: credentials.Account = Depends(account)):
     """Who is signed in — what the UI calls on load to decide the screen."""
+    short_ar, short_en = found.short_names
     return schemas.AccountOut(username=found.username, email=found.email,
                               full_name_ar=found.full_name_ar,
-                              full_name_en=found.full_name_en)
+                              full_name_en=found.full_name_en,
+                              short_name_ar=short_ar, short_name_en=short_en)
 
 
 @app.get("/health", response_model=schemas.HealthOut, tags=["ops"])

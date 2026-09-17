@@ -518,7 +518,7 @@ What it walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**700 Python tests, ~30s**, across 25 files — the largest being
+**723 Python tests, ~30s**, across 25 files — the largest being
 `test_answering.py` 53, `test_conversation.py` 46, `test_session_gate.py`
 42, `test_ocr.py` 40, `test_retrieval_eval.py` 39, `test_observability.py`
 39, `test_scanner.py` 38, `test_auth.py` 38, `test_continuity.py` 33.
@@ -526,7 +526,7 @@ What it walks into, flagged in advance:
 correcting three times when it was inferred instead.)*
 
 That one command covers the **frontend** too: `test_frontend.py` shells out
-to `node --test` for the 68 JavaScript tests in `tests/frontend/`. They
+to `node --test` for the 79 JavaScript tests in `tests/frontend/`. They
 stay JavaScript because the thing under test is — testing the real page
 script through a Python approximation would be testing the approximation —
 and they **skip rather than fail** where node is absent, since nothing else
@@ -789,7 +789,7 @@ time.
 
 ## 24. The MOF redesign, content in every trace, and a Docker that kept dying (2026-09-14)
 
-**Tests: 700 Python, plus 68 JavaScript.**
+**Tests: 723 Python, plus 79 JavaScript.**
 
 ### 24a. The UI now follows the MOF design screens
 
@@ -1108,6 +1108,49 @@ Verified in the browser in both languages: all five agents render, the new
 mask resolves rather than falling back to a filled square, and the active
 assistant keeps its larger circular treatment while the other four stay
 muted.
+
+### 24k. The name in the top bar, and sign-out behind the avatar (2026-09-17)
+
+The top bar carried the whole formal name — "نورة بنت عبدالعزيز الحربي" — in a
+40px-tall strip, and sign-out sat beside it as a bare icon.
+
+**The name is now first-and-family: "نورة الحربي".** The shortening is the
+**server's** job (`credentials.short_name`, returned as `short_name_ar` /
+`short_name_en` on the account payload), for the same reason `first_names`
+is: the rules are subtle enough that a second implementation in JavaScript
+would drift from the Python one. The full name is still sent, still the
+formal record, and is now the avatar's tooltip and accessible label.
+
+⚠️ **The family name is the LAST word, never the second.** Saudi names run
+given → father → grandfather → family, and how many links sit in the middle
+varies per person; counting them is the one rule guaranteed to break. Two
+further cases would produce a *wrong* name rather than a short one, and both
+have tests: an "Abd" compound at the end must keep its prefix ("محمد عبد الله",
+or the family name reads "الله"), and a name with nothing after the first must
+not be doubled ("عبد الله", never "عبد الله الله").
+
+**Sign-out moved into a menu behind the avatar**, and the standalone icon is
+gone. The menu closes on outside click, on Escape, and on the way out of any
+session — an expiry can arrive with it open, and it must not be left hanging
+over the sign-in screen or waiting for the next person on a shared machine.
+
+**One defect, found only in the browser.** The menu was anchored at its
+*start* edge, so in Arabic it grew outward past the left edge of the window
+and raised a horizontal scrollbar. `inset-inline-end` makes it grow inward in
+both directions. No unit test sees layout, so the declaration is pinned and
+the rendering was checked by eye — the same division as §24a's bidi fix.
+
+⚠️ **Two of the new tests were themselves wrong, and mutation found both.**
+One missed "title + single name" (`م. فهد`), the exact input that exposes a
+family name chosen by position rather than from the title-stripped words.
+The other never opened the menu it claimed to test: **the DOM shim seeds no
+classes from the markup**, so a fresh `#userMenu` has no `hidden` on it and
+the first toggle *closes* it. That is §24g's trap in a new place — the shim
+builds elements from ids, not from the HTML — and it is now written down
+beside the helper that works around it. `El.getAttribute` was added to the
+shim for the same reason, returning only what the script set.
+
+All fourteen mutations are caught. 723 Python tests, 79 JavaScript.
 
 ---
 

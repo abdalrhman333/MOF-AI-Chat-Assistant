@@ -313,3 +313,65 @@ def test_the_account_offers_first_names_in_both_languages_separately():
                                  credentials.first_name(found.full_name_en))
     assert found.names == (found.full_name_ar, found.full_name_en), \
         "the full names stay on the account for the screen"
+
+
+# ---------------------------------------------------------------------------
+# The name the top bar shows — first and family, without the chain between
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("full,short", [
+    # The four seeded accounts, which is the shape this has to get right.
+    ("نورة بنت عبدالعزيز الحربي", "نورة الحربي"),
+    ("عبدالله بن محمد الشهري", "عبدالله الشهري"),
+    ("فهد بن سعد القحطاني", "فهد القحطاني"),
+    ("ريم بنت ناصر الدوسري", "ريم الدوسري"),
+    ("Noura Abdulaziz Al-Harbi", "Noura Al-Harbi"),
+    ("Abdullah Mohammed Al-Shehri", "Abdullah Al-Shehri"),
+    # The family name is the LAST word, not the second: the chain between
+    # them is however long that person's chain happens to be.
+    ("سلطان بن خالد بن عبدالرحمن العتيبي", "سلطان العتيبي"),
+    # An "Abd" compound at the end keeps both words, or the family name
+    # reads "الله".
+    ("محمد عبد الله", "محمد عبد الله"),
+    # ...and at the start it is the first name, already whole.
+    ("عبد الله الشهري", "عبد الله الشهري"),
+    # A title is dropped here too.
+    ("م. سلطان العتيبي", "سلطان العتيبي"),
+    ("Dr Reem Al-Dosari", "Reem Al-Dosari"),
+    # Two words are already first-and-family.
+    ("فهد القحطاني", "فهد القحطاني"),
+])
+def test_the_short_name_is_first_and_family(full, short):
+    assert credentials.short_name(full) == short
+
+
+@pytest.mark.parametrize("full", [
+    "فهد", "Noura", "عبد الله", "Dr.", "",
+    # A title in front of a lone name is the case that catches a family name
+    # picked by position rather than from the title-stripped words: the title
+    # takes the first slot and the name itself gets read as the family name
+    # too — "م. فهد" -> "فهد فهد". Found by mutation.
+    "م. فهد", "Dr Reem", "أ.د عبد الله",
+])
+def test_a_name_with_no_family_name_is_not_doubled(full):
+    """"عبد الله" must not become "عبد الله الله", and a single name must not
+    be repeated to fill the space where a family name would go."""
+    result = credentials.short_name(full)
+    assert result == credentials.first_name(full)
+    words = result.split()
+    assert len(words) == len(set(words)) or len(words) < 2
+
+
+def test_the_account_offers_short_names_in_both_languages_separately():
+    conn = StubConn(account_row(make_hash(PASSWORD)))
+    found = credentials.authenticate("noura.alharbi@enjaz.gov.sa", PASSWORD,
+                                     connection=conn)
+    assert found.short_names == (credentials.short_name(found.full_name_ar),
+                                 credentials.short_name(found.full_name_en))
+
+
+def test_the_short_name_keeps_the_first_name_the_assistant_uses():
+    """The top bar and the greeting must not disagree about who this is."""
+    for full in ["نورة بنت عبدالعزيز الحربي", "م. سلطان العتيبي",
+                 "عبد الله بن محمد الشهري", "Abdul Rahman Al-Saud"]:
+        assert credentials.short_name(full).startswith(credentials.first_name(full))

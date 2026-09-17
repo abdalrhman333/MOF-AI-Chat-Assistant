@@ -23,11 +23,20 @@ class LoginIn(BaseModel):
 
 
 class AccountOut(BaseModel):
-    """Who is signed in. Never accepted as input, only ever returned."""
+    """Who is signed in. Never accepted as input, only ever returned.
+
+    Both the full name and the shortened one are returned: the top bar shows
+    the short form, and the full name stays available as the formal record.
+    Shortening happens here rather than in the page so that the rules for it
+    — titles, "Abd" compounds, the patronymic chain — have one implementation
+    and one set of tests, not one per language of the stack.
+    """
     username: str
     email: str
     full_name_ar: str
     full_name_en: str
+    short_name_ar: str
+    short_name_en: str
 
 
 class ProjectOut(BaseModel):

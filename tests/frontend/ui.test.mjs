@@ -220,6 +220,141 @@ test("the chips are translated, not raw keys", () => {
 });
 
 // ---------------------------------------------------------------------------
+// The signed-in user — a short name, and a menu behind the avatar
+// ---------------------------------------------------------------------------
+
+const ACCOUNT = {
+  full_name_ar: "نورة بنت عبدالعزيز الحربي", short_name_ar: "نورة الحربي",
+  full_name_en: "Noura Abdulaziz Al-Harbi", short_name_en: "Noura Al-Harbi",
+};
+
+function withAccount(account = ACCOUNT) {
+  const a = load();
+  a.set("ME", account);
+  a.renderWho();
+  return a;
+}
+
+test("the top bar shows first and family name, not the whole formal one", () => {
+  const a = withAccount();
+  assert.equal(a.el("whoName").textContent, "نورة الحربي");
+  a.set("UI", "en");
+  a.renderWho();
+  assert.equal(a.el("whoName").textContent, "Noura Al-Harbi");
+});
+
+test("the patronymic does not reach the screen", () => {
+  // The specific thing that was wrong: "نورة بنت عبدالعزيز الحربي" in a
+  // 40px-tall bar. Asserting the short name alone would still pass if the
+  // element were later fed the full one from somewhere else.
+  for (const ui of ["ar", "en"]) {
+    const a = withAccount();
+    a.set("UI", ui);
+    a.renderWho();
+    for (const part of ["بنت", "عبدالعزيز", "Abdulaziz"]) {
+      assert.ok(!a.el("whoName").textContent.includes(part), `${ui}: ${part}`);
+    }
+  }
+});
+
+test("the full name is kept as the avatar's label, not thrown away", () => {
+  const a = withAccount();
+  assert.equal(a.el("avatar").title, "نورة بنت عبدالعزيز الحربي");
+});
+
+test("the avatar's initial comes from the name being shown", () => {
+  // "نورة …" and "نورة الحربي" share a first letter, so that account cannot
+  // tell the two apart. A titled name can: the full name starts with the
+  // title, the displayed one with the person.
+  const a = withAccount({ full_name_ar: "م. سلطان العتيبي", short_name_ar: "سلطان العتيبي",
+                          full_name_en: "Eng. Sultan Al-Otaibi",
+                          short_name_en: "Sultan Al-Otaibi" });
+  assert.equal(a.el("avatar").textContent, "س", "the initial must not be the title's");
+  assert.equal(a.el("whoName").textContent, "سلطان العتيبي");
+});
+
+test("a server that sends no short name falls back to the full one", () => {
+  // Never a blank where a name goes: an older server, or a field that failed
+  // to serialise, must degrade to the formal name rather than to nothing.
+  const a = withAccount({ full_name_ar: "نورة بنت عبدالعزيز الحربي",
+                       full_name_en: "Noura Abdulaziz Al-Harbi" });
+  assert.equal(a.el("whoName").textContent, "نورة بنت عبدالعزيز الحربي");
+  assert.equal(a.el("avatar").textContent, "ن");
+});
+
+test("the account menu starts closed and the avatar says so", () => {
+  // Nothing at runtime closes it on load — the markup is what holds it shut,
+  // so the markup is what this has to read. The shim seeds neither classes
+  // nor attributes from the HTML, so a runtime assertion here would pass on
+  // markup that ships the menu hanging open.
+  const menu = source().match(/<div class="[^"]*" id="userMenu"[^>]*>/)[0];
+  assert.match(menu, /\bhidden\b/, "the menu must not start open: " + menu);
+  const avatar = source().match(/<button class="avatar"[^>]*>/s)[0];
+  assert.match(avatar, /aria-expanded="false"/, avatar);
+  assert.match(avatar, /aria-haspopup="menu"/, "it must announce that it opens a menu");
+});
+
+test("the menu is anchored to grow inward, not off the edge of the screen", () => {
+  // The user box sits at the far edge of the top bar. Anchored at its start
+  // the menu grew outward and hung off the left edge in Arabic, with a
+  // horizontal scrollbar to prove it. Nothing here renders, so this pins the
+  // declaration; the rendering was checked in the browser.
+  const css = source().match(/\.usermenu \{[^}]*\}/)[0];
+  assert.match(css, /inset-inline-end: 0/, css);
+  assert.ok(!/inset-inline-start/.test(css), "anchoring the start edge sends it off-screen");
+});
+
+test("clicking the avatar opens the menu, and clicking again closes it", () => {
+  const a = withAccount();
+  a.closeUserMenu();            // the markup's starting state, made explicit
+  assert.ok(a.el("userMenu").classList.contains("hidden"));
+  a.toggleUserMenu();
+  assert.ok(!a.el("userMenu").classList.contains("hidden"));
+  assert.equal(a.el("avatar").getAttribute("aria-expanded"), "true");
+  a.toggleUserMenu();
+  assert.ok(a.el("userMenu").classList.contains("hidden"));
+  assert.equal(a.el("avatar").getAttribute("aria-expanded"), "false");
+});
+
+test("signing out is reachable only from the menu, not from the top bar", () => {
+  // The standalone logout icon is gone. If it came back, a single stray
+  // click next to the language toggle would end the session.
+  const topbar = source().match(/<div class="topbar">([\s\S]*?)<\/div>\s*<!-- chat -->/)[1];
+  const outside = topbar.replace(/<div class="usermenu[\s\S]*?<\/div>\s*<\/div>/, "");
+  assert.ok(!/i-logout/.test(outside), "a logout control is back outside the menu");
+  assert.ok(/id="logoutBtn"[\s\S]*?role="menuitem"/.test(topbar),
+    "sign-out must be a menu item");
+});
+
+/* ⚠️ The shim seeds no classes from the markup, so a fresh #userMenu has no
+ * `hidden` on it and the FIRST toggle therefore closes it rather than opening
+ * it. Both tests below once passed with the behaviour they check deleted,
+ * because the menu they thought they had opened was shut the whole time.
+ * Found by mutation; open() is the fix, and it asserts that it worked. */
+function open(a) {
+  a.closeUserMenu();
+  a.toggleUserMenu();
+  assert.ok(!a.el("userMenu").classList.contains("hidden"), "precondition: menu open");
+  return a;
+}
+
+test("signing out closes the menu, so it is not left hanging over sign-in", () => {
+  const a = app({ "/api/auth/logout": { status: 204, body: {} } });
+  a.set("ME", ACCOUNT);
+  a.renderWho();
+  open(a);
+  a.toLogin();
+  assert.ok(a.el("userMenu").classList.contains("hidden"));
+  assert.equal(a.el("avatar").getAttribute("aria-expanded"), "false");
+});
+
+test("an expired session also puts the menu away", () => {
+  const a = open(withAccount());
+  a.endSession();
+  assert.ok(a.el("userMenu").classList.contains("hidden"));
+});
+
+// ---------------------------------------------------------------------------
 // The agents in the sidebar — order and icon, pinned together
 // ---------------------------------------------------------------------------
 

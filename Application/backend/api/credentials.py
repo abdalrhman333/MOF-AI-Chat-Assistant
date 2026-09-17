@@ -67,6 +67,17 @@ class Account:
         """
         return first_name(self.full_name_ar), first_name(self.full_name_en)
 
+    @property
+    def short_names(self) -> tuple[str, str]:
+        """(Arabic, English) first-and-family names — what the top bar shows.
+
+        "نورة الحربي", not "نورة بنت عبدالعزيز الحربي". The account screen
+        needs enough to identify a colleague among colleagues, which the
+        first name alone does not do and the patronymic chain overshoots.
+        The full name stays on the account record.
+        """
+        return short_name(self.full_name_ar), short_name(self.full_name_en)
+
 
 # Titles written before a name. Kept out of the first name: "Eng. Sultan"
 # is addressed as "Sultan", and "م." alone is not a name at all.
@@ -79,17 +90,58 @@ _TITLES = {"م", "د", "أ", "أ.د", "eng", "dr", "mr", "mrs", "ms", "prof"}
 _COMPOUND_PREFIXES = {"عبد", "abd", "abdul", "abdel", "abdal", "abdol"}
 
 
-def first_name(full_name: str) -> str:
-    """The name a person is addressed by: the first word, minus titles,
-    with "Abd"-compounds kept whole. The full name if nothing is left."""
+def _without_titles(full_name: str) -> list[str]:
+    """The name's words, with any leading titles dropped."""
     words = (full_name or "").split()
     while words and words[0].rstrip(".").lower() in _TITLES:
         words = words[1:]
+    return words
+
+
+def first_name(full_name: str) -> str:
+    """The name a person is addressed by: the first word, minus titles,
+    with "Abd"-compounds kept whole. The full name if nothing is left."""
+    words = _without_titles(full_name)
     if not words:
         return (full_name or "").strip()
     if len(words) > 1 and words[0].lower() in _COMPOUND_PREFIXES:
         return f"{words[0]} {words[1]}"
     return words[0]
+
+
+def short_name(full_name: str) -> str:
+    """First name and family name, dropping the patronymic chain between
+    them: "نورة بنت عبدالعزيز الحربي" -> "نورة الحربي".
+
+    The family name is the LAST word, not the second: Saudi names run
+    <given> <father> <grandfather> <family>, and how many links sit in the
+    middle varies from person to person. Taking the last word is the only
+    rule that does not depend on counting them.
+
+    Two cases would otherwise produce a wrong name rather than a short one:
+
+      * An "Abd" compound at the end — "محمد عبد الله" — must keep both
+        words, or the family name reads "الله".
+      * A name whose first and family name are the same word, or whose whole
+        name the first name already covers, must not be doubled: "عبد الله"
+        is "عبد الله", never "عبد الله الله".
+    """
+    words = _without_titles(full_name)
+    if not words:
+        return (full_name or "").strip()
+
+    first = first_name(full_name)
+    used = len(first.split())
+    rest = words[used:]
+    if not rest:
+        return first
+
+    # "… عبد الله" — the prefix belongs to the word after it.
+    if len(rest) > 1 and rest[-2].lower() in _COMPOUND_PREFIXES:
+        family = f"{rest[-2]} {rest[-1]}"
+    else:
+        family = rest[-1]
+    return f"{first} {family}"
 
 
 def verify_password(password: str, stored: str | None) -> bool:

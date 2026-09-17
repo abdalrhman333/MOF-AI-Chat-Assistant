@@ -167,8 +167,29 @@
   .topbar h2 { margin: 0; font-size: 19px; color: var(--brand); font-weight: 700; }
   .topbar .meta { font-size: 13px; color: var(--muted); }
   .userbox { display: flex; align-items: center; gap: 10px; }
+  .avatarwrap { position: relative; }
   .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--brand);
-            color: #fff; display: grid; place-items: center; font-weight: 700; }
+            color: #fff; display: grid; place-items: center; font-weight: 700;
+            border: 0; font: inherit; font-weight: 700; font-size: 15px; cursor: pointer; }
+  .avatar:hover { background: var(--brand-hover); }
+  .avatar:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  /* Anchored to the avatar rather than the whole user box, so it opens under
+     the thing that was clicked in both directions.
+     ⚠️ inset-inline-END, not start. The user box sits at the far edge of the
+     top bar, so a menu anchored at its start grows outward and off the
+     screen — in Arabic it hung past the left edge and produced a horizontal
+     scrollbar. Anchoring the end edge makes it grow inward in both
+     directions. Found in the browser; no unit test sees layout. */
+  .usermenu { position: absolute; top: calc(100% + 8px); inset-inline-end: 0;
+              min-width: 190px; padding: 6px; z-index: 40;
+              background: var(--panel); border: 1px solid var(--line);
+              border-radius: 12px; box-shadow: 0 10px 28px rgba(16,41,43,.16); }
+  .usermenu-item { display: flex; align-items: center; gap: 10px; width: 100%;
+                   border: 0; background: transparent; color: var(--ink);
+                   font: inherit; font-size: 14px; text-align: start;
+                   padding: 10px 12px; border-radius: 8px; cursor: pointer; }
+  .usermenu-item:hover { background: var(--grey-soft); }
+  .usermenu-item .ic { width: 18px; height: 18px; color: var(--muted); }
   .userbox b { display: block; font-size: 14.5px; line-height: 1.3; }
   .userbox span { font-size: 12.5px; color: var(--muted); }
   .iconbtn { border: 0; background: transparent; color: var(--muted); padding: 6px; border-radius: 8px; display: grid; }
@@ -384,10 +405,16 @@
       </div>
       <span class="vsep" aria-hidden="true"></span>
       <div class="userbox">
-        <div class="avatar" id="avatar">—</div>
+        <div class="avatarwrap">
+          <button class="avatar" type="button" id="avatar"
+                  aria-haspopup="menu" aria-expanded="false" aria-controls="userMenu">—</button>
+          <div class="usermenu hidden" id="userMenu" role="menu">
+            <button class="usermenu-item" type="button" id="logoutBtn" role="menuitem">
+              <span class="ic i-logout flip" aria-hidden="true"></span>
+              <span data-t="signout"></span></button>
+          </div>
+        </div>
         <div><b id="whoName"></b><span data-t="rolelabel"></span></div>
-        <button class="iconbtn" type="button" id="logoutBtn" data-t-title="signout">
-          <span class="ic i-logout flip" aria-hidden="true"></span></button>
       </div>
     </div>
 
@@ -585,7 +612,19 @@ $("loginForm").addEventListener("submit", async (event) => {
   } finally { btn.disabled = false; }
 });
 
+$("avatar").addEventListener("click", (event) => {
+  event.stopPropagation();   // or the document handler below closes it again
+  toggleUserMenu();
+});
+
+// Clicking anywhere else, or Escape, puts the menu away. Neither is reachable
+// from the DOM shim the tests use, so both are best-effort here and the menu's
+// own open/close is what the suite pins.
+document.addEventListener("click", closeUserMenu);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeUserMenu(); });
+
 $("logoutBtn").addEventListener("click", async () => {
+  closeUserMenu();
   await api("/api/auth/logout", { method: "POST" }).catch(() => {});
   toLogin();
 });
@@ -598,6 +637,9 @@ function toLogin() {
   KB_DATA = null; KB_FILTER = "all"; KB_QUERY = ""; KB_PAGE = 0;
   $("chatView").innerHTML = "";
   $("chips").classList.add("hidden");
+  // An expiry can arrive with the menu open; it must not be hanging there
+  // over the sign-in screen, or waiting when the next person signs in.
+  closeUserMenu();
   $("app").classList.add("hidden");
   $("login").classList.remove("hidden");
 }
@@ -612,9 +654,28 @@ function endSession() {
 }
 
 function renderWho() {
-  const name = UI === "ar" ? ME.full_name_ar : ME.full_name_en;
+  // First and family name only — "نورة الحربي". The server shortens it, so the
+  // rules for doing so (titles, "Abd" compounds, the patronymic chain) live in
+  // one place; the full name is still on ME for anywhere that wants it.
+  const full = UI === "ar" ? ME.full_name_ar : ME.full_name_en;
+  const name = (UI === "ar" ? ME.short_name_ar : ME.short_name_en) || full;
   $("whoName").textContent = name;
   $("avatar").textContent = (name || "?").trim()[0];
+  // The formal record is no longer on screen, so it becomes the button's
+  // label — more use to a screen reader than a generic "account".
+  $("avatar").title = full || "";
+  $("avatar").setAttribute("aria-label", full || "");
+}
+
+function closeUserMenu() {
+  $("userMenu").classList.add("hidden");
+  $("avatar").setAttribute("aria-expanded", "false");
+}
+
+function toggleUserMenu() {
+  const open = $("userMenu").classList.contains("hidden");
+  $("userMenu").classList.toggle("hidden", !open);
+  $("avatar").setAttribute("aria-expanded", open ? "true" : "false");
 }
 
 async function enterApp({ fresh = false } = {}) {

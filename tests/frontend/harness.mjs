@@ -63,6 +63,11 @@ export class El {
   remove() { this.removed = true;
     if (this.parent) this.parent.children = this.parent.children.filter((c) => c !== this); }
   setAttribute(k, v) { this[k] = v; }
+  // Attributes the markup carries are NOT seeded here — the shim builds
+  // elements from ids alone. So this reads back only what the script itself
+  // set, which is the point: a test about an attribute's starting value has
+  // to look at the markup, not at this.
+  getAttribute(k) { return this[k] === undefined ? null : this[k]; }
   focus() { this.focused += 1; }
   addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
   dispatch(type, event = {}) {
@@ -110,7 +115,7 @@ export function load({ fetch = async () => ({ ok: true, status: 200, json: async
   vm.runInContext(`${script}\n;globalThis.__ = { t, api, ask, bubble, ` +
     `renderChips, endSession, toLogin, renderTopbar, renderKb, openPicker, ` +
     `switchProject, recentProjects, rememberProject, startConversation, ` +
-    `showView, applyLanguage, ` +
+    `showView, applyLanguage, renderWho, toggleUserMenu, closeUserMenu, ` +
     `set: (k, v) => { eval(k + " = v"); }, get: (k) => eval(k) };`, ctx);
   return { ...ctx.__, document, el: (id) => document.getElementById(id) };
 }
