@@ -110,7 +110,7 @@ This is a **different use case** than a colleague's separate build
 | — | `Application/README.md` | **The chat application's layout and its trust boundary.** Read before touching anything user-facing: the gate trusts the identity it is handed, and that is a deliberate, documented deferral |
 | — | `SYSTEM_WORKFLOW.html` | **Visual walkthrough of what is built, in plain language.** Eight diagrams: the whole machine, the container map, the schema and the two database roles, all four pipeline stages, the scheduler and its locks, and the health check. Open it in a browser. Describes the current state only — no roadmap |
 | — | `Enjaz_Solution_Guide.docx` | **For non-technical readers / stakeholders.** Plain-language guide to the whole solution: what it does, how it works, why each choice was made, and how to rebuild it. Not needed for development work |
-| — | `AI_SOLUTION_PLAYBOOK.md` | **For colleagues starting a different AI use case.** Not a description of this chatbot — the reusable part: the stack and why each piece, the models and tuning values, isolation made structural, the method (verify live, measure before tuning, mutation testing, don't fake what you can't build), what it cost, and the pitfalls that cost time. Every figure measured on the running system |
+| — | `AI_SOLUTION_PLAYBOOK.md` | **A template for colleagues starting a different AI use case.** Generic, not about this project: which tools to use, how to structure the solution, the build order, starting settings, the rules to follow, and a release checklist |
 
 The original BRD-derived scope document also lives at
 `..\My_Prompts\SOLUTION_SCOPE.md` (verified directly against the source PDF —
