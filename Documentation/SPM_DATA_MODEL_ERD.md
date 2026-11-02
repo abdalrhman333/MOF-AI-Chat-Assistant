@@ -8,6 +8,12 @@
 | Built system | This repository: `infra/postgres-spm/migrations/001–017`, `pipeline/`, `Application/` |
 | Field count | **119 fields across 11 SPM entities** — 67 required (R), 52 optional (O) |
 
+> **A printable version of this model exists:**
+> [`UC3_Enterprise_Assistant_ERD.pdf`](UC3_Enterprise_Assistant_ERD.pdf) — two
+> A3 pages in the same house style as the UC2 diagram, regenerated with
+> `python Documentation/diagrams/uc3_erd.py`. This file carries the
+> column-by-column mapping; the PDF carries the picture.
+
 This is the **target** model: every SPM entity UC3 consumes, mapped onto the
 storage we actually run. Tables already built are marked ✅; tables the full
 UC3 feed requires but we have not built yet are marked 🔶.
