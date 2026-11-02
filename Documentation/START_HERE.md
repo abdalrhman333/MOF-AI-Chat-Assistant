@@ -111,6 +111,7 @@ This is a **different use case** than a colleague's separate build
 | — | `SYSTEM_WORKFLOW.html` | **Visual walkthrough of what is built, in plain language.** Eight diagrams: the whole machine, the container map, the schema and the two database roles, all four pipeline stages, the scheduler and its locks, and the health check. Open it in a browser. Describes the current state only — no roadmap |
 | — | `Enjaz_Solution_Guide.docx` | **For non-technical readers / stakeholders.** Plain-language guide to the whole solution: what it does, how it works, why each choice was made, and how to rebuild it. Not needed for development work |
 | — | `AI_SOLUTION_PLAYBOOK.md` | **A template for colleagues starting a different AI use case.** Generic, not about this project: which tools to use, how to structure the solution, the build order, starting settings, the rules to follow, and a release checklist |
+| — | `SPM_DATA_MODEL_ERD.md` | **The end-to-end data model against the official SPM schema** (`NCGR_AI_SPM_Input_Data_Schema v0.3`, sheet UC3). All 11 SPM entities and 119 fields with types, mapped column by column onto what we built — what exists, what must be added, and the four questions for the Enjaz team. Mermaid ERD, 14 entities |
 
 The original BRD-derived scope document also lives at
 `..\My_Prompts\SOLUTION_SCOPE.md` (verified directly against the source PDF —
