@@ -5,7 +5,7 @@ file first.** It tells you what this project is, which documents to read in
 what order, and how to verify the real state of the system before changing
 anything.
 
-**Last verified:** 2026-09-14 — infra, full SPM schema (17 migrations,
+**Last verified:** 2026-09-14 — infra, full SPM schema (20 migrations,
 row-level security enabled), complete mock corpus, and **the entire
 ingestion pipeline built and run over all 58 documents**: discovery → OCR →
 chunk → embed → index, ending in **678 vectors across 9 per-project Qdrant
@@ -21,7 +21,7 @@ Run the whole thing, and check it:
 
 ```bash
 cd infra && docker compose up -d                    # everything, the app included → http://localhost:8000
-.venv/Scripts/python -m pytest tests/ -q            # expect 723 passed
+.venv/Scripts/python -m pytest tests/ -q            # expect 745 passed
 ```
 
 The app is the `mof-chat-api` container. After changing its code, rebuild it
@@ -161,7 +161,7 @@ find "/d/MOF_DataSample" -maxdepth 1 -type d
 ```
 
 ```bash
-python infra/postgres-spm/apply_migrations.py --status   # read-only; expect 17 applied, 0 pending, 0 drifted
+python infra/postgres-spm/apply_migrations.py --status   # read-only; expect 20 applied, 0 pending, 0 drifted
 ```
 
 Stages 0 and 1 have run: every `document_links` row carries a real SHA-256
@@ -320,7 +320,7 @@ processes, and the one that faces users has the least access.
 |---|---|---|
 | `pipeline/` | **Builds** the knowledge base — `config.py` (all settings), `chunker.py`, `db.py`, `scanner.py` (Stage 0), `ocr.py` + `native_extract.py` (Stage 1), `indexer.py` (Stages 2+3), plus `locking.py`, `tasks.py`, `status.py` to run it unattended | `spm_admin` — needs every project |
 | `evaluation/` | **Judges** it — the tagged question set, scoring, recorded baseline, `latency_bench.py` for AC08 | read-only |
-| `Application/` | **Serves** it — `backend/api/` (FastAPI, sign-in, **the identity boundary**), `backend/answer.py` (**the system prompt — the whole router**), `backend/conversation.py` (the entry point), `backend/session.py` (the AC09 gate), `backend/db.py` (pool + scope), `backend/retrieval.py`, `backend/spm.py`, `backend/messages.py`, `backend/clients.py` (the AC08 client cache), `frontend/index.html` (the UI) | `spm_app` — SELECT-only, one project per transaction |
+| `Application/` | **Serves** it — `backend/api/` (FastAPI, sign-in, **the identity boundary**), `backend/answer.py` (**the system prompt — the whole router**), `backend/conversation.py` (the entry point), `backend/session.py` (the AC09 gate), `backend/db.py` (pool + scope), `backend/retrieval.py`, `backend/spm.py`, **`backend/registers.py`** (the four registers — risks, issues, change requests, deliverables — read as rows, never embedded), `backend/messages.py`, `backend/clients.py` (the AC08 client cache), `frontend/index.html` (the UI) | `spm_app` — SELECT-only, one project per transaction |
 | `observability/` | **Watches** them — one OpenTelemetry instrumentation, exported to Grafana *and* Langfuse. Belongs to none of the three, which is why it is its own package | none |
 
 **The pipeline runs as a containerised Celery worker** —

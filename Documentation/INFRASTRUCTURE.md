@@ -548,7 +548,7 @@ written* to *one gate that can be reviewed and tested once*.
 
 ---
 
-## 8. SPM database schema (as of migrations 001–017)
+## 8. SPM database schema (as of migrations 001–020)
 
 | Table | Purpose | Key columns |
 |---|---|---|

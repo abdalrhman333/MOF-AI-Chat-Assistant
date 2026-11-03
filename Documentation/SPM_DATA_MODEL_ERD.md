@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Schema spec | `NCGR_AI_SPM_Input_Data_Schema_per_UseCase_v0.3`, sheet **UC3 Enterprise Assistant** — المساعد الرقمي للمؤسسة (لكل مشروع) |
-| Built system | This repository: `infra/postgres-spm/migrations/001–017`, `pipeline/`, `Application/` |
+| Built system | This repository: `infra/postgres-spm/migrations/001–020`, `pipeline/`, `Application/` |
 | Field count | **119 fields across 11 SPM entities** — 67 required (R), 52 optional (O) |
 
 > **A printable version of this model exists:**
@@ -561,9 +561,14 @@ Vector: **1536 dimensions**, cosine, `text-embedding-3-S`.
 `document_content` · per-project Qdrant collections · Row-Level Security ·
 the access gate.
 
-### To add 🔶 — 8 new tables
-`phases` · `milestones` · `deliverables` · `risks` · `issues` ·
-`change_requests` · `change_events` · `ref_lookups`
+### Built since 2026-11-03 ✅
+`risks` · `issues` · `change_requests` · `deliverables` — migrations 018
+(tables), 019 (row-level security) and 020 (seed). See
+`STATUS_AND_ROADMAP.md` §25. The risk rows are extracted from the Risk
+Register documents, so the register and the document cannot disagree.
+
+### To add 🔶 — 4 new tables
+`phases` · `milestones` · `change_events` · `ref_lookups`
 
 Each needs the same treatment as `document_links`:
 `ENABLE ROW LEVEL SECURITY`, a `project_scope` policy on `project_code`, and

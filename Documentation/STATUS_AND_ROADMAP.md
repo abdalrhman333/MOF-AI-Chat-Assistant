@@ -518,7 +518,7 @@ What it walks into, flagged in advance:
 .venv/Scripts/python -m pytest tests/ -q      # Windows
 ```
 
-**723 Python tests, ~30s**, across 25 files — the largest being
+**745 Python tests, ~30s**, across 25 files — the largest being
 `test_answering.py` 53, `test_conversation.py` 46, `test_session_gate.py`
 42, `test_ocr.py` 40, `test_retrieval_eval.py` 39, `test_observability.py`
 39, `test_scanner.py` 38, `test_auth.py` 38, `test_continuity.py` 33.
@@ -784,6 +784,101 @@ What is real, and belongs to the chat backend: Arabic scores ~0.40 against
 English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
 That is **ranking**, not retrieval — the answer is in the results every
 time.
+
+---
+
+## 25. The four registers — BRD v1.1 §5.3.6's missing inputs (2026-11-03)
+
+**Tests: 745 Python, plus 79 JavaScript.** Router eval re-run after the
+prompt change: **PASS, language 0.966, intent 0.966.**
+
+The UC3 sheet of the SPM input data schema quotes **BRD v1.1 (14/09/2026)**,
+which is newer than the scope this build was written against. §5.3.6 names
+four inputs we did not have: the risk register, the issues register, change
+requests and deliverables. They existed only as *prose* — the corpus holds
+Risk Register documents, so "what does the risk register say" was
+answerable and "which risks are still open" was not. A sentence has no
+`status` to filter on.
+
+Migrations **018** (tables), **019** (row-level security) and **020**
+(seed). `Application/backend/registers.py` reads them through the session
+and renders them as a labelled prompt block beside the project record.
+
+⚠️ **Registers are rows and they stay rows.** They are fetched with SQL,
+never chunked and embedded. Embedding a register row destroys the field
+structure that makes it answerable — "level عالٍ, owner فيصل العتيبي,
+status نشط" retrieved as a similarity match is strictly worse than the row
+read whole. Retrieval is for documents; SQL is for registers.
+
+⚠️ **RLS is granted per table, and 019 exists because of it.** A table
+created without a policy is readable across every project and nothing
+warns. `test_rls.py` already asked the catalog rather than a hard-coded
+list, so it covered tables that did not exist when it was written — that
+guard was verified by disabling RLS on `risks` and watching it fail.
+
+### 25a. The risks are extracted, not written
+
+Every risk row comes out of the Risk Register document already indexed for
+that project, so the register and the document cannot disagree: open the
+document, ask the assistant, get the same risks, the same owners, the same
+mitigations. **The six documents use six different sets of column headers**
+(`المعرف` / `الرقم` / `م` / `ID`, and so on), which is why extraction is by
+header synonym rather than by position.
+
+A consequence worth keeping: **the statuses are not a controlled
+vocabulary.** Six authors used six vocabularies — `نشط`, `مراقَب`,
+`قيد المتابعة على مستوى الفريق`, `مُصعّد إلى لجنة التوجيه`. Nothing maps them
+onto a common set, because that mapping would be invention. A real SPM
+supplies the list (REF lookups on the schema sheet).
+
+`due_date` is populated only where a document states a target resolution
+date — PRJ-03 alone does. Everywhere else it is NULL and the assistant
+answers "no due date is recorded", which is the correct answer and was
+verified live. Issues, change requests and deliverables have no source
+document, so they are authored per project and anchored to its real status
+and dates.
+
+### 25b. Two defects found by running it, not by reading it
+
+**1. The model counted, and counted wrong.** Asked how many risks were
+active, it read eleven rows and answered eleven. PRJ-02 holds **seven
+active and four monitored**. Counting ten fields across eleven rows is work
+a language model does unreliably and SQL does exactly, so the count is now
+computed and handed over in the heading — `Risks (11 total — نشط: 7,
+مراقَب: 4)` — and rule 4b-i tells the model to read it rather than tally.
+Re-verified live: "عدد المخاطر النشطة هو 7".
+
+Two smaller things came from the same look: the discriminating fields
+(status, level, owner) now lead each row instead of sitting behind ninety
+characters of description, and the model is told never to quote the
+heading, the English register names or the row ids — it had started
+reciting `"Risks (11 total — نشط: 7, مراقَب: 4)"` into an Arabic answer.
+
+**2. AC08 broke, and the fix was a shared budget.** The registers were
+being added *on top of* a full passage budget. A measured turn went from
+3.5–4.8 s to **4.4–7.0 s**, over the five-second budget on five questions
+out of seven. The budget is on the **prompt**, not on the passages: the two
+sources now share one ceiling (`select_context(reserved_tokens=…)`), with a
+floor so a large register can never squeeze retrieval out entirely.
+
+⚠️ **This is better, not fixed.** After the change the same seven questions
+measured **4.1–6.3 s**, still over five on four of them. The remaining cost
+is *output* length — the model now has real rows to report and says more.
+Streaming (already the suggested next work) changes how that wait feels
+without changing the number; shortening the answers would trade away what
+was just gained. **AC08 is currently not met for register questions, and
+that is recorded here rather than rounded off.**
+
+### 25c. Mutation testing
+
+Fifteen mutations, all caught — but **four survived the first pass, and all
+four were the wiring rather than the parts**: the tally computed but never
+attached to what `fetch` returns, the shared budget honoured inside
+`select_context` but not passed at the call site, the floor deleted without
+any test noticing (the selector always takes the first passage, so
+"something came back" proves nothing), and the block built but never put in
+the prompt. Each part passed its own test while the thing between them was
+cut. Four tests were added for the call paths themselves.
 
 ---
 

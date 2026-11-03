@@ -237,6 +237,11 @@ class AnswerSettings:
     real latency work, once there are measurements to tighten against.
     """
     top_k: int = 8
+    # Registers are rows, so they are capped by COUNT rather than by tokens:
+    # a risk row is a predictable size, and "the first 40" is a limit a
+    # reader can be told about. 40 covers every project in this corpus (the
+    # largest register is 13) with room for a real one to grow.
+    max_register_rows: int = 40
     max_context_tokens: int = 6000
     max_completion_tokens: int = 2000
     temperature: float = 0.0
@@ -586,6 +591,9 @@ def _answering_from_env() -> AnswerSettings:
     d = AnswerSettings
     return AnswerSettings(
         top_k=int(_optional("ANSWER_TOP_K", str(d.top_k))),
+        max_register_rows=int(
+            _optional("ANSWER_MAX_REGISTER_ROWS", str(d.max_register_rows))
+        ),
         max_context_tokens=int(
             _optional("ANSWER_MAX_CONTEXT_TOKENS", str(d.max_context_tokens))
         ),
