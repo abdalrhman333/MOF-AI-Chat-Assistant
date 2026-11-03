@@ -47,7 +47,7 @@ D:\MOF Enjaz Chatbot\infra\        <- this folder, tracked in git
   .env.example                      <- template, safe to commit
   postgres-spm\init\                <- SQL run once on first postgres-spm start
                                        (extensions only)
-  postgres-spm\migrations\          <- ongoing, additive schema (001-017),
+  postgres-spm\migrations\          <- ongoing, additive schema (001-020),
                                        all applied. NEVER apply by hand
   postgres-spm\apply_migrations.py  <- the migration runner: one transaction
                                        per file, records only on success,
@@ -118,7 +118,7 @@ python infra/postgres-spm/apply_migrations.py --status   # read-only preview
 python infra/postgres-spm/apply_migrations.py            # apply anything pending
 ```
 
-Expect `17 applied, 0 pending, 0 drifted`. Full detail, including the
+Expect `20 applied, 0 pending, 0 drifted`. Full detail, including the
 line-ending gotcha that made raw-byte checksums unreliable on Windows, is
 in `../Documentation/INFRASTRUCTURE.md` §7b.
 
@@ -160,7 +160,7 @@ detail:
   settings — `DOCUMENT_ROOT`, `SCANNER_*`, `OCR_*`, `CHUNK_*` — all
   documented in `.env.example`.
 - *"`init/001_extensions.sql` is a placeholder — the real SPM entity schema
-  is a separate design step."* That schema exists: five tables across 17
+  is a separate design step."* That schema exists: nine tables across 20
   applied migrations, seeded, with row-level security enabled.
 - *"No chatbot backend or frontend container yet"* and *"Nothing sends
   traces yet."* Both were true on 2026-08-08. The chat app has run as

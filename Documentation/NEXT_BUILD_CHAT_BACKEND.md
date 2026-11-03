@@ -30,7 +30,7 @@ Straight from the BRD (`..\My_Prompts\SOLUTION_SCOPE.md`), not paraphrased:
 | **AC05** | Reply in the same language as the question | ✅ **done** — told, not inferred, §17c |
 | **AC06** | Answers grounded **only** in indexed documents, with the source cited | ✅ **done** — §15, §16 |
 | **AC07** | Clear, safe fallback for out-of-scope queries | ✅ **done** — §17c |
-| **AC08** | Response time ≤ 5 seconds under normal conditions | ✅ **measured** — p50 2333 / p95 2994 ms, §19 |
+| **AC08** | Response time ≤ 5 seconds under normal conditions | ⚠️ **measured 4.1–6.3 s for register questions since 2026-11-03** (was p50 2333 / p95 2994 ms) — §19, §22, **§25b** |
 | **AC08** *(dup)* | Authorized user signs in via SSO/OTP | ⚠️ **simulated** — email + password + signed cookie, §21c. Real SSO/OTP still deferred |
 | **AC09** | No user can view documents of a project not assigned to them | ✅ **done** — four layers, §2, §14, §20a–b |
 | **AC10** | Knowledge-base page shows document type + indexing status | ✅ **done** — §20 |
@@ -180,7 +180,7 @@ downstream should accept a username from a request body.
 
 ### Step 3 — retrieval composition (AC06) — **RAG half built** (2026-08-12)
 
-The three sources from `SOLUTION_ARCHITECTURE.md` §3.3:
+The four sources from `SOLUTION_ARCHITECTURE.md` §3.3:
 
 | Source | What | Persisted | State |
 |---|---|---|---|
@@ -289,9 +289,16 @@ instrumentation), `Application/backend/clients.py` (the AC08 fix), and
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m evaluation.latency_bench
 ```
 
-**Measured: p50 2333 ms, p95 2994 ms** against the 5 s budget, with the LLM
-call ~80% of a turn. The fix was setup, not the model: every question had
-been rebuilding all three clients, ~2.3 s of pure overhead.
+**Measured 2026-08-16: p50 2333 ms, p95 2994 ms** against the 5 s budget,
+with the LLM call ~80% of a turn. The fix was setup, not the model: every
+question had been rebuilding all three clients, ~2.3 s of pure overhead.
+
+⚠️ **Superseded for register questions.** Since the four registers landed
+(2026-11-03) those measure **4.1–6.3 s**, over the budget on four of seven
+sampled questions. Sharing one prompt budget between the registers and the
+passages recovered part of it; the rest is answer length, because the model
+now has real rows to report. See `STATUS_AND_ROADMAP.md` §25b — AC08 is
+currently **not met** for that class of question.
 
 **Four properties worth not undoing:**
 

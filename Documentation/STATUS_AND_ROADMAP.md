@@ -317,7 +317,7 @@ being followed; steps 1 and 2 are done.
 | # | Component | State |
 |---|---|---|
 | — | **Infrastructure** — 14 containers, the chat app included, all data on D: | ✅ |
-| — | **SPM schema** — 17 migrations, RLS, 23 regression tests | ✅ |
+| — | **SPM schema** — 20 migrations, RLS, 23 regression tests | ✅ |
 | — | **Ingestion pipeline** — scan → OCR → chunk → embed → index | ✅ 58 docs, 678 vectors |
 | — | **Operations** — worker, daily schedule, stage locks, health check | ✅ runs unattended |
 | **1** | **Retrieval evaluation** — 29 tagged questions, MRR + recall | ✅ 2026-08-09, §13b |
@@ -347,7 +347,7 @@ cd infra && docker compose up -d    # then open http://localhost:8000 (container
 |---|---|
 | AC01 language · AC02 intent · AC03 continuity · AC04 welcome | ✅ §17, §18 |
 | AC05 reply-in-kind · AC06 grounded + cited · AC07 fallback | ✅ §15, §16, §17 |
-| AC08 response time | ✅ measured, p50 2333 / p95 2994 ms, §19, §22 |
+| AC08 response time | ⚠️ **measured 4.1–6.3 s for register questions since 2026-11-03** (was p50 2333 / p95 2994 ms) — §19, §22, **§25b** |
 | AC09 no cross-project access | ✅ four layers, §14, §20a–b |
 | AC10 knowledge-base page · AC11 document links | ✅ §20, §11 |
 | AC08 *(dup)* SSO/OTP sign-in | ⬜ **deferred — external dependency** |

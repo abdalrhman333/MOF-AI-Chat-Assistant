@@ -350,7 +350,7 @@ a blank value.
 
 | Service | URL | Purpose | Credentials (var name in `.env`) |
 |---|---|---|---|
-| Postgres (SPM) | `localhost:5432` | SPM data — `projects`, `users`, `project_assignments`, `document_links` (see §8) | `POSTGRES_SPM_USER` / `POSTGRES_SPM_PASSWORD`, db `POSTGRES_SPM_DB` |
+| Postgres (SPM) | `localhost:5432` | SPM data — `projects`, `users`, `project_assignments`, `document_links`, `document_content`, and the four registers `risks` / `issues` / `change_requests` / `deliverables` (see §8) | `POSTGRES_SPM_USER` / `POSTGRES_SPM_PASSWORD`, db `POSTGRES_SPM_DB` |
 | Qdrant | http://localhost:6333/dashboard | Vector DB, one collection per project | `QDRANT_API_KEY` |
 | Redis | `localhost:6379` | Celery broker + result backend for the ingestion worker, and the store behind the cross-process stage locks | `REDIS_PASSWORD` |
 | **الوكيل الذكي / Smart Agent Platform** | **http://localhost:8000** | **The application itself** — sign-in, project picker, assistant chat, knowledge base, styled to the MOF design (DIN Next LT Arabic, #005459). `/docs` for the OpenAPI UI. Container `mof-chat-api`, reachable from this machine only; rebuild after code changes with `docker compose up -d --build chat-api` | **Demo sign-in:** any seeded address (e.g. `noura.alharbi@enjaz.gov.sa`) with password `Enjaz@2026` |
@@ -507,6 +507,20 @@ write operations against any system — that constraint is now enforced by
 the database rather than by convention (verified: `UPDATE` and `DELETE`
 both return `permission denied`).
 
+Policies cover `projects`, `document_links`, `document_content`,
+`project_assignments` (migration 013) and the four registers `risks`,
+`issues`, `change_requests`, `deliverables` (migration 019).
+
+⚠️ **RLS is granted PER TABLE, and a new table starts with none.** Adding a
+table and granting the app role `SELECT` is a one-line change that opens
+every project's rows with no error and no warning. `tests/test_rls.py`
+asks the catalog rather than a hard-coded list, so it covers tables that
+did not exist when it was written — verified on 2026-11-03 by disabling RLS
+on `risks` and watching
+`test_every_table_the_app_can_read_is_scoped_or_exempt` fail by name. A
+table that genuinely should be unscoped goes in `INTENTIONALLY_UNSCOPED`
+with the reason written down, not left out of the policy list.
+
 ### ⚠️ The app MUST use `SET LOCAL`, never `SET`
 
 ```sql
@@ -558,8 +572,41 @@ written* to *one gate that can be reviewed and tested once*.
 | `document_links` | Structured project↔document relationship (AC11), source for the knowledge-base page's type + indexing-status columns (AC10) | `project_code` (FK), `filename`, `file_path`, `doc_type` (**free text, not an enum** — real documents don't fit a closed category set), `language`, `contains_table`, `indexing_status` (`pending`/`indexing`/`indexed`/`failed`). Pipeline diagnostics: `error_message` (why it failed; cleared on later success), `indexed_at` (last successful index — lets AC10 show "indexed 3 days ago", not just "indexed"), `chunk_count` (sanity check — a 20-page doc yielding 1 chunk means the chunker broke). Change detection: `file_hash` (SHA-256; `NULL` = never scanned, treated as new) + `file_size_bytes` (cheap `stat`-based pre-check before hashing) — lets the scanner tell new/unchanged/modified apart so unchanged files are skipped free and edited ones are re-indexed |
 | `document_content` | OCR output cache, 1:1 with `document_links`. Exists so a chunking-strategy change never forces a re-OCR (which costs money per page). **The presence of a row here is the "OCR done" marker** — deliberately avoids a separate `ocr_status` column, so a failed embed/index step never re-pays for OCR | `document_link_id` (PK + FK, cascade), `markdown` (feeds chunking), `raw_response` (JSONB — full DI response, keeps structured tables/geometry that markdown drops), `page_count`, `ocr_model`, `ocr_api_version`, `extracted_at` |
 
-Current data (2026-08-08): 9 projects, 4 users, 6 assignments, **58
-document links, all 58 carrying a real SHA-256 and a real `file_path`**
+### The four registers (migrations 018–020, added 2026-11-03)
+
+BRD v1.1 §5.3.6 names these as inputs alongside the project record and its
+documents. Field names and types follow the SPM input data schema v0.3,
+sheet "UC3 Enterprise Assistant". See `STATUS_AND_ROADMAP.md` §25 and
+`SPM_DATA_MODEL_ERD.md`.
+
+| Table | Purpose | Key columns |
+|---|---|---|
+| `risks` | The risk register, read as rows so "which risks are still open" is answerable — the Risk Register *documents* could only answer "what does the register say" | `risk_id` (PK), `project_code` (FK), `risk_title`, `description`, `risk_level`, `risk_owner`, `status`, `mitigation_plan`, `due_date`, `category`, `probability`, `impact`, `closure_notes`, `source` (`Manual`/`AI`) |
+| `issues` | The issues register | `issue_id` (PK), `project_code` (FK), `issue_title`, `description`, `priority`, `owner`, `status`, `resolution`, `raised_date`, `resolved_date` |
+| `change_requests` | Change requests and their schedule impact | `cr_id` (PK), `project_code` (FK), `cr_title`, `cr_type` (Scope/Schedule/Budget), `justification`, `impact_description`, `schedule_impact_days`, `status`, `requested_date`, `decision_date` |
+| `deliverables` | Deliverables and delivery status — committed vs actual is what makes "delivered late" answerable | `deliverable_id` (PK), `project_code` (FK), `deliverable_name`, `deliverable_type`, `milestone_id` (plain column until `milestones` exists), `weight_pct`, `committed_date`, `delivered`, `actual_delivery_date`, `status`, `acceptance_status`, `reviewer_notes`, `modified_at`, `deletion_status` |
+
+⚠️ **Choice fields are free text, like `document_links.doc_type`.** The
+sheet marks `status`, `priority` and `risk_level` as SharePoint `choice`,
+but the actual value lists are still TBC. A CHECK constraint guessed now
+would reject real SPM data later, and a row that cannot be stored is worse
+than one stored with an unfamiliar status.
+
+⚠️ **The seeded statuses are six different vocabularies, on purpose.** The
+risk rows were *extracted* from the six Risk Register documents, and the
+six authors wrote `نشط`, `مراقَب`, `قيد المتابعة على مستوى الفريق`,
+`مُصعّد إلى لجنة التوجيه`. Nothing maps them onto a common set — that would
+be invention. A real SPM supplies the list (REF lookups on the schema
+sheet).
+
+⚠️ **Migration 019 is the other half of 018 and the two must never be
+split.** RLS is granted per table: a register created without a policy is
+readable across every project and nothing warns. See §7c.
+
+Current data (2026-08-08, registers 2026-11-03): 9 projects, 4 users,
+6 assignments, **58 document links, all 58 carrying a real SHA-256 and a
+real `file_path`**, plus **64 risks, 21 issues, 12 change requests and
+27 deliverables**
 (Stage 0 has run, so the seeded placeholders are gone), and **58
 `document_content` rows — the full corpus is OCR'd** (Stage 1). All 58 are
 now `indexing_status='indexed'` with a `chunk_count` and `indexed_at`:

@@ -43,7 +43,7 @@ to source documents, no write operations against any system).
 
 ---
 
-## 3. The retrieval architecture (three sources per query)
+## 3. The retrieval architecture (four sources per query)
 
 Designed by the user before any implementation existed; this is the
 governing shape for the whole backend.
@@ -76,13 +76,28 @@ AD login (SSO + OTP)                    DEMO: email + password against the users
 
 Real SSO/OTP replaces the sign-in step and nothing below it — see §4.12.
 
-### 3.3 Three-way answer composition per query
+### 3.3 Four-way answer composition per query
 
 | # | Source | What it is | Persisted? |
 |---|---|---|---|
 | 1 | **RAG** | Vector search against the selected project's dedicated Qdrant collection (the ingested SharePoint files) | Yes — the collection itself |
 | 2 | **Live SPM entity data** | Structured project fields pulled directly by Project ID from SPM (status, dates, metadata — not files). Demo: filled directly into `postgres-spm`, no live SPM API yet | Yes — Postgres |
-| 3 | **CAG** | Documents uploaded mid-chat through the UI get OCR'd and injected directly into the current session's LLM context | **No** — session-scoped only, matches BRD scope item 5 ("supplementary upload," not permanent ingestion) |
+| 3 | **The project registers** | Risks, issues, change requests and deliverables — BRD v1.1 §5.3.6's remaining named inputs. Read as **rows** by `Application/backend/registers.py` and sent as a labelled block, never chunked or embedded. Added 2026-11-03; see `STATUS_AND_ROADMAP.md` §25 | Yes — Postgres |
+| 4 | **CAG** | Documents uploaded mid-chat through the UI get OCR'd and injected directly into the current session's LLM context | **No** — session-scoped only, matches BRD scope item 5 ("supplementary upload," not permanent ingestion). **Still not built** |
+
+⚠️ **Sources 2 and 3 are structured; source 1 is prose. That distinction is
+the design, not an implementation detail.** Embedding a risk row would
+destroy the fields that make it answerable — a question like "which risks
+are still open" turns on `status`, which a similarity match cannot filter
+on. Retrieval is for documents; SQL is for registers. The corollary is that
+adding a register means adding a table and a read, never a new collection.
+
+⚠️ **All four sources share ONE prompt budget.** Sources 2 and 3 are sent
+whole — a half-listed register would make a count wrong — so they are
+charged first and RAG takes what is left, with a floor so a large register
+can never squeeze retrieval out entirely. Adding the registers *on top of*
+a full passage budget took a measured turn from 3.5–4.8 s to 4.4–7.0 s and
+broke AC08; see §25b.
 
 **Resolved:**
 - ~~What triggers re-ingestion / index refresh when files change~~ —
@@ -314,7 +329,7 @@ persistent data — lives under `D:\MOF_Installations`, never C:. See
 | Web framework | **FastAPI** | Async-native — matters because nearly every call the app makes is I/O-bound over the network (Azure OpenAI, Document Intelligence, Qdrant). Built-in Pydantic support, which structured LLM output needs anyway. Not asked as a question — no real alternative fit better. |
 | Schema / DB access | **Raw SQL migrations, no ORM** | Considered against SQLAlchemy + Alembic. For a schema this size (projects, users, assignments, document-links — a handful of tables), Alembic's setup/ceremony doesn't pay for itself; raw `.sql` migration files (same pattern the colleague's build proved at this scale) are near-zero setup and fit the additive-only discipline (§4.2-adjacent principle: never `DROP`, only `ADD COLUMN IF NOT EXISTS`-style changes) just as naturally. Revisit if the schema's churn rate ever makes manual tracking error-prone. |
 | Task queue (Redis-backed) | **Celery** | Considered against Arq (async-native, lighter, no separate Beat process). Chosen for maturity and richer workflow primitives (chains/chords/retries) — a deliberate call accepting the sync/async bridging cost and the operational gotchas documented at length in the colleague's build (duplicate worker pools, no hot-reload, `worker_process_init` prefork quirks, needs a separate Beat process for scheduling) in exchange for a much larger ecosystem and more production track record. Those known gotchas should be treated as a checklist to avoid repeating, not a reason to doubt the choice. |
-| RAG orchestration | **LangChain** | The colleague's own conclusion after building both ways: framework-native chains make Langfuse tracing integration nearly free (`config=` kwarg per call vs. hand-written spans), and we already have Langfuse running and want traces from day one. Accepted trade-off: LangChain only really covers the RAG third of our 3-source composition (SPM lookups and CAG context-stuffing are hand-written regardless), and the framework has real version-churn history (the colleague hit a breaking v3→v4 callback API rename) to watch for. |
+| RAG orchestration | ~~**LangChain**~~ → **none; the `openai` SDK directly** | ⚠️ **Planned, then not done — and the reason it was planned stopped applying.** The case for it was that framework-native chains make Langfuse tracing nearly free. By the time the answering path was built, `observability/` already emitted OpenTelemetry spans exported to Langfuse *and* Grafana from one instrumentation, so the tracing argument was already paid for and LangChain would only have sat between us and the exact bytes sent to the model — the thing most worth being able to read when an answer is wrong. It also never covered more than the RAG share of what is now a 4-source composition. `requirements.txt` has no LangChain and no module imports it. |
 
 Exact package versions/pins are a code-time decision, not an architecture
 one — not fixed here.

@@ -13,8 +13,9 @@ collections**. Retrieval quality is measured, not guessed
 (`evaluation/`). `Application/` holds the AC09 session gate, grounded
 answering over RAG + live SPM, the whole conversational layer (AC01–AC05,
 AC07), **an HTTP layer, demo sign-in and the full UI** — so the system runs
-in a browser. AC08 is measured, not asserted (p50 2333 ms / p95 2994 ms against
-a 5 s budget), and tracing goes to Grafana and Langfuse from one
+in a browser. AC08 is measured, not asserted — and since the registers
+landed it is **no longer met for register questions** (4.1–6.3 s against a
+5 s budget; see §25b), and tracing goes to Grafana and Langfuse from one
 instrumentation.
 
 Run the whole thing, and check it:
