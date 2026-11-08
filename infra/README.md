@@ -7,6 +7,14 @@ compose file runs the application too: the ingestion pipeline
 built from the repository root's `Dockerfile` (targets `pipeline` and `app`).
 **14 containers** in all.
 
+**Setting this up on a machine that has only a clone?** Run
+`..\scripts\bootstrap.ps1` rather than working through this file by hand: it
+checks the prerequisites and the four things git deliberately does not carry
+(`.env`, the document corpus, the licensed font, the OCR cache), brings up
+all 14 containers, applies the migrations and runs the tests. `-CheckOnly`
+changes nothing and starts nothing. `..\Documentation\MIGRATION.md` is the
+full account, including what to do about the 4.4 GB of container data.
+
 ⚠️ **Give Docker 8 GB.** Set `memory=8GB` in `%USERPROFILE%\.wslconfig`. On
 4 GB the VM restarts itself every few minutes while containers still report
 "Up" — see `../Documentation/INFRASTRUCTURE.md` §4.4d.

@@ -322,6 +322,17 @@ Everything Docker-related — the engine's own disk and every service's
 persistent data — lives under `D:\MOF_Installations`, never C:. See
 `INFRASTRUCTURE.md` §2 for exactly how.
 
+**A consequence worth stating: the deployment is reproducible from the
+repository, and the corpus is deliberately not part of it.** The Compose
+file, the `Dockerfile` and all 20 migrations are tracked, so a clone
+rebuilds the stack and reseeds every table — which is what makes moving to
+another machine a copy of four things rather than a rebuild
+(`MIGRATION.md`). The documents stay outside git, and not only for size:
+`TEST-PROJECT` holds 13 real client and ministry documents, and whether
+those may leave the tenancy is a decision for Enjaz, not a packaging
+convenience. The same reasoning that keeps project material behind the AC09
+boundary at query time keeps it out of a remote at rest.
+
 ### 4.5 Application tech stack (Python)
 
 | Layer | Choice | Why |

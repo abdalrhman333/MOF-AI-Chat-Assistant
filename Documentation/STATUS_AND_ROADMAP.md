@@ -247,10 +247,17 @@
   get every step's input and output, so anyone with either login can read
   every project's material (§24b). The proposed change strips content from
   the Grafana export only, keeping timings there and content in Langfuse.
-- **Optional clean-up, once satisfied Docker is stable:** the 43 GB disk
-  backup at `D:\MOF_Installations\docker-data-backup-2026-09-13\`, the empty
-  1.5 GB disk Docker created at `%LOCALAPPDATA%\Docker\wsl\`, and the two
+- **Optional clean-up, once satisfied Docker is stable:** the empty 1.5 GB
+  disk Docker created at `%LOCALAPPDATA%\Docker\wsl\`, and the two
   `run-stale-…` folders in `%LOCALAPPDATA%\Docker\`.
+  ✅ The 43 GB backup at `D:\MOF_Installations\docker-data-backup-2026-09-13\`
+  **is already gone** — checked 2026-11-08, the folder does not exist. That
+  part of this item is closed.
+- **Push the repository to a private remote.** `git remote -v` returns
+  nothing: the whole build is one directory on one disk with no clone and no
+  backup. `MIGRATION.md` §3.1. ⚠️ Private, not public, and **not** with the
+  document corpus — `TEST-PROJECT` holds 13 real client and ministry
+  documents (§7), and a commit of those cannot be taken back.
 
 ---
 
@@ -306,6 +313,9 @@
 | 2026-08-08 | Stage locks are taken by **entry points**, and by the **CLI** as well as the worker | A lock only the worker respected would miss the most likely collision: someone running `python -m pipeline.ocr` while the schedule fires. Taking it inside `run()` instead would deadlock the worker against itself |
 | 2026-08-08 | `ingest` runs stages **inline**, not as a Celery chain | A chain returns a graph of task ids immediately, so a scheduled ingest could not report success or failure |
 | 2026-08-08 | **Rejected**: stripping HTML markup from embedded text | Tested and refuted (§11c). The premise measured true (26% of table-chunk tokens are markup) but the mechanism did not: high-markup and low-markup chunks lose the same similarity when stripped. Changing it would have forced a full re-index on the strength of one query |
+| 2026-11-08 | `bootstrap.ps1` **stops before the ingestion pipeline** | Stage 1 is billed per page. A setup script that spends money unattended is a defect however convenient it feels; it prints the command, `--dry-run` first. Pinned by a test, so the convenience cannot be added back quietly (§26b) |
+| 2026-11-08 | The document corpus **stays out of every remote** | `TEST-PROJECT` holds 13 real client and ministry documents (§7). A commit publishes them permanently and is undoable only by rewriting history. Whether they may leave the tenancy is MOF's decision, not a packaging one. Private Azure Blob is the alternative offered (`MIGRATION.md` §4) |
+| 2026-11-08 | **Rejected**: a container registry, and Codespaces | GHCR saves a two-minute local build and adds auth, tags and image-vs-source drift. Codespaces means 14 containers under Docker-in-Docker plus the corpus in the cloud, and dissolves the "runs on the owner's own PC" property the demo rests on (`MIGRATION.md` §7) |
 
 ---
 
@@ -784,6 +794,117 @@ What is real, and belongs to the chat backend: Arabic scores ~0.40 against
 English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
 That is **ranking**, not retrieval — the answer is in the results every
 time.
+
+---
+
+## 26. Making the move reproducible, and a claim that was wrong (2026-11-08)
+
+**Tests: 762 Python** (745 + 17), plus 79 JavaScript. **Mutations: 17 of 17
+caught, 0 survived.**
+
+The question was how to move the whole solution to another device. The
+answer turned out to be mostly "it already does that" — `docker-compose.yml`,
+the `Dockerfile` and all 20 migrations are tracked, so a clone rebuilds the
+stack and reseeds the database. What was missing was the part a new machine
+cannot read out of a running system, because there isn't one yet: a way to
+find out what is wrong before spending an afternoon on it.
+
+`scripts/bootstrap.ps1` and `Documentation/MIGRATION.md` are that part.
+
+### 26a. A finding of mine that was wrong
+
+I reported that `infra/.env.example` was missing nine keys the real `.env`
+has — all the `API_*` HTTP-layer settings — and called it the blocker to a
+clean rebuild. **That was wrong.** Every one of them is documented there,
+commented out with its default and a note, which is the deliberate form for
+an optional setting; `API_SESSION_SECRET` is the only one left live and
+empty, because it has no default anywhere. The comparison behind the claim
+looked only at uncommented assignments.
+
+Checked properly: all 68 settings `config.py` reads and all 38 `${VAR}`
+substitutions Compose makes are documented. There was no gap.
+
+The one real leftover: `LANGFUSE_BASE_URL` sits in the working `.env` and is
+read by nothing — not `config.py`, not the Compose file. Harmless, noted
+here rather than silently deleted.
+
+So the parity became a **test** instead of a fix. `test_env_example.py`
+asserts that every setting the code reads and every variable Compose
+interpolates is documented, that the one required setting is presented as
+required, and — the part that matters most — that **no secret in that
+tracked file carries a value**. It is published the moment it is pushed, and
+rewriting history is the only way back.
+
+### 26b. What a clone deliberately does not carry
+
+Four things, and the script checks for each by name rather than failing
+later and vaguely:
+
+| | Why it is out of git | What happens without it |
+|---|---|---|
+| `infra/.env` | 78 settings, every password and key | Sign-in refuses — `API_SESSION_SECRET` has no fallback, on purpose |
+| `D:\MOF_DataSample` | not ours to publish (below) | Pipeline refuses rather than marking 58 documents missing |
+| 3 DIN Next LT Arabic `.ttf` | licensed Monotype font | UI silently falls back to a system face |
+| the OCR cache in Postgres | regenerating it is billed | ~$1.50 re-sent to Document Intelligence |
+
+⚠️ **The corpus is not all mock data.** 45 of the 58 documents are
+fictional; the 13 under `TEST-PROJECT` are real (§7) — charters for MOZN,
+Emdad, JEDCO, Tanmiah and TMO, a منصة همة export, an NCGR-style Arabic BRD.
+Whether those may leave the tenancy is a question for MOF, not a
+convenience call at move time, so `MIGRATION.md` §4 keeps them out of any
+remote and offers a private Azure Blob container as the alternative to a
+direct copy.
+
+⚠️ **`bootstrap.ps1` stops before the ingestion pipeline.** Stage 1 is
+billed per page. An unattended setup script that spends money is a defect
+however convenient, so it prints the command — `--dry-run` first — and
+leaves it. A test pins that: `ingest` and `pipeline.ocr` may appear in the
+script only as printed text, never as something it invokes.
+
+### 26c. Two defects found by running it, not by reading it
+
+Both in the first draft of the script, both fatal, both invisible on
+inspection.
+
+**1. Em dashes made the file unparseable.** Windows PowerShell 5.1 reads a
+`.ps1` with no byte-order mark as ANSI, so every `—` became mojibake and
+PowerShell reported a cascade of "Missing closing '}'" errors pointing at
+structurally correct code. The script is now pure ASCII and a test decodes
+the file as ASCII to keep it that way. This is the same class as the
+documented Git-Bash-mangles-Arabic gotcha (§6), reached from a new
+direction.
+
+**2. `$ErrorActionPreference = 'Stop'` broke the error reporting.** A
+stopped Docker engine writes to stderr, and Windows PowerShell turns a
+native command's stderr under `Stop` into a terminating
+`NativeCommandError`. So the script died with a stack trace at precisely
+the moment its job was to print "the engine is not running — open Docker
+Desktop first". It is `Continue` now, with every native call checked by its
+exit code, which is what was actually reporting failure all along.
+
+Both were found by running the script with Docker deliberately off — which
+is also how the unhappy path got verified at all.
+
+### 26d. Mutation testing
+
+Seventeen mutations, **all seventeen caught, none survived** — the first
+pass this time, against four survivors of fifteen last session (§25c).
+
+The difference is that §25c's lesson was applied before writing the tests
+rather than after: all of `bootstrap.ps1` is wiring, so it is tested the
+way wiring has to be — by running the real script against throwaway
+directory trees built to be wrong one way at a time, and asserting on what
+it *reports*. Deleting any single check fails a test. So does weakening the
+corpus threshold from 58 to 1, hard-coding a check to always complain,
+letting `-CheckOnly` fall through to starting containers, reverting the
+`ErrorActionPreference`, and slipping one non-ASCII character back in.
+
+⚠️ One test could not be made to fail by behaviour alone: the
+`ErrorActionPreference` fix only shows itself when the Docker engine is
+down, which is a property of the machine and not of the code. Pinning the
+engine's state would make the suite pass or fail for unrelated reasons, so
+that test asserts the behaviour *and* the decision in the file. Recorded
+because it is a weaker guard than the others, not an equal one.
 
 ---
 

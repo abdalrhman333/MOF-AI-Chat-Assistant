@@ -5,7 +5,11 @@ file first.** It tells you what this project is, which documents to read in
 what order, and how to verify the real state of the system before changing
 anything.
 
-**Last verified:** 2026-09-14 — infra, full SPM schema (20 migrations,
+**Last verified:** 2026-11-08 — the whole stack re-verified live after the
+registers landed: 14 containers, 20 migrations applied (0 pending, 0
+drifted), 9 projects, 678 vectors in 9 collections, the four registers
+seeded, `/health` answering, **762 Python tests + 79 JavaScript passing**.
+Earlier state, still accurate — infra, full SPM schema (20 migrations,
 row-level security enabled), complete mock corpus, and **the entire
 ingestion pipeline built and run over all 58 documents**: discovery → OCR →
 chunk → embed → index, ending in **678 vectors across 9 per-project Qdrant
@@ -22,13 +26,24 @@ Run the whole thing, and check it:
 
 ```bash
 cd infra && docker compose up -d                    # everything, the app included → http://localhost:8000
-.venv/Scripts/python -m pytest tests/ -q            # expect 745 passed
+.venv/Scripts/python -m pytest tests/ -q            # expect 762 passed
 ```
+
+**On a machine that holds only a clone of this repository**, run
+`scripts\bootstrap.ps1` instead: it checks the prerequisites and the four
+things git deliberately does not carry, starts the stack, applies the
+migrations and runs the tests. `-CheckOnly` changes nothing, so it is safe
+to run first. `Documentation/MIGRATION.md` is the whole story.
 
 The app is the `mof-chat-api` container. After changing its code, rebuild it
 with `docker compose up -d --build chat-api`; its log is
 `docker logs -f mof-chat-api`. ⚠️ Docker Desktop auto-start is currently
 **off**, so after a reboot open Docker Desktop first.
+
+⚠️ **The repository has no git remote** (checked 2026-11-08). The whole
+build is one directory on one disk, with no clone and no backup. Pushing to
+a private remote is the first step of `MIGRATION.md` for that reason, and
+worth doing whether or not anything moves.
 
 That single `pytest` covers the frontend too: `tests/test_frontend.py`
 shells out to `node --test` for the 79 JavaScript tests in
@@ -113,6 +128,7 @@ This is a **different use case** than a colleague's separate build
 | — | `Enjaz_Solution_Guide.docx` | **For non-technical readers / stakeholders.** Plain-language guide to the whole solution: what it does, how it works, why each choice was made, and how to rebuild it. Not needed for development work |
 | — | `AI_SOLUTION_PLAYBOOK.md` | **A template for colleagues starting a different AI use case.** Generic, not about this project: which tools to use, how to structure the solution, the build order, starting settings, the rules to follow, and a release checklist |
 | — | `UC3_Enterprise_Assistant_ERD.pdf` | **The ERD as a two-page A3 document**, in the same house style as the UC2 diagram: cover with at-a-glance figures, then every entity, field and key with crow's-foot cardinality, a legend and eight numbered design notes. Regenerate with `python Documentation/diagrams/uc3_erd.py` |
+| — | `MIGRATION.md` | **Moving the whole solution to another device.** What has to travel and what rebuilds itself from the clone; the four things git deliberately does not carry; whether to copy the 4.4 GB of container data or re-bill the OCR; and why the corpus's 13 real documents must not be pushed to GitHub. Driven by `scripts\bootstrap.ps1` |
 | — | `SPM_DATA_MODEL_ERD.md` | **The end-to-end data model against the official SPM schema** (`NCGR_AI_SPM_Input_Data_Schema v0.3`, sheet UC3). All 11 SPM entities and 119 fields with types, mapped column by column onto what we built — what exists, what must be added, and the four questions for the Enjaz team. Mermaid ERD, 14 entities |
 
 The original BRD-derived scope document also lives at

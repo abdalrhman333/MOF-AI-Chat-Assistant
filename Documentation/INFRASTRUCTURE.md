@@ -8,6 +8,13 @@ This is the operational reference: what runs, where, how to bring it up,
 and every gotcha hit while building it. For *why* these choices were made,
 see `SOLUTION_ARCHITECTURE.md`.
 
+**Standing this up on a different machine?** `scripts\bootstrap.ps1` does
+the sequence below and checks its own prerequisites first; `MIGRATION.md`
+covers what has to travel, what rebuilds itself from a clone, and whether
+the 4.4 GB under `D:\MOF_Installations\volumes` is worth copying (mostly
+not — §5 there). This file remains the reference for what each service is
+and what has gone wrong with it.
+
 ---
 
 ## 1. Architecture at a glance
