@@ -95,6 +95,9 @@ class Reply:
     reason: str = ""
     citations: list[Citation] = field(default_factory=list)
     timings: Timings = field(default_factory=Timings)
+    # Questions the model suggests asking next. Bounded in `answer.py`,
+    # and empty after a refusal.
+    follow_ups: tuple[str, ...] = ()
     answer: Answer | None = None
 
     @property
@@ -260,6 +263,7 @@ def _handle(
         reply_language=answer.language,
         citations=answer.citations,
         timings=answer.timings,
+        follow_ups=answer.follow_ups,
         answer=answer,
     )
 

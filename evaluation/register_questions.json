@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "description": "Latency questions answered from the four registers — risks, issues, change requests and deliverables. These are read as SQL rows, never retrieved, so there is no document that 'should' come back and expect_documents is deliberately absent. ⚠️ This set is for latency_bench only. Scoring it with retrieval_eval would count every question as a miss and drop the baseline for a reason that has nothing to do with retrieval. It exists because STATUS_AND_ROADMAP §25b reported AC08 failing on exactly this kind of question while the benchmark contained none of them, so the tool that should have caught that regression could not have.",
+  "corpus": "Registers as seeded by migration 020: 64 risks, 21 issues, 12 change requests, 27 deliverables across 9 projects, as at 2026-11-08",
+  "questions": [
+    {
+      "id": "reg-ar-02-risks-active",
+      "project": "PRJ-02",
+      "lang": "ar",
+      "question": "ما المخاطر النشطة في المشروع ومن يملكها؟",
+      "note": "PRJ-02 holds 11 risks. The counting question from §25b, which is why the heading carries a computed tally."
+    },
+    {
+      "id": "reg-ar-02-risks-count",
+      "project": "PRJ-02",
+      "lang": "ar",
+      "question": "كم عدد المخاطر المفتوحة حالياً؟"
+    },
+    {
+      "id": "reg-ar-02-issues",
+      "project": "PRJ-02",
+      "lang": "ar",
+      "question": "ما هي المشكلات العالقة حالياً؟"
+    },
+    {
+      "id": "reg-ar-02-changes",
+      "project": "PRJ-02",
+      "lang": "ar",
+      "question": "ما طلبات التغيير المقدمة على المشروع؟"
+    },
+    {
+      "id": "reg-ar-02-deliverables",
+      "project": "PRJ-02",
+      "lang": "ar",
+      "question": "ما حالة المخرجات المتفق عليها؟"
+    },
+    {
+      "id": "reg-ar-03-risks-mitigation",
+      "project": "PRJ-03",
+      "lang": "ar",
+      "question": "ما أبرز المخاطر وما خطط التخفيف المرتبطة بها؟",
+      "note": "PRJ-03 holds 13 risks, the largest register, and the only project with recorded due dates."
+    },
+    {
+      "id": "reg-ar-03-escalated",
+      "project": "PRJ-03",
+      "lang": "ar",
+      "question": "هل هناك مخاطر مُصعّدة إلى لجنة التوجيه؟",
+      "note": "The statuses are not a controlled vocabulary (§25a), so this asks for one author's wording."
+    },
+    {
+      "id": "reg-en-01-risks",
+      "project": "PRJ-01",
+      "lang": "en",
+      "question": "Which risks are still open, and who owns them?"
+    },
+    {
+      "id": "reg-en-05-deliverables",
+      "project": "PRJ-05",
+      "lang": "en",
+      "question": "What is the status of the agreed deliverables?"
+    },
+    {
+      "id": "reg-en-06-issues",
+      "project": "PRJ-06",
+      "lang": "en",
+      "question": "Are there any open issues blocking this project?"
+    },
+    {
+      "id": "reg-mixed-06-all",
+      "project": "PRJ-06",
+      "lang": "mixed",
+      "question": "أعطني ملخصاً عن risks و issues و change requests في المشروع",
+      "note": "All four registers in one turn — the largest prompt this set produces, and the one most likely to break the budget."
+    },
+    {
+      "id": "reg-ar-04-risks-empty",
+      "project": "PRJ-04",
+      "lang": "ar",
+      "question": "ما المخاطر المسجلة على المشروع؟",
+      "note": "PRJ-04 has no risk rows at all. The correct answer is that none are recorded — a fast path that must not be mistaken for the slow one when reading the numbers."
+    }
+  ]
+}

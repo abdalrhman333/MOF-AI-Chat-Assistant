@@ -1083,3 +1083,69 @@ test("a restored conversation still shows its sources", async () => {
   assert.ok(shown.includes("سجل المخاطر - ص 14"),
     "a conversation picked up after a refresh keeps its citations");
 });
+
+// ---------------------------------------------------------------------------
+// Follow-up suggestions
+// ---------------------------------------------------------------------------
+
+const SUGGESTED = ["ما خطط التخفيف؟", "من يملك أعلى مخاطرة؟"];
+const WITH_FOLLOWUPS = { ...STREAMED, follow_ups: SUGGESTED };
+
+test("the model's suggestions appear under the answer", async () => {
+  const a = await chatting({ "/messages": streamOf(WITH_FOLLOWUPS) });
+  await a.ask("hi");
+  const shown = a.el("chatView").children.at(-1).textContent;
+  for (const suggestion of SUGGESTED) assert.ok(shown.includes(suggestion));
+});
+
+test("a suggestion is inserted as text, never as markup", async () => {
+  const hostile = { ...STREAMED, follow_ups: ["<img src=x onerror=alert(1)>"] };
+  const a = await chatting({ "/messages": streamOf(hostile) });
+  await a.ask("hi");
+  const last = a.el("chatView").children.at(-1);
+  assert.ok(last.textContent.includes("<img"));
+  assert.equal(last.innerHTML, "");
+});
+
+test("clicking a suggestion sends it as an ordinary message", async () => {
+  // Not a privileged channel: it goes through the same route, the same
+  // gate and the same classification as anything typed.
+  const a = await chatting({ "/messages": streamOf(WITH_FOLLOWUPS) });
+  await a.ask("hi");
+  const before = a.calls.length;
+  const chips = a.el("chatView").children.at(-1).children.at(-1);
+  await chips.children[0].listeners.click[0]();
+  const sent = a.calls.slice(before).find((c) => c.path.includes("/messages"));
+  assert.ok(sent.path.endsWith("/stream"));
+  assert.ok(JSON.parse(sent.body).text === SUGGESTED[0]);
+});
+
+test("an answer with no suggestions grows no empty row", async () => {
+  const a = await chatting({ "/messages": streamOf({ ...STREAMED, follow_ups: [] }) });
+  await a.ask("hi");
+  const classes = a.el("chatView").children.at(-1).children.map((c) => c.className);
+  assert.ok(!classes.includes("followups"));
+});
+
+test("a refusal shows no suggestions", async () => {
+  // The server already drops them; the page must not invent a row either.
+  const refusal = { ...STREAMED, outcome: "out_of_scope", grounded: false,
+                    citations: [], follow_ups: [] };
+  const a = await chatting({ "/messages": streamOf(refusal) });
+  await a.ask("hi");
+  const classes = a.el("chatView").children.at(-1).children.map((c) => c.className);
+  assert.ok(!classes.includes("followups"));
+});
+
+test("only the newest restored turn keeps its suggestions", async () => {
+  // One under every past turn would be a column of stale invitations.
+  const turn = (q, ups) => ({ question: q, reply: { ...REPLY, follow_ups: ups } });
+  const a = await chatting({ "/c1": { status: 200, body: {
+    conversation_id: "c1", project_code: "PRJ-06", welcome: "أهلاً",
+    turns: [turn("first", ["قديم؟"]), turn("second", ["جديد؟"])] } } });
+  a.set("CURRENT", { code: "PRJ-06", display_name: "مشروع" });
+  await a.restoreConversation("c1");
+  const shown = a.el("chatView").children.map((c) => c.textContent).join(" ");
+  assert.ok(shown.includes("جديد؟"), "the newest turn keeps its suggestions");
+  assert.ok(!shown.includes("قديم؟"), "an earlier turn's are stale");
+});

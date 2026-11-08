@@ -314,7 +314,7 @@ def test_the_model_is_asked_for_a_strict_json_schema():
     assert fmt["json_schema"]["strict"] is True
     assert set(fmt["json_schema"]["schema"]["required"]) == {
         "answer", "used_passages", "used_project_record",
-        "language", "intent"}, \
+        "language", "intent", "follow_ups"}, \
         "every field must be required, or the model can omit its own verdict"
 
 
@@ -332,8 +332,15 @@ def test_the_schema_makes_a_fabricated_source_structurally_impossible():
     schema = ans.RESPONSE_SCHEMA["json_schema"]["schema"]
     assert set(schema["properties"]) == {
         "answer", "used_passages", "used_project_record",
-        "language", "intent"}, \
+        "language", "intent", "follow_ups"}, \
         "a new field could carry model-invented source metadata"
+    # ⚠️ `follow_ups` was added on 2026-11-08 and is the one free-text
+    # field besides the answer itself. It is allowed because it carries no
+    # source metadata: it is a list of questions, never rendered as a
+    # citation, and clicking one sends it back as an ordinary message
+    # through the same gate. A field naming a filename, page or section
+    # would still be exactly what this test exists to prevent.
+    assert schema["properties"]["follow_ups"]["items"]["type"] == "string"
     assert schema["properties"]["used_passages"]["items"]["type"] == "integer"
     assert schema["properties"]["used_project_record"]["type"] == "boolean"
     assert schema["additionalProperties"] is False

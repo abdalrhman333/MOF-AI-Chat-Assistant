@@ -105,6 +105,9 @@ class ReplyOut(BaseModel):
     reply_language: str = ""
     grounded: bool = False
     citations: list[CitationOut] = []
+    # At most three, and empty after a refusal. The page renders them as
+    # chips and sends a click as an ordinary message.
+    follow_ups: list[str] = []
     timings: TimingsOut
 
 

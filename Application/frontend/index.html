@@ -228,6 +228,19 @@
   .srcchip { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 500;
              border: 1px solid rgba(255,255,255,.55); border-radius: 10px; padding: 5px 13px; line-height: 1.5; }
   .srcchip .ic { width: 15px; height: 15px; }
+  /* Suggestions for the next question. Deliberately lighter than a source
+     chip: a source is evidence for what was just said, a follow-up is an
+     invitation, and the two must not read as the same kind of thing. */
+  .followups { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px;
+               padding-top: 12px; border-top: 1px dashed rgba(255,255,255,.28);
+               white-space: normal; }
+  .msg.refusal .followups { border-top-color: var(--brand-line); }
+  .followups button { font: inherit; font-size: 13px; color: inherit; cursor: pointer;
+                      background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.34);
+                      border-radius: 999px; padding: 6px 14px; line-height: 1.5;
+                      text-align: start; }
+  .followups button:hover { background: rgba(255,255,255,.20); }
+  .followups button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
   .typing { padding: 16px 22px; }
   .typing span { display: inline-block; width: 7px; height: 7px; margin: 0 2px; border-radius: 50%;
                  background: #fff; animation: blink 1.2s infinite both; }
@@ -752,13 +765,19 @@ async function restoreConversation(token) {
     CONV = transcript.conversation_id;
     dayDivider();
     if (transcript.welcome) bubble(transcript.welcome, "welcome");
-    for (const turn of transcript.turns) {
+    transcript.turns.forEach((turn, index) => {
       bubble(turn.question, "user");
       const reply = turn.reply;
-      bubble(reply.text, STYLE[reply.outcome] || "assistant", {
+      const node = bubble(reply.text, STYLE[reply.outcome] || "assistant", {
         citations: reply.citations, grounded: reply.grounded, lang: reply.reply_language,
       });
-    }
+      // Only under the newest answer. Suggestions belong to where the
+      // conversation actually is; one under every past turn would be a
+      // column of stale invitations down the whole transcript.
+      if (index === transcript.turns.length - 1) {
+        followUpChips(node, reply.follow_ups);
+      }
+    });
     if (!transcript.turns.length) renderChips();
   } catch (_) {
     // Expired, or no longer this user's: not an error worth showing. A new
@@ -1006,9 +1025,11 @@ async function startConversation() {
 }
 
 function renderChips() {
-  // Fixed starters. They are ordinary messages, not a menu: each one goes
-  // through the same path as anything typed, so the model still classifies
-  // it rather than being handed a pre-decided intent.
+  // Fixed starters, shown before the first question only — there is no
+  // answer yet for the model to suggest anything from. They are ordinary
+  // messages, not a menu: each one goes through the same path as anything
+  // typed, so the model still classifies it rather than being handed a
+  // pre-decided intent.
   const box = $("chips");
   box.innerHTML = "";
   for (const key of ["try1", "try2", "try3"]) {
@@ -1018,6 +1039,28 @@ function renderChips() {
     box.append(b);
   }
   box.classList.remove("hidden");
+}
+
+/* The model's suggestions for what to ask next, under the answer they came
+   from. Same rule as the starters: a click sends ordinary text, so nothing
+   here hands the model a pre-decided intent — and nothing here is trusted,
+   because the label is inserted as TEXT and the click goes through the same
+   gate as anything typed. */
+function followUpChips(node, suggestions) {
+  if (!suggestions || !suggestions.length) return;
+  const box = el("div", "followups");
+  for (const suggestion of suggestions) {
+    const b = el("button", "", suggestion);
+    b.type = "button";
+    b.addEventListener("click", () => {
+      // Removed on use: leaving a suggestion under an answer the user has
+      // already moved past invites them to ask the same thing twice.
+      box.remove();
+      ask(suggestion);
+    });
+    box.append(b);
+  }
+  node.append(box);
 }
 
 /* An outcome decides how a reply is SHOWN. The model already decided what
@@ -1084,6 +1127,7 @@ function finishBubble(node, reply) {
     }
     node.append(box);
   }
+  followUpChips(node, reply.follow_ups);
   $("chatView").scrollTop = $("chatView").scrollHeight;
 }
 

@@ -541,7 +541,7 @@ What it walks into, flagged in advance:
 correcting three times when it was inferred instead.)*
 
 That one command covers the **frontend** too: `test_frontend.py` shells out
-to `node --test` for the 95 JavaScript tests in `tests/frontend/`. They
+to `node --test` for the 101 JavaScript tests in `tests/frontend/`. They
 stay JavaScript because the thing under test is — testing the real page
 script through a Python approximation would be testing the approximation —
 and they **skip rather than fail** where node is absent, since nothing else
@@ -802,6 +802,114 @@ time.
 
 ---
 
+## 30. The benchmark covers the registers, and answers suggest what to ask next (2026-11-08)
+
+**Tests: 995 Python** (968 + 27), plus **101 JavaScript**. **Mutations: 19
+of 19 caught**, after two real gaps were found and closed.
+**Router eval re-run after the prompt change: PASS, language 0.966,
+intent 0.966** — exactly the recorded baseline.
+
+Two pieces of work: closing the measurement gap §29 exposed, and the
+follow-up chips from the design screens.
+
+### 30a. The AC08 benchmark now measures the questions that broke it
+
+§29c recorded that `latency_bench` contained no register questions, so the
+tool meant to catch an AC08 regression could not have caught the one §25b
+reported. `evaluation/register_questions.json` fixes that: 12 questions
+across all four registers, both languages, on assigned projects only —
+including PRJ-04, which has **no risk rows at all**, so the "nothing is
+recorded" path is measured rather than assumed.
+
+⚠️ **They are a separate file, appended by `latency_bench`, never merged
+into the retrieval set.** They are answered from SQL rows and retrieve
+nothing, so `retrieval_eval` would score every one of them as a miss and
+drop the baseline for a reason that has nothing to do with retrieval.
+`dataset.load(require_documents=False)` is what allows a set with no
+`expect_documents`; a test pins that relaxing it does not relax the other
+required fields, because a question with no project cannot have a session
+opened for it and would be silently unmeasurable.
+
+The benchmark now reports **by question kind**, so one slow family cannot
+hide inside a healthy aggregate — which is exactly what §25b described:
+
+```
+AC08 latency — 30 turns, warm, streamed — WITHIN BUDGET
+  within      : 30/30      p50 / p95   : 2373 / 3019 ms
+  by question kind:
+      register   n=12  p50=2426 p95=3003 max=3219 within=12/12
+      retrieval  n=18  p50=2318 p95=2915 max=3019 within=18/18
+```
+
+### 30b. History does not explain §25b, and that line of enquiry is closed
+
+§29b left the discrepancy open. The most plausible explanation was prompt
+size: history is carried into every turn, so the same question asked deep
+in a conversation has a much larger prompt. Measured directly — the same
+register question at depth 0 and depth 8, twice each:
+
+| depth | mean |
+|---|---|
+| 0 | 2.76 s |
+| 8 | 2.96 s |
+
+**History costs +0.20 s.** It is not the explanation, and §25b's 4.1–6.3 s
+remains unexplained. The remaining candidate is provider-side variance on
+the day, which nothing here can confirm. Recorded as closed-off rather
+than solved: the benchmark above is now the thing that would catch it
+coming back.
+
+### 30c. Answers suggest what to ask next
+
+`follow_ups` joins the response schema — **last**, after `answer`, because
+a strict schema is generated in order and anything before the answer
+delays the first character the reader sees. Up to three short questions in
+the language of the reply, each answerable from the sources the model was
+given.
+
+⚠️ **A refusal carries none.** Suggestions under "that is outside this
+project" would invite the user straight back into what was just declined,
+so they are dropped for the same intents that lose their citations.
+
+⚠️ **This is the first free-text field besides the answer.**
+`test_the_schema_makes_a_fabricated_source_structurally_impossible` exists
+to make widening the schema a conscious act, and it was updated rather
+than worked around. The widening is acceptable because `follow_ups`
+carries no source metadata: it is a list of questions, never rendered as a
+citation, and a click sends it back as an ordinary message through the
+same gate and the same classification as anything typed. **A field naming
+a filename, page or section would still be exactly what that test
+prevents.**
+
+What reaches the screen is bounded in `_clean_follow_ups`, not trusted
+from the model: at most three, de-duplicated, newlines collapsed, trimmed
+to 120 characters rather than dropped, and a malformed field yields none
+instead of raising. The fixed starter chips remain, shown only before the
+first question — there is no answer yet for the model to suggest from.
+
+On a conversation restored after a refresh, only the **newest** turn keeps
+its suggestions. One under every past turn would be a column of stale
+invitations down the whole transcript.
+
+### 30d. Two gaps the mutation pass found
+
+- **Suggestions were lost through the Redis round-trip** and nothing
+  noticed, because the answer itself came back intact. That would have
+  taken the chips away from exactly the person who reloaded the page.
+- **A register question could omit its project** and still load. It would
+  then be skipped by the benchmark — correctly, under AC09 — so the set
+  would measure less than it claimed while still reporting a pass.
+
+### 30e. A mistake in this session's own documentation
+
+A blanket `sed` over the test counts rewrote the **historical** section
+headers of §24–§28, which recorded 79 JavaScript tests at the time, to 95.
+Those are records of what was true when the work was done, not live
+figures. Restored. Noted because a doc edit that quietly rewrites history
+is harder to spot than a broken test.
+
+---
+
 ## 29. Streaming — built, measured, and the premise it rested on did not reproduce (2026-11-08)
 
 **Tests: 968 Python** (779 + 189), plus 95 JavaScript. **Mutations: 29 of
@@ -928,7 +1036,7 @@ once, up front, so tests no longer depend on that accident.
 
 ## 28. The repository is pushed, and has a landing page (2026-11-08)
 
-**Tests: 779 Python** (773 + 6), plus 95 JavaScript. **Mutations: 8 of 9
+**Tests: 779 Python** (773 + 6), plus 79 JavaScript. **Mutations: 8 of 9
 caught; the ninth was not a defect** — see below.
 
 All 113 commits are on `github.com/abdalrhman333/MOF-AI-Chat-Assistant`
@@ -977,7 +1085,7 @@ worth explaining rather than explaining away.
 
 ## 27. A live credential in a tracked migration (2026-11-08)
 
-**Tests: 773 Python** (762 + 11), plus 95 JavaScript. **Mutations: 8 of 8
+**Tests: 773 Python** (762 + 11), plus 79 JavaScript. **Mutations: 8 of 8
 caught.** 21 migrations.
 
 Found by auditing the tree before the first push to a remote, which is the
@@ -1073,7 +1181,7 @@ scans every migration except the retired 013 and fails on a literal
 
 ## 26. Making the move reproducible, and a claim that was wrong (2026-11-08)
 
-**Tests: 762 Python** (745 + 17), plus 95 JavaScript. **Mutations: 17 of 17
+**Tests: 762 Python** (745 + 17), plus 79 JavaScript. **Mutations: 17 of 17
 caught, 0 survived.**
 
 The question was how to move the whole solution to another device. The
@@ -1184,7 +1292,7 @@ because it is a weaker guard than the others, not an equal one.
 
 ## 25. The four registers — BRD v1.1 §5.3.6's missing inputs (2026-11-03)
 
-**Tests: 745 Python, plus 95 JavaScript.** Router eval re-run after the
+**Tests: 745 Python, plus 79 JavaScript.** Router eval re-run after the
 prompt change: **PASS, language 0.966, intent 0.966.**
 
 The UC3 sheet of the SPM input data schema quotes **BRD v1.1 (14/09/2026)**,
@@ -1288,7 +1396,7 @@ cut. Four tests were added for the call paths themselves.
 
 ## 24. The MOF redesign, content in every trace, and a Docker that kept dying (2026-09-14)
 
-**Tests: 723 Python, plus 95 JavaScript.**
+**Tests: 723 Python, plus 79 JavaScript.**
 
 ### 24a. The UI now follows the MOF design screens
 

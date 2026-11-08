@@ -181,6 +181,25 @@ def test_turns_round_trip_through_storage(store):
     assert restored.turns[0].reply.intent == "project_question"
 
 
+def test_follow_up_suggestions_survive_the_round_trip(store):
+    """⚠️ They are rendered under the newest turn after a refresh, so a
+    store that quietly dropped them would take the suggestions away from
+    exactly the person who reloaded the page — and nothing else would
+    notice, because the answer itself comes back intact."""
+    token, conversation = store.open(SESSION)
+    conversation._turns.append(Turn(                                # noqa: SLF001
+        question="ما المخاطر؟",
+        reply=Reply(text="هناك ١١ مخاطرة.", outcome="answered",
+                    intent="project_question", language="ar",
+                    reply_language="ar",
+                    follow_ups=("ما خطط التخفيف؟", "من يملكها؟"))))
+    store.save(token, conversation)
+
+    restored = store.get(token, OWNER)
+    assert restored.turns[0].reply.follow_ups == ("ما خطط التخفيف؟",
+                                                  "من يملكها؟")
+
+
 def test_a_restored_conversation_still_feeds_history_to_the_prompt(store):
     """A transcript that survives but cannot be used as history would be a
     transcript that only looks restored."""

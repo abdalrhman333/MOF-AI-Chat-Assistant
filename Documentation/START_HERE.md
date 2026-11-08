@@ -8,7 +8,7 @@ anything.
 **Last verified:** 2026-11-08 — the whole stack re-verified live after the
 registers landed: 14 containers, 21 migrations applied (0 pending, 0
 drifted), 9 projects, 678 vectors in 9 collections, the four registers
-seeded, `/health` answering, **968 Python tests + 95 JavaScript passing**.
+seeded, `/health` answering, **995 Python tests + 101 JavaScript passing**.
 Earlier state, still accurate — infra, full SPM schema (21 migrations,
 row-level security enabled), complete mock corpus, and **the entire
 ingestion pipeline built and run over all 58 documents**: discovery → OCR →
@@ -26,16 +26,17 @@ again on 2026-11-08 those same questions came in at **2.59–3.58 s without
 streaming and 2.05 s mean with it**, 0 of 7 over, and `latency_bench`
 reports 18/18 within budget at p95 2942 ms. ⚠️ **So the failure did not
 reproduce, and why is unresolved** — §29b, rather than quietly treating it
-as fixed. Two things to know before measuring it yourself: the register
-questions are **not** in `evaluation/questions.json`, so the benchmark does
-not cover the case §25b reported; and benchmark against `127.0.0.1`, never
-`localhost`, which stalls a flat ~2 s on IPv6 here (§29c).
+as fixed. The benchmark **now covers the registers** — 12 questions in
+`evaluation/register_questions.json`, appended by `latency_bench` and
+reported as their own kind, so a slow family cannot hide inside a healthy
+aggregate (§30a). 30/30 within budget, p95 3019 ms. ⚠️ Benchmark against
+`127.0.0.1`, never `localhost`, which stalls a flat ~2 s on IPv6 here (§29c).
 
 Run the whole thing, and check it:
 
 ```bash
 cd infra && docker compose up -d                    # everything, the app included → http://localhost:8000
-.venv/Scripts/python -m pytest tests/ -q            # expect 968 passed
+.venv/Scripts/python -m pytest tests/ -q            # expect 995 passed
 ```
 
 **On a machine that holds only a clone of this repository**, run
@@ -55,7 +56,7 @@ a private remote is the first step of `MIGRATION.md` for that reason, and
 worth doing whether or not anything moves.
 
 That single `pytest` covers the frontend too: `tests/test_frontend.py`
-shells out to `node --test` for the 95 JavaScript tests in
+shells out to `node --test` for the 101 JavaScript tests in
 `tests/frontend/`, and **skips rather than fails** where node is absent.
 Sign in with any seeded address (e.g. `noura.alharbi@enjaz.gov.sa`) and
 the demo password from `INFRASTRUCTURE.md` §276.

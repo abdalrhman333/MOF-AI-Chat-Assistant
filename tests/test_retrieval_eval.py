@@ -193,6 +193,51 @@ def test_expect_documents_must_be_a_list_of_names(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# The register set — answered from SQL rows, so it expects no document
+# ---------------------------------------------------------------------------
+
+def test_a_register_set_loads_without_expected_documents(tmp_path):
+    """These questions retrieve nothing by design, so there is no document
+    that 'should' come back. ⚠️ Never score this set with the retrieval
+    evaluation: every question would count as a miss."""
+    entry = q("reg1")
+    del entry["expect_documents"]
+    data = ds.load(write_set(tmp_path, [entry]), require_documents=False,
+                   kind="register")
+    assert data.questions[0].expect_documents == ()
+    assert data.questions[0].kind == "register"
+
+
+def test_the_main_set_is_still_tagged_as_retrieval(tmp_path):
+    assert ds.load(write_set(tmp_path, [q()])).questions[0].kind == "retrieval"
+
+
+@pytest.mark.parametrize("field", ["id", "project", "lang", "question"])
+def test_a_register_question_still_needs_the_rest(tmp_path, field):
+    """Relaxing one requirement must not relax the others. A question
+    without a project cannot have a session opened for it at all, so it
+    would be silently unmeasurable rather than loudly wrong."""
+    entry = q("reg2")
+    del entry["expect_documents"]
+    del entry[field]
+    with pytest.raises(ds.DatasetError, match=field):
+        ds.load(write_set(tmp_path, [entry]), require_documents=False)
+
+
+def test_the_shipped_register_set_is_valid_and_targets_assigned_projects():
+    """A question on an unassigned project is skipped by the benchmark —
+    correctly, under AC09 — so a set written against one would measure
+    nothing while still reporting a pass."""
+    import pathlib as _p
+    path = _p.Path(__file__).resolve().parents[1] / "evaluation" / "register_questions.json"
+    data = ds.load(path, require_documents=False, kind="register")
+    assert len(data.questions) >= 10
+    assigned = {"PRJ-01", "PRJ-02", "PRJ-03", "PRJ-04", "PRJ-05", "PRJ-06"}
+    assert {x.project for x in data.questions} <= assigned
+    assert all(x.kind == "register" for x in data.questions)
+
+
+# ---------------------------------------------------------------------------
 # Agreement with the corpus — the drift that reads as a regression
 # ---------------------------------------------------------------------------
 

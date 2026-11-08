@@ -128,7 +128,7 @@ export function load({ fetch = async () => ({ ok: true, status: 200, json: async
   vm.runInContext(`${script}\n;globalThis.__ = { t, api, ask, bubble, ` +
     `renderChips, endSession, toLogin, renderTopbar, renderKb, openPicker, ` +
     `switchProject, recentProjects, rememberProject, startConversation, ` +
-    `restoreSession, restoreConversation, ` +
+    `restoreSession, restoreConversation, followUpChips, ` +
     `showView, applyLanguage, renderWho, toggleUserMenu, closeUserMenu, ` +
     `set: (k, v) => { eval(k + " = v"); }, get: (k) => eval(k) };`, ctx);
   return { ...ctx.__, document, settled, el: (id) => document.getElementById(id) };

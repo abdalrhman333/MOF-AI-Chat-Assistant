@@ -281,3 +281,26 @@ def test_a_durable_store_is_written_back_after_a_streamed_turn(client, monkeypat
     token = open_chat(client)
     ask_stream(client, token)
     assert saved == [token]
+
+
+def test_follow_ups_reach_the_page_in_the_done_event(client, monkeypatch):
+    """They arrive with the authoritative reply, not mid-stream: they are
+    the least urgent part and the model writes them last."""
+    suggestions = ("ما خطط التخفيف؟", "من يملك أعلى مخاطرة؟")
+
+    def fake_ask(self, text, on_text=None, **_kw):
+        if on_text is not None:
+            on_text(WHOLE)
+        reply = conv.Reply(text=WHOLE, outcome=conv.OUTCOME_ANSWERED,
+                           intent="project_question", language="ar",
+                           reply_language="ar", follow_ups=suggestions)
+        self._turns.append(conv.Turn(question=text, reply=reply))
+        return reply
+
+    monkeypatch.setattr(conv.Conversation, "ask", fake_ask)
+    response = ask_stream(client, open_chat(client))
+    parsed = events(response)
+    assert all(name != "text" or "خطط" not in p["text"]
+               for name, p in parsed if name == "text")
+    done = [p for name, p in parsed if name == "done"][0]
+    assert done["follow_ups"] == list(suggestions)

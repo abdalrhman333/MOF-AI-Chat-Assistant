@@ -220,6 +220,7 @@ def _reply_out(reply: Reply) -> schemas.ReplyOut:
                 as_of=c.as_of,
             ) for c in reply.citations
         ],
+        follow_ups=list(reply.follow_ups),
         timings=schemas.TimingsOut(**reply.timings.as_dict()),
     )
 

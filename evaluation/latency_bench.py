@@ -26,7 +26,13 @@ that used to be quoted as a failure.
 
 The question set is `evaluation/questions.json` — the same real questions
 the retrieval evaluation uses, so this measures work the system actually
-does. Projects with no assignment cannot have a session opened at all
+does — **plus `evaluation/register_questions.json`**, which is answered
+from the registers rather than retrieved. That second file exists because
+§25b reported AC08 failing on register questions while this benchmark
+contained none of them: the tool meant to catch that regression could not
+have. ⚠️ It is appended here and never merged into the retrieval set,
+which would score every one of its questions as a miss. `--no-registers`
+measures the retrieval set alone, as this did before 2026-11-08. Projects with no assignment cannot have a session opened at all
 (AC09), so their questions are skipped and reported as skipped rather than
 silently dropped.
 
@@ -57,6 +63,9 @@ from pipeline.config import Settings, get_settings
 from pipeline.db import admin_connection
 
 BUDGET_SECONDS = 5.0
+
+# Sits beside the retrieval question set. See `run` for why it is separate.
+REGISTER_QUESTIONS_FILENAME = "register_questions.json"
 
 
 def assigned_users(connection) -> dict[str, str]:
@@ -119,9 +128,24 @@ def plan(questions, users: dict[str, str]) -> tuple[list, list[dict]]:
 
 
 def run(settings: Settings | None = None, *, limit: int | None = None,
-        cold: bool = False, warm: bool = True, stream: bool = False) -> dict:
+        cold: bool = False, warm: bool = True, stream: bool = False,
+        registers: bool = True) -> dict:
     settings = settings or get_settings()
     dataset = load(settings.evaluation.questions_path)
+    questions_all = list(dataset.questions)
+
+    # ⚠️ The register questions live in their own file and are appended
+    # here, never merged into the retrieval set. They are answered from SQL
+    # rows and retrieve nothing, so `retrieval_eval` would score every one
+    # of them as a miss. They are in this benchmark because §25b reported
+    # AC08 failing on exactly this kind of question while the set measured
+    # here contained none of them — the tool that should have caught that
+    # regression could not have.
+    register_path = settings.evaluation.questions_path.with_name(
+        REGISTER_QUESTIONS_FILENAME)
+    if registers and register_path.is_file():
+        questions_all += load(register_path, require_documents=False,
+                              kind="register").questions
 
     with admin_connection() as connection:
         users = assigned_users(connection)
@@ -134,7 +158,7 @@ def run(settings: Settings | None = None, *, limit: int | None = None,
     else:
         warmup = None
 
-    questions = dataset.questions[:limit] if limit else dataset.questions
+    questions = questions_all[:limit] if limit else questions_all
     runnable, skipped = plan(questions, users)
 
     results = []
@@ -163,7 +187,8 @@ def run(settings: Settings | None = None, *, limit: int | None = None,
 
         results.append({
             "id": question.id, "project": question.project,
-            "lang": question.lang, "outcome": reply.outcome,
+            "lang": question.lang, "kind": question.kind,
+            "outcome": reply.outcome,
             "total_ms": round(elapsed), "embed_ms": reply.timings.embed_ms,
             "search_ms": reply.timings.search_ms,
             "spm_ms": reply.timings.spm_ms, "llm_ms": reply.timings.llm_ms,
@@ -199,6 +224,15 @@ def run(settings: Settings | None = None, *, limit: int | None = None,
         summary["by_language"][lang] = {
             "n": len(subset), "p50_ms": round(percentile(subset, 0.50)),
             "p95_ms": round(percentile(subset, 0.95)),
+        }
+    summary["by_kind"] = {}
+    for kind in sorted({r["kind"] for r in results}):
+        subset = [r["total_ms"] for r in results if r["kind"] == kind]
+        summary["by_kind"][kind] = {
+            "n": len(subset), "p50_ms": round(percentile(subset, 0.50)),
+            "p95_ms": round(percentile(subset, 0.95)), "max_ms": max(subset),
+            "within_budget": sum(1 for t in subset
+                                 if t <= BUDGET_SECONDS * 1000),
         }
     firsts = [r["first_text_ms"] for r in results
               if r["first_text_ms"] is not None]
@@ -240,6 +274,13 @@ def _print(summary: dict) -> None:
         print(f"      within      : {first['within_budget']}/{first['n']}")
         print("      ⚠ reported beside the total, never instead of it —"
               " AC08 budgets the whole turn.")
+    if summary.get("by_kind"):
+        print("\n  by question kind:")
+        for kind, bucket in summary["by_kind"].items():
+            print(f"      {kind:<10} n={bucket['n']:<3} "
+                  f"p50={bucket['p50_ms']:>5} p95={bucket['p95_ms']:>5} "
+                  f"max={bucket['max_ms']:>5} "
+                  f"within={bucket['within_budget']}/{bucket['n']}")
     if summary["by_language"]:
         print("\n  by language:")
         for lang, bucket in summary["by_language"].items():
@@ -266,6 +307,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-warmup", action="store_true",
                         help="warm nothing; pay setup on the first question")
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--no-registers", action="store_true",
+                        help="measure only the retrieval question set, as "
+                             "this benchmark did before 2026-11-08")
     parser.add_argument("--stream", action="store_true",
                         help="measure the streamed path, and report time to "
                              "first text beside the total")
@@ -273,6 +317,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         summary = run(limit=args.limit, cold=args.cold, stream=args.stream,
+                      registers=not args.no_registers,
                       warm=not args.no_warmup)
     finally:
         db.close_pool()

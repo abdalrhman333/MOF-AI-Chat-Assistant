@@ -17,6 +17,9 @@ Application/
     answer.py       THE SYSTEM PROMPT — the whole router — plus the LLM
                     call and citation resolution (AC01, AC02, AC05-AC07)
     messages.py     the only two strings the model does not write
+    answer.py also bounds `follow_ups`: up to three suggested next
+                    questions, empty after a refusal. The model proposes;
+                    what reaches the screen is decided here
     streaming.py    reads the answer out of the strict-schema JSON while
                     it is still arriving. A PREVIEW, never the authority:
                     the complete document is parsed at the end and that

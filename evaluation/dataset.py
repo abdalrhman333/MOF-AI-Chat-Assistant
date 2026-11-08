@@ -39,6 +39,11 @@ class Question:
     # therefore "any expected document appeared", not "the one did".
     expect_documents: tuple[str, ...]
     note: str = ""
+    # "retrieval" for the main set, which is tagged with the documents that
+    # answer it. "register" for questions answered from SQL rows, which
+    # retrieve nothing by design and so cannot be scored for retrieval
+    # quality — they exist for the latency budget. See `load`.
+    kind: str = "retrieval"
 
 
 @dataclass
@@ -65,11 +70,20 @@ class Dataset:
         ]
 
 
-def load(path: pathlib.Path) -> Dataset:
+def load(path: pathlib.Path, *, require_documents: bool = True,
+         kind: str = "retrieval") -> Dataset:
     """Read and structurally validate the question set.
 
     Every failure names the question id, because a 30-entry file with one
     bad row is otherwise debugged by bisection.
+
+    `require_documents=False` loads a set whose questions are answered from
+    the registers — SQL rows, never retrieval — so there is no document
+    that "should" come back and `expect_documents` is legitimately empty.
+    ⚠️ Such a set must never be scored by `retrieval_eval`: every question
+    in it would count as a miss, and the baseline would fall for a reason
+    that has nothing to do with retrieval. It is loaded by
+    `latency_bench`, which measures time and does not care what answered.
     """
     if not path.is_file():
         raise DatasetError(
@@ -89,7 +103,10 @@ def load(path: pathlib.Path) -> Dataset:
     questions: list[Question] = []
     for index, entry in enumerate(entries):
         where = entry.get("id") or f"entry #{index}"
-        for required in ("id", "project", "lang", "question", "expect_documents"):
+        required_fields = ["id", "project", "lang", "question"]
+        if require_documents:
+            required_fields.append("expect_documents")
+        for required in required_fields:
             if not entry.get(required):
                 raise DatasetError(f"{where}: missing or empty {required!r}")
         if entry["id"] in seen:
@@ -99,13 +116,13 @@ def load(path: pathlib.Path) -> Dataset:
             raise DatasetError(
                 f"{where}: lang {entry['lang']!r} is not one of {LANGUAGES}"
             )
-        expected = entry["expect_documents"]
+        expected = entry.get("expect_documents", [])
         if not isinstance(expected, list) or not all(isinstance(e, str) for e in expected):
             raise DatasetError(f"{where}: expect_documents must be a list of filenames")
         questions.append(Question(
             id=entry["id"], project=entry["project"], lang=entry["lang"],
             text=entry["question"], expect_documents=tuple(expected),
-            note=entry.get("note", ""),
+            note=entry.get("note", ""), kind=kind,
         ))
     return Dataset(path=path, questions=questions)
 

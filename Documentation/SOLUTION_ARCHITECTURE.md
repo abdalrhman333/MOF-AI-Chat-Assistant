@@ -875,6 +875,36 @@ instead of it. Judging the requirement on the first number would be
 redefining it to make it pass. See `STATUS_AND_ROADMAP.md` §29b, including
 why the failure this work was meant to fix did not reproduce.
 
+### 4.18 Follow-up suggestions are bounded, not trusted (2026-11-08)
+
+Each answer may carry up to three questions to ask next, written by the
+model in the language of the reply. `follow_ups` sits **last** in the
+response schema: a strict schema is generated in order, so anything before
+`answer` delays the first character the reader sees, and these are the
+least urgent part of the reply.
+
+They are the first free-text field besides the answer itself, which makes
+them a boundary rather than a feature. What reaches the screen is bounded
+in code — at most three, de-duplicated, newlines collapsed, trimmed rather
+than dropped, and a malformed field yields none instead of raising.
+
+⚠️ **A refusal carries none**, by the same rule that strips its citations:
+a suggestion under "that is outside this project" invites the user
+straight back into what was just declined.
+
+⚠️ **They are not a privileged channel.** A click sends the text as an
+ordinary message, through the same gate and the same classification as
+anything typed, and the label is inserted as text. So the worst a poisoned
+suggestion can do is propose a question the assistant then answers
+normally or refuses — it cannot widen a scope that was fixed before
+retrieval ran.
+
+Widening the response schema is the thing
+`test_the_schema_makes_a_fabricated_source_structurally_impossible` exists
+to prevent, and it was updated deliberately rather than worked around.
+`follow_ups` is admissible because it carries no source metadata. A field
+naming a filename, page or section would not be.
+
 ---
 
 ## 5. Relationship to the colleague's RiskIntel platform

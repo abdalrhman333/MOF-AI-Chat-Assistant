@@ -63,6 +63,7 @@ def _reply_to_dict(reply: Reply) -> dict:
         "language": reply.language, "reply_language": reply.reply_language,
         "reason": reply.reason,
         "timings": reply.timings.as_dict(),
+        "follow_ups": list(reply.follow_ups),
         "citations": [
             {"source": c.source, "number": c.number, "filename": c.filename,
              "doc_type": c.doc_type, "page": c.page, "section": c.section,
@@ -86,6 +87,7 @@ def _reply_from_dict(raw: dict) -> Reply:
         intent=raw.get("intent", ""), language=raw.get("language", ""),
         reply_language=raw.get("reply_language", ""),
         reason=raw.get("reason", ""), timings=timings,
+        follow_ups=tuple(raw.get("follow_ups", ())),
         citations=[Citation(**c) for c in raw.get("citations", [])],
     )
 
