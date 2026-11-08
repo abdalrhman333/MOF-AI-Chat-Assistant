@@ -459,7 +459,14 @@ def test_timings_are_recorded_for_every_phase():
     assert t.embed_ms >= 0 and t.search_ms >= 0 and t.llm_ms >= 0
     assert t.total_ms == t.embed_ms + t.search_ms + t.spm_ms + t.llm_ms
     assert set(t.as_dict()) == {"embed_ms", "search_ms", "spm_ms",
-                                "llm_ms", "total_ms"}
+                                "llm_ms", "total_ms",
+                                "first_token_ms", "time_to_first_text_ms"}
+    # ⚠️ Streaming added the two first-text numbers; it did not change what
+    # `total_ms` means. A turn that was not streamed has no first-text
+    # number at all, rather than a zero that would average into a flattering
+    # figure.
+    assert t.first_token_ms is None
+    assert t.time_to_first_text_ms is None
 
 
 def test_the_answer_reports_which_project_it_came_from():

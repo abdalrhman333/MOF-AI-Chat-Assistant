@@ -119,7 +119,7 @@ def plan(questions, users: dict[str, str]) -> tuple[list, list[dict]]:
 
 
 def run(settings: Settings | None = None, *, limit: int | None = None,
-        cold: bool = False, warm: bool = True) -> dict:
+        cold: bool = False, warm: bool = True, stream: bool = False) -> dict:
     settings = settings or get_settings()
     dataset = load(settings.evaluation.questions_path)
 
@@ -146,8 +146,19 @@ def run(settings: Settings | None = None, *, limit: int | None = None,
                             "why": f"{type(exc).__name__}"})
             continue
 
+        # `on_text` is what switches the completion to a streamed one. The
+        # turn is otherwise identical, which is the point: the two modes
+        # have to stay comparable or this stops measuring one system.
+        first_text_at: list[float] = []
         started = time.perf_counter()
-        reply = handle_question(session, question.text, settings=settings)
+        if stream:
+            def note(_piece, _at=started, _into=first_text_at):
+                if not _into:
+                    _into.append((time.perf_counter() - _at) * 1000)
+            reply = handle_question(session, question.text, settings=settings,
+                                    on_text=note)
+        else:
+            reply = handle_question(session, question.text, settings=settings)
         elapsed = (time.perf_counter() - started) * 1000
 
         results.append({
@@ -156,6 +167,10 @@ def run(settings: Settings | None = None, *, limit: int | None = None,
             "total_ms": round(elapsed), "embed_ms": reply.timings.embed_ms,
             "search_ms": reply.timings.search_ms,
             "spm_ms": reply.timings.spm_ms, "llm_ms": reply.timings.llm_ms,
+            # None on a non-streamed run, and on a streamed turn that
+            # produced no text at all. Never 0, which would average in as a
+            # flattering measurement that never happened.
+            "first_text_ms": round(first_text_at[0]) if first_text_at else None,
             "within_budget": elapsed <= BUDGET_SECONDS * 1000,
         })
 
@@ -164,6 +179,7 @@ def run(settings: Settings | None = None, *, limit: int | None = None,
         "n": len(results),
         "skipped": skipped,
         "cold": cold,
+        "stream": stream,
         "warmup": warmup,
         "budget_ms": int(BUDGET_SECONDS * 1000),
         "within_budget": sum(r["within_budget"] for r in results),
@@ -184,6 +200,19 @@ def run(settings: Settings | None = None, *, limit: int | None = None,
             "n": len(subset), "p50_ms": round(percentile(subset, 0.50)),
             "p95_ms": round(percentile(subset, 0.95)),
         }
+    firsts = [r["first_text_ms"] for r in results
+              if r["first_text_ms"] is not None]
+    summary["first_text"] = {
+        "n": len(firsts),
+        "p50_ms": round(percentile(firsts, 0.50)) if firsts else 0,
+        "p95_ms": round(percentile(firsts, 0.95)) if firsts else 0,
+        "max_ms": max(firsts) if firsts else 0,
+        "within_budget": sum(1 for f in firsts if f <= BUDGET_SECONDS * 1000),
+    } if firsts else None
+    # ⚠️ The verdict is on the WHOLE turn, always. Streaming changes when
+    # the reader sees the first words, and AC08 budgets the answer. Judging
+    # this on time-to-first-text would be redefining the requirement to
+    # make it pass.
     summary["ok"] = verdict(totals, summary["budget_ms"])
     return summary
 
@@ -191,6 +220,8 @@ def run(settings: Settings | None = None, *, limit: int | None = None,
 def _print(summary: dict) -> None:
     state = "WITHIN BUDGET" if summary["ok"] else "OVER BUDGET"
     mode = "cold (clients reset)" if summary["cold"] else "warm (clients pre-built)"
+    if summary.get("stream"):
+        mode += ", streamed"
     print(f"AC08 latency — {summary['n']} turns, {mode} — {state}\n")
     if summary.get("warmup"):
         print(f"  warmup      : {summary['warmup']}\n")
@@ -202,6 +233,13 @@ def _print(summary: dict) -> None:
         print("  mean per phase:")
         for phase, value in summary["phases"].items():
             print(f"      {phase:<12} {value:>6} ms")
+    first = summary.get("first_text")
+    if first:
+        print("\n  time to first text (what the reader waits):")
+        print(f"      p50 / p95   : {first['p50_ms']} / {first['p95_ms']} ms")
+        print(f"      within      : {first['within_budget']}/{first['n']}")
+        print("      ⚠ reported beside the total, never instead of it —"
+              " AC08 budgets the whole turn.")
     if summary["by_language"]:
         print("\n  by language:")
         for lang, bucket in summary["by_language"].items():
@@ -228,10 +266,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-warmup", action="store_true",
                         help="warm nothing; pay setup on the first question")
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--stream", action="store_true",
+                        help="measure the streamed path, and report time to "
+                             "first text beside the total")
     args = parser.parse_args(argv)
 
     try:
-        summary = run(limit=args.limit, cold=args.cold,
+        summary = run(limit=args.limit, cold=args.cold, stream=args.stream,
                       warm=not args.no_warmup)
     finally:
         db.close_pool()

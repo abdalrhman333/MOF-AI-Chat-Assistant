@@ -77,6 +77,11 @@ class TimingsOut(BaseModel):
     spm_ms: int
     llm_ms: int
     total_ms: int
+    # Only a streamed turn has these. `None` rather than 0, because a zero
+    # would average into a flattering figure alongside real measurements.
+    # ⚠️ They do not replace `total_ms`: AC08's budget is the whole turn.
+    first_token_ms: int | None = None
+    time_to_first_text_ms: int | None = None
 
 
 class ConversationOut(BaseModel):

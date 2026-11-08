@@ -111,13 +111,27 @@ export function load({ fetch = async () => ({ ok: true, status: 200, json: async
     document, fetch, console, ...(storage ? { localStorage: storage } : {}),
     confirm: () => true, alert: () => {},
     setTimeout, clearTimeout, encodeURIComponent, JSON, Promise, Error, Math, Date,
+    // The streaming reply is read off the fetch body as bytes, so the page
+    // needs the same decoder a browser gives it.
+    TextDecoder, Uint8Array,
   });
+  // ⚠️ The page ends in a floating `start()` that calls /api/auth/me and may
+  // then enter the app, clearing the chat. Nothing awaits it, so how far it
+  // has got when a test makes its assertions used to depend on how many
+  // await points the function under test happened to contain — streaming
+  // `ask` added several and silently broke eight tests that had been
+  // passing by luck. `settled` drains it once, up front, so a test starts
+  // from a page that has finished booting.
+  const settled = async () => {
+    for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0));
+  };
   vm.runInContext(`${script}\n;globalThis.__ = { t, api, ask, bubble, ` +
     `renderChips, endSession, toLogin, renderTopbar, renderKb, openPicker, ` +
     `switchProject, recentProjects, rememberProject, startConversation, ` +
+    `restoreSession, restoreConversation, ` +
     `showView, applyLanguage, renderWho, toggleUserMenu, closeUserMenu, ` +
     `set: (k, v) => { eval(k + " = v"); }, get: (k) => eval(k) };`, ctx);
-  return { ...ctx.__, document, el: (id) => document.getElementById(id) };
+  return { ...ctx.__, document, settled, el: (id) => document.getElementById(id) };
 }
 
 /** A minimal Web Storage, or one that refuses every call. */
@@ -147,7 +161,36 @@ export function stub(answers) {
     const a = answers[key] ?? { status: 200, body: {} };
     return { ok: a.status < 400, status: a.status,
              json: async () => { if (a.bad) throw new Error("not json");
-                                 return a.body ?? {}; } };
+                                 return a.body ?? {}; },
+             body: a.events === undefined ? undefined : sseBody(a.events,
+                                                               a.chunk) };
   };
   return { fetch, calls };
+}
+
+/** A fetch body that yields Server-Sent Events, the way the stream route does.
+ *
+ * `chunk` splits the encoded stream into pieces of that many bytes, so a test
+ * can put a boundary in the middle of an event — the case the page's parser
+ * exists to handle and the one a tidy one-event-per-read stub would never
+ * produce.
+ */
+export function sseBody(events, chunk) {
+  const text = events.map(([name, data]) =>
+    `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`).join("");
+  const bytes = new TextEncoder().encode(text);
+  const size = chunk || bytes.length;
+  let offset = 0;
+  return {
+    getReader() {
+      return {
+        async read() {
+          if (offset >= bytes.length) return { done: true, value: undefined };
+          const value = bytes.slice(offset, offset + size);
+          offset += size;
+          return { done: false, value };
+        },
+      };
+    },
+  };
 }

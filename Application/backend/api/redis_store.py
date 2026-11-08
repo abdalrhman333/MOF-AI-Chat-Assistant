@@ -36,6 +36,7 @@ do it.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import secrets
@@ -72,8 +73,14 @@ def _reply_to_dict(reply: Reply) -> dict:
 
 
 def _reply_from_dict(raw: dict) -> Reply:
+    # `as_dict` includes derived values (`total_ms`, and the first-text
+    # numbers added with streaming) which are properties, not fields.
+    # Asking the dataclass which names it accepts beats listing them here:
+    # the previous version excluded `total_ms` by name and broke the moment
+    # a second derived value appeared.
+    accepted = {f.name for f in dataclasses.fields(Timings)}
     timings = Timings(**{k: v for k, v in raw.get("timings", {}).items()
-                         if k != "total_ms"})
+                         if k in accepted})
     return Reply(
         text=raw.get("text", ""), outcome=raw.get("outcome", ""),
         intent=raw.get("intent", ""), language=raw.get("language", ""),

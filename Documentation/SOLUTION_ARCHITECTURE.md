@@ -837,6 +837,44 @@ when it missed a tick while Docker was off — retries a stage that cannot
 by SQLSTATE: a cancelled query or a deadlock is an `OperationalError` too,
 and must not be retried as though the server were away.
 
+### 4.17 Streaming is one code path with a callback (2026-11-08)
+
+Answers appear as the model writes them. The design constraint was that
+this must **not** become a second way of answering a question: a streamed
+turn that behaved differently from the measured one would make every
+measurement a claim about something users do not use, and would give AC09
+two routes to be right about instead of one.
+
+So `answer_question` takes an optional `on_text` callback, and that is the
+entire difference. The callback switches the completion to a streamed one;
+the raw JSON is still accumulated, still parsed by `parse_response`, and
+still produces the same `Answer`. `handle_question` and `Conversation.ask`
+already passed unknown keyword arguments through, so nothing between them
+changed. The HTTP route runs the same `Conversation.ask` on a worker
+thread — inside a copy of the request's context, so the turn's spans stay
+attached to the request's trace — and relays the pieces as Server-Sent
+Events.
+
+**Why the answer can be read before the document is complete.** The model
+returns one strict-schema JSON object, and `RESPONSE_SCHEMA` lists
+`language` and `intent` *before* `answer`: the classification is settled
+before the first character of text, and `used_passages` — which every
+citation is rebuilt from — arrives after the text is finished. So the
+order on screen is text first, citations at the end, which is also the
+order a reader wants. No prompt or schema change was needed, and the
+router evaluation did not have to be re-run.
+
+⚠️ **The incremental reader is a preview, never an authority.** Nothing it
+produces decides anything: the complete JSON is parsed at the end, and
+that parse owns the citations, the language and the intent. If the two
+ever disagreed, the parse wins — it is the one that validates.
+
+⚠️ **Streaming does not make a slow answer fast, and AC08 still budgets
+the whole turn.** Time to first text is reported beside the total, never
+instead of it. Judging the requirement on the first number would be
+redefining it to make it pass. See `STATUS_AND_ROADMAP.md` §29b, including
+why the failure this work was meant to fix did not reproduce.
+
 ---
 
 ## 5. Relationship to the colleague's RiskIntel platform

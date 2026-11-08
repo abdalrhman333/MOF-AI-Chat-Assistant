@@ -541,7 +541,7 @@ What it walks into, flagged in advance:
 correcting three times when it was inferred instead.)*
 
 That one command covers the **frontend** too: `test_frontend.py` shells out
-to `node --test` for the 79 JavaScript tests in `tests/frontend/`. They
+to `node --test` for the 95 JavaScript tests in `tests/frontend/`. They
 stay JavaScript because the thing under test is — testing the real page
 script through a Python approximation would be testing the approximation —
 and they **skip rather than fail** where node is absent, since nothing else
@@ -802,9 +802,133 @@ time.
 
 ---
 
+## 29. Streaming — built, measured, and the premise it rested on did not reproduce (2026-11-08)
+
+**Tests: 968 Python** (779 + 189), plus 95 JavaScript. **Mutations: 29 of
+29 caught** — after four real gaps were found and closed on the first pass.
+
+Answers now appear as the model writes them. The headline, stated before
+the detail because it is the part that matters: **streaming works and
+helps, but the AC08 failure it was built to fix could not be reproduced.**
+
+### 29a. How it is built: one path, not two
+
+`answer_question(..., on_text=cb)` is the whole difference. The callback
+switches the completion to a streamed one; the raw JSON is still
+accumulated, still parsed by `parse_response`, and still produces the same
+`Answer`. There is deliberately **no second code path**, because the moment
+a streamed turn behaves differently from a measured one, every measurement
+here becomes a claim about something users do not use. `handle_question`
+and `Conversation.ask` already passed unknown keyword arguments through, so
+the backend needed no plumbing at all.
+
+The reader is `Application/backend/streaming.py`. The model returns one
+strict-schema JSON object, so something has to pull the `answer` field out
+of a document that is not finished. It works because `RESPONSE_SCHEMA`
+already lists `language` and `intent` **before** `answer`: the
+classification is settled before the first character of text, and
+`used_passages` — which every citation is rebuilt from — arrives after the
+text is complete. Text first, citations at the end, which is also the right
+order for the reader. **No prompt or schema change**, so `router_eval` did
+not need re-running.
+
+⚠️ **The reader is a preview, never an authority.** The complete JSON is
+still parsed at the end, and that parse produces the citations, the
+language and the intent. If the two ever disagreed, the parse wins.
+
+`POST /api/conversations/{token}/messages/stream` delivers it as
+Server-Sent Events. `EventSource` cannot be used — it only issues GET and
+carries no body, and the question has to be POSTed.
+
+### 29b. What the measurements actually said
+
+Register questions, measured in-process through `handle_question` exactly
+as `latency_bench` does, alternating modes:
+
+| | mean | max | over the 5 s budget |
+|---|---|---|---|
+| not streamed | 2.94 s | 3.58 s | **0 of 7** |
+| streamed, whole turn | 2.05 s | 2.80 s | **0 of 7** |
+| streamed, to first text | 1.67 s | 1.98 s | **0 of 7** |
+
+§25b recorded **4.1–6.3 s and four of seven over budget** for this kind of
+question. Today the *non-streamed* path measures 2.59–3.58 s. **The failure
+did not reproduce**, so the justification for this work is not currently
+observable. Whether §25b met different conditions — a slower hour at the
+endpoint, a longer conversation, a different project — is not something
+this session can establish, and it is recorded as unresolved rather than
+written off.
+
+`latency_bench` on the standard set: 18/18 within budget, p95 **2942 ms**
+streamed and **3060 ms** not. It gained `--stream`, which reports time to
+first text beside the total. ⚠️ **The verdict is still on the whole turn.**
+Judging AC08 on time-to-first-text would be redefining the requirement to
+make it pass, so the two numbers are printed together and the exit code
+follows the total.
+
+Streaming is still worth having: it cut the mean turn from 2.94 s to
+2.05 s, and the reader now waits 1.67 s rather than 2.94 s.
+
+### 29c. Three things found by measuring, none of them the thing being measured
+
+**1. `latency_bench` never covered the questions that broke the budget.**
+The register questions are not in `evaluation/questions.json`, so the tool
+that exists to catch an AC08 regression could not have caught the one §25b
+reported. Still true — the measurement above was a one-off script.
+
+**2. Every HTTP measurement on this machine carries a flat ~2.05 s that
+has nothing to do with the system.** `http://localhost:8000/health` — a
+route that does nothing — takes **2052 ms**, while
+`http://127.0.0.1:8000/health` takes **13 ms**. It is IPv6 resolution
+stalling before the fallback, entirely client-side. It inflated this
+session's first round of HTTP benchmarks by exactly that much on both
+routes. ⚠️ **Benchmark against `127.0.0.1`, never `localhost`.**
+`latency_bench` is unaffected: it calls `handle_question` in-process, so
+§25b's numbers were never touched by this.
+
+**3. Streaming added no overhead of its own.** Measured by alternating the
+two routes over HTTP: the ~2.05 s gap was identical on both (2.04–2.07 s),
+which is how it was identified as the client's and not the change's.
+
+### 29d. Four real gaps the first mutation pass found
+
+Six mutations survived the first run; two were invalid (no-op rewrites of
+my own), and **four were genuine holes in the new tests**:
+
+- **Folding first-token time into `total_ms` changed nothing**, because a
+  stubbed turn answers instantly and `first_token_ms` measures 0. Now
+  asserted on a hand-built `Timings` with a real value.
+- **Deleting the store write-back changed nothing**, because the in-memory
+  store holds the live conversation and records the turn regardless. Now
+  tested with a durable store that records whether `save` was called.
+- **Never clearing the typing dots changed nothing**, because the completed
+  reply resets the whole class attribute anyway. Now asserted mid-stream,
+  before `done`.
+- **`bubble()`'s citation rendering lost its coverage.** Streaming moved
+  every citation assertion onto the new finisher, leaving the path that
+  renders a conversation restored after a refresh untested. It is not dead
+  code — it runs on every page refresh — and it now has its own test.
+
+### 29e. Two defects the change itself caused
+
+**1. The Redis store stopped being able to restore a turn.**
+`_reply_from_dict` rebuilt `Timings` from `as_dict()` while excluding the
+one derived key *by name*; a second derived key made it raise `TypeError`.
+It now asks the dataclass which names it accepts. Caught by the existing
+tests, which is what they are for.
+
+**2. Eight frontend tests had been passing by luck.** The page ends in a
+floating `start()` that nothing awaits, so how far it had got when a test
+asserted depended on how many await points the function under test
+happened to contain. Streaming `ask` added several, and the boot sequence
+began completing mid-test and clearing the chat. The harness now drains it
+once, up front, so tests no longer depend on that accident.
+
+---
+
 ## 28. The repository is pushed, and has a landing page (2026-11-08)
 
-**Tests: 779 Python** (773 + 6), plus 79 JavaScript. **Mutations: 8 of 9
+**Tests: 779 Python** (773 + 6), plus 95 JavaScript. **Mutations: 8 of 9
 caught; the ninth was not a defect** — see below.
 
 All 113 commits are on `github.com/abdalrhman333/MOF-AI-Chat-Assistant`
@@ -853,7 +977,7 @@ worth explaining rather than explaining away.
 
 ## 27. A live credential in a tracked migration (2026-11-08)
 
-**Tests: 773 Python** (762 + 11), plus 79 JavaScript. **Mutations: 8 of 8
+**Tests: 773 Python** (762 + 11), plus 95 JavaScript. **Mutations: 8 of 8
 caught.** 21 migrations.
 
 Found by auditing the tree before the first push to a remote, which is the
@@ -949,7 +1073,7 @@ scans every migration except the retired 013 and fails on a literal
 
 ## 26. Making the move reproducible, and a claim that was wrong (2026-11-08)
 
-**Tests: 762 Python** (745 + 17), plus 79 JavaScript. **Mutations: 17 of 17
+**Tests: 762 Python** (745 + 17), plus 95 JavaScript. **Mutations: 17 of 17
 caught, 0 survived.**
 
 The question was how to move the whole solution to another device. The
@@ -1060,7 +1184,7 @@ because it is a weaker guard than the others, not an equal one.
 
 ## 25. The four registers — BRD v1.1 §5.3.6's missing inputs (2026-11-03)
 
-**Tests: 745 Python, plus 79 JavaScript.** Router eval re-run after the
+**Tests: 745 Python, plus 95 JavaScript.** Router eval re-run after the
 prompt change: **PASS, language 0.966, intent 0.966.**
 
 The UC3 sheet of the SPM input data schema quotes **BRD v1.1 (14/09/2026)**,
@@ -1140,6 +1264,15 @@ without changing the number; shortening the answers would trade away what
 was just gained. **AC08 is currently not met for register questions, and
 that is recorded here rather than rounded off.**
 
+> **Superseded, 2026-11-08 (§29b).** Streaming was built, and these same
+> seven questions were measured again: **2.59–3.58 s without streaming**,
+> 0 of 7 over budget. The failure above did not reproduce, so the
+> diagnosis in this paragraph — that the remaining cost is output length —
+> is not supported by the later measurement either: generation is a small
+> part of the turn. What differed between the two sessions is unresolved.
+> Nothing here is deleted, because the measurement was real when it was
+> taken; it is simply no longer what the system does today.
+
 ### 25c. Mutation testing
 
 Fifteen mutations, all caught — but **four survived the first pass, and all
@@ -1155,7 +1288,7 @@ cut. Four tests were added for the call paths themselves.
 
 ## 24. The MOF redesign, content in every trace, and a Docker that kept dying (2026-09-14)
 
-**Tests: 723 Python, plus 79 JavaScript.**
+**Tests: 723 Python, plus 95 JavaScript.**
 
 ### 24a. The UI now follows the MOF design screens
 

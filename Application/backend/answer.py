@@ -57,6 +57,7 @@ from Application.backend.registers import Registers
 from Application.backend.registers import fetch as fetch_registers
 from Application.backend.spm import ProjectRecord
 from Application.backend.spm import fetch as fetch_project
+from Application.backend.streaming import AnswerTextStream
 from pipeline.chunker import count_tokens
 from pipeline.config import Settings, get_settings
 
@@ -297,15 +298,36 @@ class Timings:
     search_ms: int = 0
     spm_ms: int = 0
     llm_ms: int = 0
+    # Milliseconds from the start of the completion to the first character
+    # the reader can see. Only a streamed turn has one; None on every
+    # other, which is why it is not folded into `total_ms`.
+    first_token_ms: int | None = None
 
     @property
     def total_ms(self) -> int:
         return self.embed_ms + self.search_ms + self.spm_ms + self.llm_ms
 
+    @property
+    def time_to_first_text_ms(self) -> int | None:
+        """What the user actually waits before the answer starts appearing.
+
+        ⚠️ This does **not** replace `total_ms`, and streaming does not make
+        a slow answer fast. The budget in AC08 is measured against the whole
+        turn; this measures the wait the reader experiences. Both are
+        recorded so the difference stays visible rather than being quietly
+        redefined — see STATUS_AND_ROADMAP §25b.
+        """
+        if self.first_token_ms is None:
+            return None
+        return (self.embed_ms + self.search_ms + self.spm_ms
+                + self.first_token_ms)
+
     def as_dict(self) -> dict:
         return {"embed_ms": self.embed_ms, "search_ms": self.search_ms,
                 "spm_ms": self.spm_ms, "llm_ms": self.llm_ms,
-                "total_ms": self.total_ms}
+                "total_ms": self.total_ms,
+                "first_token_ms": self.first_token_ms,
+                "time_to_first_text_ms": self.time_to_first_text_ms}
 
 
 @dataclass
@@ -533,6 +555,46 @@ def build_llm(settings: Settings):
     )
 
 
+def _stream_completion(llm, request: dict, on_text):
+    """Run the completion as a stream, previewing the answer as it arrives.
+
+    Returns the complete raw JSON, the usage object and the milliseconds to
+    the first displayable character — which is the number streaming exists
+    to change. Total time is unchanged by streaming and still measured as
+    `llm_ms`; both are kept because reporting only the flattering one would
+    be dishonest about AC08.
+
+    `stream_options={"include_usage": True}` is what keeps token accounting
+    working: without it a streamed response carries no usage at all and
+    every streamed turn would silently report zero tokens.
+    """
+    reader = AnswerTextStream()
+    chunks: list[str] = []
+    usage = None
+    first_token_ms = None
+    started = time.perf_counter()
+
+    stream = llm.chat.completions.create(
+        **request, stream=True, stream_options={"include_usage": True})
+    for event in stream:
+        # The usage-only final event carries no choices.
+        if getattr(event, "usage", None) is not None:
+            usage = event.usage
+        for choice in getattr(event, "choices", None) or []:
+            piece = getattr(getattr(choice, "delta", None), "content", None)
+            if not piece:
+                continue
+            chunks.append(piece)
+            visible = reader.feed(piece)
+            if visible:
+                if first_token_ms is None:
+                    first_token_ms = int(
+                        (time.perf_counter() - started) * 1000)
+                on_text(visible)
+
+    return "".join(chunks).strip(), usage, first_token_ms
+
+
 def answer_question(
     session: Session,
     question: str,
@@ -547,8 +609,21 @@ def answer_question(
     connection=None,
     user_name: str | tuple[str, str] = "",
     history: list[tuple[str, str]] | None = None,
+    on_text=None,
 ) -> Answer:
     """Answer one message about one project, with citations.
+
+    `on_text`, when given, is called with pieces of the answer as the model
+    writes them, and switches the completion to a streamed one. **It is the
+    only difference between a streamed turn and a normal one.** There is
+    deliberately no second code path: the full JSON is still accumulated,
+    still parsed by `parse_response`, and still produces exactly the same
+    `Answer`, so citations, tracing, history and the AC09 scope cannot
+    drift between the two modes — a streamed turn that behaved differently
+    from a measured one would make every measurement here a lie.
+
+    ⚠️ What `on_text` receives is a *preview*. The authority is still the
+    parse at the end; see `streaming.py`.
 
     **The model sees every message.** There used to be a branch here that
     refused without spending a completion when nothing cleared the relevance
@@ -613,21 +688,27 @@ def answer_question(
         # ObservabilitySettings — a trace store has no notion of AC09.
         tracing.record_content(current, settings.observability.capture_content,
                                input=messages)
+        request = dict(
+            model=settings.models.llm_deployment,
+            messages=messages,
+            max_completion_tokens=answering.max_completion_tokens,
+            temperature=answering.temperature,
+            response_format=RESPONSE_SCHEMA,
+        )
         try:
-            response = llm.chat.completions.create(
-                model=settings.models.llm_deployment,
-                messages=messages,
-                max_completion_tokens=answering.max_completion_tokens,
-                temperature=answering.temperature,
-                response_format=RESPONSE_SCHEMA,
-            )
+            if on_text is None:
+                response = llm.chat.completions.create(**request)
+                raw = (response.choices[0].message.content or "").strip()
+                usage = getattr(response, "usage", None)
+            else:
+                raw, usage, first_token_ms = _stream_completion(
+                    llm, request, on_text)
+                timings.first_token_ms = first_token_ms
         except Exception as exc:                            # noqa: BLE001
             tracing.record_exception(current, exc)
             raise BackendUnavailable(
                 f"the language model call failed: {exc}") from exc
 
-        raw = (response.choices[0].message.content or "").strip()
-        usage = getattr(response, "usage", None)
         if usage is not None:
             current.set_attributes({
                 tracing.GEN_AI_USAGE_INPUT:

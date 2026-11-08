@@ -8,7 +8,7 @@ anything.
 **Last verified:** 2026-11-08 — the whole stack re-verified live after the
 registers landed: 14 containers, 21 migrations applied (0 pending, 0
 drifted), 9 projects, 678 vectors in 9 collections, the four registers
-seeded, `/health` answering, **779 Python tests + 79 JavaScript passing**.
+seeded, `/health` answering, **968 Python tests + 95 JavaScript passing**.
 Earlier state, still accurate — infra, full SPM schema (21 migrations,
 row-level security enabled), complete mock corpus, and **the entire
 ingestion pipeline built and run over all 58 documents**: discovery → OCR →
@@ -17,16 +17,25 @@ collections**. Retrieval quality is measured, not guessed
 (`evaluation/`). `Application/` holds the AC09 session gate, grounded
 answering over RAG + live SPM, the whole conversational layer (AC01–AC05,
 AC07), **an HTTP layer, demo sign-in and the full UI** — so the system runs
-in a browser. AC08 is measured, not asserted — and since the registers
-landed it is **no longer met for register questions** (4.1–6.3 s against a
-5 s budget; see §25b), and tracing goes to Grafana and Langfuse from one
-instrumentation.
+in a browser. **Answers stream** as the model writes them (§29), and
+tracing goes to Grafana and Langfuse from one instrumentation.
+
+AC08 is measured, not asserted. §25b recorded it **failing** for register
+questions (4.1–6.3 s against the 5 s budget, four of seven over). Measured
+again on 2026-11-08 those same questions came in at **2.59–3.58 s without
+streaming and 2.05 s mean with it**, 0 of 7 over, and `latency_bench`
+reports 18/18 within budget at p95 2942 ms. ⚠️ **So the failure did not
+reproduce, and why is unresolved** — §29b, rather than quietly treating it
+as fixed. Two things to know before measuring it yourself: the register
+questions are **not** in `evaluation/questions.json`, so the benchmark does
+not cover the case §25b reported; and benchmark against `127.0.0.1`, never
+`localhost`, which stalls a flat ~2 s on IPv6 here (§29c).
 
 Run the whole thing, and check it:
 
 ```bash
 cd infra && docker compose up -d                    # everything, the app included → http://localhost:8000
-.venv/Scripts/python -m pytest tests/ -q            # expect 779 passed
+.venv/Scripts/python -m pytest tests/ -q            # expect 968 passed
 ```
 
 **On a machine that holds only a clone of this repository**, run
@@ -46,7 +55,7 @@ a private remote is the first step of `MIGRATION.md` for that reason, and
 worth doing whether or not anything moves.
 
 That single `pytest` covers the frontend too: `tests/test_frontend.py`
-shells out to `node --test` for the 79 JavaScript tests in
+shells out to `node --test` for the 95 JavaScript tests in
 `tests/frontend/`, and **skips rather than fails** where node is absent.
 Sign in with any seeded address (e.g. `noura.alharbi@enjaz.gov.sa`) and
 the demo password from `INFRASTRUCTURE.md` §276.
@@ -337,7 +346,7 @@ processes, and the one that faces users has the least access.
 |---|---|---|
 | `pipeline/` | **Builds** the knowledge base — `config.py` (all settings), `chunker.py`, `db.py`, `scanner.py` (Stage 0), `ocr.py` + `native_extract.py` (Stage 1), `indexer.py` (Stages 2+3), plus `locking.py`, `tasks.py`, `status.py` to run it unattended | `spm_admin` — needs every project |
 | `evaluation/` | **Judges** it — the tagged question set, scoring, recorded baseline, `latency_bench.py` for AC08 | read-only |
-| `Application/` | **Serves** it — `backend/api/` (FastAPI, sign-in, **the identity boundary**), `backend/answer.py` (**the system prompt — the whole router**), `backend/conversation.py` (the entry point), `backend/session.py` (the AC09 gate), `backend/db.py` (pool + scope), `backend/retrieval.py`, `backend/spm.py`, **`backend/registers.py`** (the four registers — risks, issues, change requests, deliverables — read as rows, never embedded), `backend/messages.py`, `backend/clients.py` (the AC08 client cache), `frontend/index.html` (the UI) | `spm_app` — SELECT-only, one project per transaction |
+| `Application/` | **Serves** it — `backend/api/` (FastAPI, sign-in, **the identity boundary**), `backend/answer.py` (**the system prompt — the whole router**), `backend/conversation.py` (the entry point), `backend/session.py` (the AC09 gate), `backend/db.py` (pool + scope), `backend/retrieval.py`, `backend/spm.py`, **`backend/registers.py`** (the four registers — risks, issues, change requests, deliverables — read as rows, never embedded), `backend/messages.py`, `backend/clients.py` (the AC08 client cache), **`backend/streaming.py`** (reads the answer out of the JSON while it is still arriving - a preview, never the authority), `frontend/index.html` (the UI) | `spm_app` — SELECT-only, one project per transaction |
 | `observability/` | **Watches** them — one OpenTelemetry instrumentation, exported to Grafana *and* Langfuse. Belongs to none of the three, which is why it is its own package | none |
 
 **The pipeline runs as a containerised Celery worker** —

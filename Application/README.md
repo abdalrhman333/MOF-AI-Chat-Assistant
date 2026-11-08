@@ -17,6 +17,10 @@ Application/
     answer.py       THE SYSTEM PROMPT — the whole router — plus the LLM
                     call and citation resolution (AC01, AC02, AC05-AC07)
     messages.py     the only two strings the model does not write
+    streaming.py    reads the answer out of the strict-schema JSON while
+                    it is still arriving. A PREVIEW, never the authority:
+                    the complete document is parsed at the end and that
+                    parse owns the citations, language and intent
     conversation.py THE ENTRY POINT — Conversation (AC03/AC04), history,
                     the follow-up retry, then delegation to answer.py
     clients.py      the embedding / vector / LLM clients, cached per
@@ -28,7 +32,11 @@ Application/
       cookies.py     the SIGNED session cookie
       store.py       server-side conversations; an id is not a credential
       schemas.py     request/response shapes — no field holds a username
-      app.py         the routes, deliberately thin
+      app.py         the routes, deliberately thin. `/messages` and
+                     `/messages/stream` are the SAME turn: both call
+                     Conversation.ask, under the same owner check and the
+                     same rate limit. The streamed one runs it on a worker
+                     thread and relays Server-Sent Events
   frontend/
     index.html      the whole UI: chat, switcher, KB page, RTL
 ```

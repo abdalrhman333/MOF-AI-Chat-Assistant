@@ -25,14 +25,18 @@ Run it:
 """
 from __future__ import annotations
 
+import contextvars
+import json
 import logging
 import mimetypes
 import pathlib
+import queue
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 import observability
@@ -422,6 +426,125 @@ def ask(token: str, body: schemas.AskIn,
     if saver is not None:
         saver(token, conversation)
     return _reply_out(reply)
+
+
+def _sse(event: str, payload: dict) -> str:
+    """One Server-Sent Event.
+
+    The data is JSON even for a plain string, because answer text contains
+    newlines and a bare newline terminates an SSE field — the one encoding
+    mistake this format invites.
+    """
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _turn_events(conversation, token: str, text: str):
+    """Run one turn, yielding its text as the model writes it.
+
+    `conversation.ask` is synchronous and blocking, so it runs on a worker
+    thread and hands pieces back through a queue. The thread is started
+    inside a **copy of the current context**, which is what keeps the
+    turn's spans attached to this request's trace — OpenTelemetry stores
+    the active span in a context variable, and a bare thread would start a
+    detached trace that looks like it came from nowhere.
+
+    ⚠️ Nothing about the turn itself changes here. The same
+    `Conversation.ask` runs, under the same gate, and the reply that
+    finally arrives is the same object the non-streaming route returns.
+    What is streamed is a preview of text the model has already produced.
+    """
+    pieces: queue.Queue = queue.Queue()
+    outcome: dict = {}
+    END = object()
+
+    def work():
+        try:
+            outcome["reply"] = conversation.ask(
+                text, on_text=lambda piece: pieces.put(piece))
+        except Exception as exc:                            # noqa: BLE001
+            outcome["error"] = exc
+        finally:
+            pieces.put(END)
+
+    thread = threading.Thread(
+        target=contextvars.copy_context().run, args=(work,),
+        name="enjaz-stream", daemon=True)
+    thread.start()
+
+    while True:
+        piece = pieces.get()
+        if piece is END:
+            break
+        yield _sse("text", {"text": piece})
+    thread.join()
+
+    error = outcome.get("error")
+    if error is not None:
+        # The text already sent stays on screen; this tells the page the
+        # answer will not be completed, and why, in the same uniform shape
+        # the non-streaming route uses.
+        status, detail = _error_payload(error)
+        log.warning("stream failed token=%s: %s", token[:8], error)
+        yield _sse("error", {"error": status, "detail": detail})
+        return
+
+    reply = outcome["reply"]
+    saver = getattr(STORE, "save", None)
+    if saver is not None:
+        saver(token, conversation)
+    # The authority: citations, intent and timings, resolved from the
+    # complete response rather than from what was streamed.
+    yield _sse("done", _reply_out(reply).model_dump())
+
+
+def _error_payload(exc: Exception) -> tuple[str, str]:
+    if isinstance(exc, BackendUnavailable):
+        return "backend_unavailable", "The assistant is unavailable just now."
+    if isinstance(exc, AccessError):
+        return "access_denied", "That project is not available to you."
+    return "internal_error", "Something went wrong answering that."
+
+
+@app.post("/api/conversations/{token}/messages/stream", tags=["chat"])
+def ask_streaming(token: str, body: schemas.AskIn,
+                  who: identity_module.Identity = Depends(caller)):
+    """The same turn as `ask`, delivered as it is written.
+
+    Streaming exists because register questions measure 4.1–6.3 s against
+    AC08's five-second budget (STATUS_AND_ROADMAP §25b). ⚠️ **It does not
+    make them faster.** The total is unchanged and still reported; what
+    changes is that the reader waits for the first sentence rather than the
+    last. Both numbers are in the `done` event so the distinction stays
+    visible.
+    """
+    conversation = _conversation_or_denied(token, who)
+
+    # Identical to `ask`, and for the same reason: checked only after the
+    # conversation is authorised, so a rate-limit answer cannot tell a
+    # stranger whether a conversation id is real.
+    if LIMITER is not None:
+        decision = LIMITER.check(who.username)
+        if not decision.allowed:
+            log.warning("rate limited user=%s", who.username)
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": str(decision.retry_after)},
+                content={"error": "rate_limited",
+                         "detail": "Too many questions just now. "
+                                   "Please wait a moment and try again."})
+
+    text = body.text[:SETTINGS.api.max_question_chars]
+    return StreamingResponse(
+        _turn_events(conversation, token, text),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            # nginx and friends buffer a response by default, which would
+            # hold every event until the turn finished and undo the whole
+            # point of this route.
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/conversations/{token}", response_model=schemas.TranscriptOut,

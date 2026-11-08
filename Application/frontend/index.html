@@ -468,6 +468,7 @@ const T = {
     loginFailed:"البريد الإلكتروني أو كلمة المرور غير صحيحة.",
     tooFast:"عدد كبير من الأسئلة خلال وقت قصير. يُرجى الانتظار قليلاً ثم المحاولة مجدداً.",
     expired:"انتهت جلستك. يُرجى تسجيل الدخول مرة أخرى.",
+    interrupted:"تعذّر إكمال الإجابة. يُرجى المحاولة مرة أخرى.",
     try1:"أعطني نظرة عامة عن المشروع", try2:"ما هي أبرز المخاطر؟", try3:"ما الميزانية المعتمدة؟"
   },
   en: {
@@ -497,6 +498,7 @@ const T = {
     loginFailed:"That email or password is not correct.",
     tooFast:"That is a lot of questions at once. Please wait a moment and try again.",
     expired:"Your session has ended. Please sign in again.",
+    interrupted:"That answer could not be completed. Please try again.",
     try1:"Give me an overview of this project", try2:"What are the top risks?", try3:"What is the approved budget?"
   }
 };
@@ -1023,6 +1025,68 @@ function renderChips() {
 const STYLE = { answered:"assistant", conversational:"assistant",
                 out_of_scope:"refusal", rejected_language:"refusal" };
 
+/* Server-Sent Events, parsed off a fetch body.
+
+   EventSource would be the obvious tool and cannot be used: it only issues
+   GET requests and carries no body, and the question has to be POSTed.
+   Chunks arrive on no particular boundary, so events are buffered until a
+   blank line completes one. */
+async function* sse(response) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let split;
+    while ((split = buffer.indexOf("\n\n")) !== -1) {
+      const block = buffer.slice(0, split);
+      buffer = buffer.slice(split + 2);
+      let name = "", data = "";
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event: ")) name = line.slice(7);
+        else if (line.startsWith("data: ")) data = line.slice(6);
+      }
+      if (name) yield [name, data ? JSON.parse(data) : null];
+    }
+  }
+}
+
+/* The streamed text was a preview; this is the reply that settles.
+
+   The final text wins over what was streamed — they agree today, and if
+   they ever stopped agreeing the authoritative one is the one that was
+   parsed and cited. Finished in place rather than re-rendered, so the
+   answer the reader has been watching does not flicker out and back. */
+function finishBubble(node, reply) {
+  node.className = `msg ${STYLE[reply.outcome] || "assistant"}`;
+  node.dir = reply.reply_language === "ar" ? "rtl"
+           : reply.reply_language === "en" ? "ltr"
+           : (RTL.test(reply.text) ? "rtl" : "ltr");
+  node.textContent = "";
+  const citations = reply.citations || [];
+  if (reply.grounded && citations.some((c) => c.source !== "project_record")) {
+    const line = el("div", "grounded");
+    line.append(icon("extract"), el("span", "", t("grounded")));
+    node.append(line);
+  }
+  node.append(el("div", "", reply.text));
+  if (citations.length) {
+    const box = el("div", "sources");
+    box.append(el("b", "", t("sources")));
+    const seen = new Set();
+    for (const c of citations) {
+      const chip = sourceChip(c);
+      if (seen.has(chip.textContent)) continue;
+      seen.add(chip.textContent);
+      box.append(chip);
+    }
+    node.append(box);
+  }
+  $("chatView").scrollTop = $("chatView").scrollHeight;
+}
+
 async function ask(text) {
   if (!CONV || BUSY) return;
   BUSY = true; $("sendBtn").disabled = true;
@@ -1031,16 +1095,50 @@ async function ask(text) {
   const pending = bubble("", "assistant");
   pending.classList.add("typing");
   pending.innerHTML = "<span></span><span></span><span></span>";
+  let body = null, streamed = "";
   try {
-    const reply = await api(`/api/conversations/${CONV}/messages`,
-      { method: "POST", body: JSON.stringify({ text }) });
-    pending.remove();
-    bubble(reply.text, STYLE[reply.outcome] || "assistant", {
-      citations: reply.citations, grounded: reply.grounded, lang: reply.reply_language,
-    });
+    const response = await fetch(
+      `/api/conversations/${CONV}/messages/stream`,
+      { method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }) });
+    if (!response.ok) {
+      let detail = `HTTP ${response.status}`;
+      try { detail = (await response.json()).detail || detail; } catch (_) {}
+      if (response.status === 429) detail = t("tooFast");
+      const error = new Error(detail); error.status = response.status; throw error;
+    }
+    for await (const [name, data] of sse(response)) {
+      if (name === "text") {
+        if (body === null) {
+          // First visible character: the dots give way to the answer.
+          pending.classList.remove("typing");
+          pending.innerHTML = "";
+          body = el("div");
+          pending.append(body);
+        }
+        streamed += data.text;
+        body.textContent = streamed;
+        // Set as soon as there is text to judge, so an Arabic answer does
+        // not write left-to-right and jump when it finishes.
+        pending.dir = RTL.test(streamed) ? "rtl" : "ltr";
+        $("chatView").scrollTop = $("chatView").scrollHeight;
+      } else if (name === "error") {
+        const error = new Error(data.detail || t("interrupted"));
+        error.partial = streamed;
+        throw error;
+      } else if (name === "done") {
+        finishBubble(pending, data);
+        body = pending;            // marks "something was rendered"
+      }
+    }
   } catch (error) {
-    pending.remove();
-    if (error.status === 403 && ME) { return endSession(); }
+    if (error.status === 403 && ME) { pending.remove(); return endSession(); }
+    // Text already on screen stays: deleting a half-written answer the
+    // reader was following is worse than leaving it with the failure
+    // underneath it.
+    if (body === null) pending.remove();
+    else pending.classList.remove("typing");
     bubble(error.message, "error");
   } finally { BUSY = false; $("sendBtn").disabled = false; $("q").focus(); }
 }

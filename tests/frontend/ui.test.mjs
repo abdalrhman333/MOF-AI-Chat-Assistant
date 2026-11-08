@@ -15,6 +15,14 @@ const REPLY = { text: "الميزانية 12 مليون", outcome: "answered",
                 intent: "project_overview", reply_language: "ar",
                 citations: [{ label: "SPM" }], timings: { total_ms: 40 } };
 
+/* A reply as the page now receives it: streamed text, then the authoritative
+ * `done` event. `ask` reads the answer off a Server-Sent Events body, so a
+ * stub that only has a JSON body is no longer what the browser sees. */
+function streaming(reply) {
+  return { status: 200,
+           events: [["text", { text: reply.text }], ["done", reply]] };
+}
+
 function app(answers) {
   const s = stub(answers);
   const a = load({ fetch: s.fetch });
@@ -24,6 +32,10 @@ function app(answers) {
 
 async function chatting(answers = {}) {
   const a = app({ "/api/conversations": { status: 200, body: OPENED }, ...answers });
+  // Let the page's own boot sequence finish before the test does anything,
+  // so assertions do not depend on how many await points the function
+  // under test contains. See `settled` in the harness.
+  await a.settled();
   a.set("ME", { full_name_ar: "نورة", full_name_en: "Noura" });
   a.set("CURRENT", { code: "PRJ-06", display_name: "مشروع" });
   await a.startConversation();
@@ -35,7 +47,7 @@ async function chatting(answers = {}) {
 // ---------------------------------------------------------------------------
 
 test("no request ever carries a username", async () => {
-  const a = await chatting({ "/messages": { status: 200, body: REPLY } });
+  const a = await chatting({ "/messages": streaming(REPLY) });
   await a.ask("كم الميزانية؟");
   for (const call of a.calls) {
     const body = call.body ?? "";
@@ -56,8 +68,7 @@ test("every request sends the cookie and only the cookie", () => {
 // ---------------------------------------------------------------------------
 
 test("an answer is inserted as text, never as markup", async () => {
-  const a = await chatting({ "/messages": { status: 200, body:
-    { ...REPLY, text: "<img src=x onerror=alert(1)>" } } });
+  const a = await chatting({ "/messages": streaming({ ...REPLY, text: "<img src=x onerror=alert(1)>" }) });
   await a.ask("hi");
   const shown = a.el("chatView").children.at(-1);
   assert.ok(shown.textContent.includes("<img"), "shown verbatim…");
@@ -65,8 +76,8 @@ test("an answer is inserted as text, never as markup", async () => {
 });
 
 test("a citation label is inserted as text too", async () => {
-  const a = await chatting({ "/messages": { status: 200, body: { ...REPLY,
-    citations: [{ label: "<b>doc</b>" }] } } });
+  const a = await chatting({ "/messages": streaming({ ...REPLY,
+    citations: [{ label: "<b>doc</b>" }] }) });
   await a.ask("hi");
   const node = a.el("chatView").children.at(-1);
   assert.ok(node.textContent.includes("<b>doc</b>"));
@@ -101,9 +112,8 @@ test("the server's detected language beats the script of the text", async () => 
   // sees Arabic letters and would flip the whole bubble to RTL. The model
   // already decided the reply language, so that decision wins — the
   // heuristic is only for text the server never labelled.
-  const a = await chatting({ "/messages": { status: 200, body:
-    { ...REPLY, text: "The budget for مشروع الرقمنة is 12M SAR.",
-      reply_language: "en" } } });
+  const a = await chatting({ "/messages": streaming({ ...REPLY, text: "The budget for مشروع الرقمنة is 12M SAR.",
+      reply_language: "en" }) });
   await a.ask("hi");
   assert.equal(a.el("chatView").children.at(-1).dir, "ltr",
     "the model detected the language; the page must not re-decide it");
@@ -178,7 +188,7 @@ test("the chips appear with the welcome", async () => {
 });
 
 test("a chip is an ordinary question, not a pre-decided intent", async () => {
-  const a = await chatting({ "/messages": { status: 200, body: REPLY } });
+  const a = await chatting({ "/messages": streaming(REPLY) });
   await a.el("chips").children[0].dispatch("click");
   const sent = a.calls.find((c) => c.path.includes("/messages"));
   assert.deepEqual(JSON.parse(sent.body), { text: a.t("try1") },
@@ -186,7 +196,7 @@ test("a chip is an ordinary question, not a pre-decided intent", async () => {
 });
 
 test("the chips go away once the conversation has started", async () => {
-  const a = await chatting({ "/messages": { status: 200, body: REPLY } });
+  const a = await chatting({ "/messages": streaming(REPLY) });
   await a.ask("hi");
   assert.ok(a.el("chips").classList.contains("hidden"));
 });
@@ -475,9 +485,9 @@ test("switching project replaces every place the old one was named", () => {
 // ---------------------------------------------------------------------------
 
 test("a document source reads as its Arabic type and page", async () => {
-  const a = await chatting({ "/messages": { status: 200, body: { ...REPLY, grounded: true,
+  const a = await chatting({ "/messages": streaming({ ...REPLY, grounded: true,
     citations: [{ source: "document", label: "Risk Register — page 14",
-                  doc_type: "Risk Register", filename: "risks.docx", page: 14 }] } } });
+                  doc_type: "Risk Register", filename: "risks.docx", page: 14 }] }) });
   await a.ask("hi");
   assert.ok(a.el("chatView").children.at(-1).textContent.includes("سجل المخاطر - ص 14"));
 });
@@ -486,8 +496,8 @@ test("each source is listed once, however many passages came from it", async () 
   // Found live: five passages from page 1 of one risk register produced five
   // identical chips. Distinct pages are still distinct sources.
   const page = (n) => ({ source: "document", label: "x", doc_type: "Risk Register", page: n });
-  const a = await chatting({ "/messages": { status: 200, body: { ...REPLY, grounded: true,
-    citations: [page(1), page(1), page(1), page(2)] } } });
+  const a = await chatting({ "/messages": streaming({ ...REPLY, grounded: true,
+    citations: [page(1), page(1), page(1), page(2)] }) });
   await a.ask("hi");
   const shown = a.el("chatView").children.at(-1).textContent;
   assert.equal(shown.split("سجل المخاطر - ص 1").length - 1, 1);
@@ -496,8 +506,8 @@ test("each source is listed once, however many passages came from it", async () 
 
 test("an unknown document type is shown as it arrives, never dropped", async () => {
   // A label added to the pipeline must not make a source disappear.
-  const a = await chatting({ "/messages": { status: 200, body: { ...REPLY, grounded: true,
-    citations: [{ source: "document", label: "x", doc_type: "Board Paper", page: 2 }] } } });
+  const a = await chatting({ "/messages": streaming({ ...REPLY, grounded: true,
+    citations: [{ source: "document", label: "x", doc_type: "Board Paper", page: 2 }] }) });
   await a.ask("hi");
   assert.ok(a.el("chatView").children.at(-1).textContent.includes("Board Paper - ص 2"));
 });
@@ -506,9 +516,9 @@ test("the SPM record is named as a source, without a date or the English sentenc
   // Requested: "تاريخ الإنشاء: الثلاثاء، 4 أغسطس 2026" beside the chip added
   // noise to every answer that used the record. The chip names the source;
   // the provenance date stays in the API for anyone who needs it.
-  const a = await chatting({ "/messages": { status: 200, body: { ...REPLY,
+  const a = await chatting({ "/messages": streaming({ ...REPLY,
     citations: [{ source: "project_record", label: "SPM project record (record updated 2026-08-04)",
-                  as_of: "record updated 2026-08-04" }] } } });
+                  as_of: "record updated 2026-08-04" }] }) });
   await a.ask("hi");
   const shown = a.el("chatView").children.at(-1).textContent;
   assert.ok(shown.includes("سجل المشروع في SPM"));
@@ -517,14 +527,14 @@ test("the SPM record is named as a source, without a date or the English sentenc
 });
 
 test("'drawn from this project's documents' appears only when documents were used", async () => {
-  const onlyRecord = await chatting({ "/messages": { status: 200, body: { ...REPLY, grounded: true,
-    citations: [{ source: "project_record", label: "SPM", as_of: "record created 2026-08-01" }] } } });
+  const onlyRecord = await chatting({ "/messages": streaming({ ...REPLY, grounded: true,
+    citations: [{ source: "project_record", label: "SPM", as_of: "record created 2026-08-01" }] }) });
   await onlyRecord.ask("hi");
   assert.ok(!onlyRecord.el("chatView").children.at(-1).textContent.includes(onlyRecord.t("grounded")),
     "an answer from the SPM record alone was not drawn from documents");
 
-  const withDoc = await chatting({ "/messages": { status: 200, body: { ...REPLY, grounded: true,
-    citations: [{ source: "document", label: "c", doc_type: "Project Charter", page: 1 }] } } });
+  const withDoc = await chatting({ "/messages": streaming({ ...REPLY, grounded: true,
+    citations: [{ source: "document", label: "c", doc_type: "Project Charter", page: 1 }] }) });
   await withDoc.ask("hi");
   assert.ok(withDoc.el("chatView").children.at(-1).textContent.includes(withDoc.t("grounded")));
 });
@@ -894,7 +904,7 @@ test("corrupt or blocked storage falls back to asking, never to a broken page", 
 // ---------------------------------------------------------------------------
 
 test("one question at a time", async () => {
-  const a = await chatting({ "/messages": { status: 200, body: REPLY } });
+  const a = await chatting({ "/messages": streaming(REPLY) });
   a.set("BUSY", true);
   await a.ask("second");
   assert.equal(a.calls.filter((c) => c.path.includes("/messages")).length, 0);
@@ -910,4 +920,166 @@ test("leaving the chat hides the chips with the composer", async () => {
   const a = await chatting();
   a.showView("kb");
   assert.ok(a.el("chips").classList.contains("hidden"));
+});
+
+// ---------------------------------------------------------------------------
+// Streaming — the answer arrives while it is being written
+// ---------------------------------------------------------------------------
+
+const PIECES = ["الميزانية ", "المعتمدة ", "هي 22,900,000."];
+const WHOLE = PIECES.join("");
+
+/* A reply delivered the way the route delivers it: several text events,
+ * then the authoritative `done`. `chunk` cuts the encoded stream into
+ * fixed-size pieces so an event boundary can fall mid-event. */
+function streamOf(reply, pieces = PIECES, chunk) {
+  return { status: 200, chunk,
+           events: [...pieces.map((p) => ["text", { text: p }]),
+                    ["done", reply]] };
+}
+
+const STREAMED = { ...REPLY, text: WHOLE, grounded: true,
+                   citations: [{ source: "document", label: "الميثاق - ص 2" }] };
+
+test("the question goes to the streaming route", async () => {
+  const a = await chatting({ "/messages": streamOf(STREAMED) });
+  await a.ask("كم الميزانية؟");
+  const post = a.calls.find((c) => c.path.includes("/messages"));
+  assert.ok(post.path.endsWith("/stream"), post.path);
+  assert.equal(post.method, "POST");
+});
+
+test("no request to the streaming route carries a username", async () => {
+  const a = await chatting({ "/messages": streamOf(STREAMED) });
+  await a.ask("كم الميزانية؟");
+  for (const call of a.calls) {
+    assert.ok(!/username|user_id|as_user/i.test(call.body ?? ""),
+      "identity is the server's to establish, on every route");
+  }
+});
+
+test("the pieces assemble into the whole answer", async () => {
+  const a = await chatting({ "/messages": streamOf(STREAMED) });
+  await a.ask("hi");
+  assert.ok(a.el("chatView").children.at(-1).textContent.includes(WHOLE));
+});
+
+test("an event split across chunk boundaries still renders", async () => {
+  // The reader gets bytes, not events. A parser that assumed one event per
+  // read would work in development and corrupt every long answer in use.
+  const a = await chatting({ "/messages": streamOf(STREAMED, PIECES, 7) });
+  await a.ask("hi");
+  assert.ok(a.el("chatView").children.at(-1).textContent.includes(WHOLE));
+});
+
+test("one byte at a time still renders", async () => {
+  const a = await chatting({ "/messages": streamOf(STREAMED, PIECES, 1) });
+  await a.ask("hi");
+  assert.ok(a.el("chatView").children.at(-1).textContent.includes(WHOLE));
+});
+
+test("the typing dots give way to the answer", async () => {
+  const a = await chatting({ "/messages": streamOf(STREAMED) });
+  await a.ask("hi");
+  const last = a.el("chatView").children.at(-1);
+  assert.ok(!last.classList.contains("typing"),
+    "the dots must not sit under a written answer");
+});
+
+test("streamed text is inserted as text, never as markup", async () => {
+  const hostile = { ...STREAMED, text: "<img src=x onerror=alert(1)>" };
+  const a = await chatting({
+    "/messages": streamOf(hostile, ["<img ", "src=x onerror=alert(1)>"]) });
+  await a.ask("hi");
+  const last = a.el("chatView").children.at(-1);
+  assert.ok(last.textContent.includes("<img"), "shown verbatim…");
+  assert.equal(last.innerHTML, "", "…and never parsed as HTML");
+});
+
+test("sources appear once the answer is complete", async () => {
+  const a = await chatting({ "/messages": streamOf(STREAMED) });
+  await a.ask("hi");
+  assert.ok(a.el("chatView").children.at(-1).textContent.includes("الميثاق - ص 2"));
+});
+
+test("the completed reply decides the final direction", async () => {
+  const english = { ...STREAMED, text: "The budget for مشروع is 12M.",
+                    reply_language: "en", citations: [] };
+  const a = await chatting({
+    "/messages": streamOf(english, ["The budget for ", "مشروع is 12M."]) });
+  await a.ask("hi");
+  assert.equal(a.el("chatView").children.at(-1).dir, "ltr",
+    "the model detected the language; the page must not re-decide it");
+});
+
+test("a failure mid-answer keeps what was written and explains", async () => {
+  // Deleting a half-written answer the reader was following is worse than
+  // leaving it with the failure underneath it.
+  const a = await chatting({ "/messages": { status: 200, events: [
+    ["text", { text: "الميزانية " }],
+    ["error", { error: "backend_unavailable", detail: "" }]] } });
+  await a.ask("hi");
+  const shown = a.el("chatView").children.map((c) => c.textContent);
+  assert.ok(shown.some((s) => s.includes("الميزانية ")), "the partial answer stays");
+  assert.equal(shown.at(-1), a.t("interrupted"));
+});
+
+test("a failure before any text leaves no empty bubble behind", async () => {
+  const a = await chatting({ "/messages": { status: 200, events: [
+    ["error", { error: "backend_unavailable", detail: "" }]] } });
+  await a.ask("hi");
+  const shown = a.el("chatView").children.map((c) => c.textContent);
+  assert.equal(shown.at(-1), a.t("interrupted"));
+  assert.ok(!shown.includes(""), "no stranded empty bubble");
+});
+
+test("a rate limit on the streaming route still explains itself", async () => {
+  const a = await chatting({ "/messages": { status: 429, body: { detail: "Too many" } } });
+  await a.ask("hi");
+  assert.equal(a.el("chatView").children.at(-1).textContent, a.t("tooFast"));
+});
+
+test("the composer is usable again after a streamed answer", async () => {
+  const a = await chatting({ "/messages": streamOf(STREAMED) });
+  await a.ask("hi");
+  assert.equal(a.el("sendBtn").disabled, false);
+  assert.equal(a.get("BUSY"), false);
+});
+
+test("the composer is usable again after a stream that failed", async () => {
+  const a = await chatting({ "/messages": { status: 200, events: [
+    ["error", { error: "backend_unavailable", detail: "" }]] } });
+  await a.ask("hi");
+  assert.equal(a.el("sendBtn").disabled, false);
+  assert.equal(a.get("BUSY"), false);
+});
+
+test("the dots give way to the answer while it is still arriving", async () => {
+  // ⚠️ Asserted mid-stream, before `done`. The completed reply resets the
+  // whole class attribute anyway, so a test that only looks afterwards
+  // passes with the removal deleted — which is how that mutation survived.
+  const a = await chatting({ "/messages": { status: 200,
+    events: [["text", { text: "الميزانية " }]] } });
+  await a.ask("hi");
+  const last = a.el("chatView").children.at(-1);
+  assert.ok(!last.classList.contains("typing"),
+    "the dots must give way as soon as there is text to show");
+  assert.ok(last.textContent.includes("الميزانية "));
+});
+
+test("a restored conversation still shows its sources", async () => {
+  // The refresh path renders through `bubble`, not through the streaming
+  // finisher, so it needs its own test — streaming moved every other
+  // citation assertion onto the other function and left this uncovered.
+  const a = await chatting({ "/c1": { status: 200, body: {
+    conversation_id: "c1", project_code: "PRJ-06", welcome: "أهلاً",
+    turns: [{ question: "كم الميزانية؟", reply: { ...REPLY, grounded: true,
+      citations: [{ source: "document", label: "Risk Register — page 14",
+                    doc_type: "Risk Register", filename: "risks.docx",
+                    page: 14 }] } }] } } });
+  a.set("CURRENT", { code: "PRJ-06", display_name: "مشروع" });
+  await a.restoreConversation("c1");
+  const shown = a.el("chatView").children.map((c) => c.textContent).join(" ");
+  assert.ok(shown.includes("سجل المخاطر - ص 14"),
+    "a conversation picked up after a refresh keeps its citations");
 });
