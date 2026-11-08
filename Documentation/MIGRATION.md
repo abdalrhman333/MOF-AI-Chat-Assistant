@@ -4,7 +4,7 @@
 machine it was built on.
 
 This is not a rebuild. The repository already carries the Compose file, the
-`Dockerfile`, all 20 migrations and every seed, so most of the system
+`Dockerfile`, all 21 migrations and every seed, so most of the system
 reconstructs itself from a clone. Four things it deliberately does not carry
 — and one of those is a decision rather than a copy.
 
@@ -60,7 +60,7 @@ powershell -ExecutionPolicy Bypass -File scripts\bootstrap.ps1
 ```
 
 `scripts/bootstrap.ps1` checks the prerequisites and the four uncarried
-assets, brings up all 14 containers, applies the 20 migrations and runs the
+assets, brings up all 14 containers, applies the 21 migrations and runs the
 test suite. It **does not run the ingestion pipeline**, because Stage 1 is
 billed per page; it prints that command for you to run deliberately (§5).
 
@@ -78,17 +78,48 @@ gitignored and `.env.example` carries empty values, pinned by
 `tests/test_env_example.py` — but it does hold the full architecture of a
 ministry system, and there is no reason for that to be public.
 
+The repository was created on 2026-11-08 as
+`abdalrhman333/MOF-AI-Chat-Assistant` (private, empty). Rename the branch
+first — this checkout is on `master`, GitHub's default is `main`, and
+pushing `master` to a repository expecting `main` leaves you with both:
+
 ```bash
-git remote add origin <your-private-remote-url>
+git branch -m master main
 ```
 
 ```bash
-git push -u origin master
+git remote add origin https://github.com/abdalrhman333/MOF-AI-Chat-Assistant.git
 ```
 
-⚠️ The branch here is `master`. Git's default for a new repository is now
-`main`; if the remote expects `main`, rename before pushing rather than
-ending up with both.
+Check what would go, without sending anything:
+
+```bash
+git push --dry-run -u origin main
+```
+
+```bash
+git push -u origin main
+```
+
+⚠️ **Audit before the first push, not after.** Doing exactly that on
+2026-11-08 found the live `spm_app` password hardcoded in tracked migration
+`013` (`STATUS_AND_ROADMAP.md` §27). It has been rotated, and migration
+`021` plus `${VAR}` substitution in `apply_migrations.py` mean no migration
+need ever hold a secret again. Two checks worth repeating before any push,
+both read-only:
+
+```bash
+git log --all --full-history --oneline -- "infra/.env" "*.ttf"
+```
+
+Empty output means neither was ever committed. Then:
+
+```bash
+.venv/Scripts/python -m pytest tests/test_apply_migrations.py tests/test_env_example.py -q
+```
+
+Those pin that no migration carries a literal password and that no secret
+has been pasted into `.env.example`.
 
 ### 3.2 Do not commit the corpus
 
@@ -145,7 +176,7 @@ Git LFS works mechanically and changes nothing about the above.
 
 ## 5. The 4.4 GB of container data: carry or rebuild
 
-The database is **not** something you need to carry. Migrations `001`–`020`
+The database is **not** something you need to carry. Migrations `001`–`021`
 recreate and seed it: 9 projects, 4 users, 6 assignments, 58 document links,
 and the registers (64 risks, 21 issues, 12 change requests, 27
 deliverables). That is a deliberate property of how this was built, and it
@@ -221,8 +252,8 @@ place under the new machine's `DATA_ROOT`.
    docker compose exec pipeline-worker python -m pipeline.tasks ingest --wait
    ```
 10. **Verify against §3 of `START_HERE.md`**, not against this file: 14
-    containers, 20 migrations applied, 9 projects, 9 Qdrant collections /
-    678 points, 762 tests, and a real sign-in at http://localhost:8000.
+    containers, 21 migrations applied, 9 projects, 9 Qdrant collections /
+    678 points, 773 tests, and a real sign-in at http://localhost:8000.
 
 ---
 

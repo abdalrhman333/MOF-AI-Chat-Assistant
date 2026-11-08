@@ -22,10 +22,20 @@ Design notes:
     and this machine mangles UTF-8 through inline shell arguments (see
     Documentation/STATUS_AND_ROADMAP.md) — bytes sidestep the shell
     codepage entirely.
+  * A migration may reference a value from infra/.env as ${VAR_NAME}, and
+    this script substitutes it as a correctly quoted SQL string literal
+    just before piping. That exists so a CREDENTIAL NEVER HAS TO BE
+    HARDCODED IN A TRACKED FILE — migration 013 did exactly that with the
+    spm_app password, which was then published in every clone of the
+    repository. See migration 021 and STATUS_AND_ROADMAP.md §27.
+    ⚠️ The checksum is taken from the file ON DISK, placeholder and all, so
+    rotating a secret does not look like drift and the recorded hash stays
+    the same on every machine.
 """
 import argparse
 import hashlib
 import pathlib
+import re
 import subprocess
 import sys
 import time
@@ -64,7 +74,49 @@ def load_env():
     missing = [k for k in ("POSTGRES_SPM_USER", "POSTGRES_SPM_DB") if k not in values]
     if missing:
         die(f"{ENV_PATH} is missing: {', '.join(missing)}")
-    return values["POSTGRES_SPM_USER"], values["POSTGRES_SPM_DB"]
+    return values
+
+
+PLACEHOLDER = re.compile(rb"\$\{([A-Z][A-Z0-9_]*)\}")
+
+
+def quote_literal(value):
+    """`value` as a SQL string literal, safe to paste into a statement.
+
+    Doubling the single quote is the whole of SQL's escaping rule for a
+    standard literal. A backslash is left alone deliberately:
+    `standard_conforming_strings` is on by default in every supported
+    Postgres, so a backslash in a literal means a backslash.
+    """
+    if "\x00" in value:
+        die("a value in infra/.env contains a NUL byte")
+    return "'" + value.replace("'", "''") + "'"
+
+
+def substitute(sql_bytes, env, filename):
+    """Replace every ${VAR} with a quoted literal from infra/.env.
+
+    ⚠️ An unknown or empty variable is a hard failure, never an empty
+    substitution. Silently expanding `ALTER ROLE ... PASSWORD ${MISSING}`
+    to `PASSWORD ''` would set a blank password and report success, which
+    is worse than not running at all.
+    """
+    missing = []
+
+    def replace(match):
+        name = match.group(1).decode("ascii")
+        value = env.get(name, "")
+        if not value:
+            missing.append(name)
+            return b""
+        return quote_literal(value).encode("utf-8")
+
+    result = PLACEHOLDER.sub(replace, sql_bytes)
+    if missing:
+        names = ", ".join(sorted(set(missing)))
+        die(f"{filename} needs these settings, which infra/.env does not "
+            f"supply (or leaves empty): {names}")
+    return result
 
 
 def require_container():
@@ -149,7 +201,8 @@ def main():
                         help="proceed even if an already-applied migration file was edited")
     args = parser.parse_args()
 
-    user, database = load_env()
+    env = load_env()
+    user, database = env["POSTGRES_SPM_USER"], env["POSTGRES_SPM_DB"]
     require_container()
 
     if not MIGRATIONS_DIR.is_dir():
@@ -201,7 +254,8 @@ def main():
 
     for f in pending:
         started = time.monotonic()
-        code, _, err = psql(user, database, sql_bytes=f.read_bytes(), single_transaction=True)
+        sql_bytes = substitute(f.read_bytes(), env, f.name)
+        code, _, err = psql(user, database, sql_bytes=sql_bytes, single_transaction=True)
         if code != 0:
             die(f"FAILED on {f.name} (rolled back, database unchanged):\n{err}")
         elapsed_ms = int((time.monotonic() - started) * 1000)

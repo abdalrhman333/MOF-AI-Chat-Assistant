@@ -126,7 +126,7 @@ python infra/postgres-spm/apply_migrations.py --status   # read-only preview
 python infra/postgres-spm/apply_migrations.py            # apply anything pending
 ```
 
-Expect `20 applied, 0 pending, 0 drifted`. Full detail, including the
+Expect `21 applied, 0 pending, 0 drifted`. Full detail, including the
 line-ending gotcha that made raw-byte checksums unreliable on Windows, is
 in `../Documentation/INFRASTRUCTURE.md` §7b.
 

@@ -258,6 +258,12 @@
   backup. `MIGRATION.md` §3.1. ⚠️ Private, not public, and **not** with the
   document corpus — `TEST-PROJECT` holds 13 real client and ministry
   documents (§7), and a commit of those cannot be taken back.
+  The private repository now exists — `abdalrhman333/MOF-AI-Chat-Assistant`,
+  empty — and the pre-push audit is done (§27): the one live credential it
+  found has been rotated, and `.env`, the corpus and the fonts were never
+  committed. **The push itself has not been made.** `MIGRATION.md` §3 has
+  the commands; note the branch here is `master` and the remote expects
+  `main`.
 
 ---
 
@@ -315,6 +321,8 @@
 | 2026-08-08 | **Rejected**: stripping HTML markup from embedded text | Tested and refuted (§11c). The premise measured true (26% of table-chunk tokens are markup) but the mechanism did not: high-markup and low-markup chunks lose the same similarity when stripped. Changing it would have forced a full re-index on the strength of one query |
 | 2026-11-08 | `bootstrap.ps1` **stops before the ingestion pipeline** | Stage 1 is billed per page. A setup script that spends money unattended is a defect however convenient it feels; it prints the command, `--dry-run` first. Pinned by a test, so the convenience cannot be added back quietly (§26b) |
 | 2026-11-08 | The document corpus **stays out of every remote** | `TEST-PROJECT` holds 13 real client and ministry documents (§7). A commit publishes them permanently and is undoable only by rewriting history. Whether they may leave the tenancy is MOF's decision, not a packaging one. Private Azure Blob is the alternative offered (`MIGRATION.md` §4) |
+| 2026-11-08 | A leaked credential is **rotated, not purged from history** | The `spm_app` password sat in tracked migration 013 across 112 commits. Rewriting every one of them carries real risk; one `ALTER ROLE` makes the old value dead text. Migration 021 rotates it and `apply_migrations.py` substitutes `${VAR}` from `.env`, so no migration need ever hold a secret again (§27) |
+| 2026-11-08 | Migration **013 is left unedited** | Editing an applied migration registers as drift, and its value is dead after 021. On a fresh database the pair composes correctly. A test allows 013 by name and fails any other migration with a literal password |
 | 2026-11-08 | **Rejected**: a container registry, and Codespaces | GHCR saves a two-minute local build and adds auth, tags and image-vs-source drift. Codespaces means 14 containers under Docker-in-Docker plus the corpus in the cloud, and dissolves the "runs on the owner's own PC" property the demo rests on (`MIGRATION.md` §7) |
 
 ---
@@ -327,7 +335,7 @@ being followed; steps 1 and 2 are done.
 | # | Component | State |
 |---|---|---|
 | — | **Infrastructure** — 14 containers, the chat app included, all data on D: | ✅ |
-| — | **SPM schema** — 20 migrations, RLS, 23 regression tests | ✅ |
+| — | **SPM schema** — 21 migrations, RLS, 23 regression tests | ✅ |
 | — | **Ingestion pipeline** — scan → OCR → chunk → embed → index | ✅ 58 docs, 678 vectors |
 | — | **Operations** — worker, daily schedule, stage locks, health check | ✅ runs unattended |
 | **1** | **Retrieval evaluation** — 29 tagged questions, MRR + recall | ✅ 2026-08-09, §13b |
@@ -797,6 +805,102 @@ time.
 
 ---
 
+## 27. A live credential in a tracked migration (2026-11-08)
+
+**Tests: 773 Python** (762 + 11), plus 79 JavaScript. **Mutations: 8 of 8
+caught.** 21 migrations.
+
+Found by auditing the tree before the first push to a remote, which is the
+whole argument for doing that audit before the push rather than after.
+
+### 27a. What was there
+
+`013_enable_row_level_security.sql`, line 25:
+
+```sql
+CREATE ROLE spm_app LOGIN PASSWORD '5e5d79d8149db9624345f7cc';
+```
+
+That is the live password of the role the chat application authenticates
+with, written into a tracked file, present in every clone since commit
+`c3aa754`. The audit checked all 22 credential-shaped values from the real
+`.env` against all 134 tracked files; every other hit was a role *name*
+(`spm_admin`, `clickhouse`, `minio`), which legitimately appears in code,
+migrations and documentation. This was the only secret.
+
+**Severity, stated honestly: low exposure, bad hygiene.** `spm_app` is the
+least-privileged role here — SELECT only, RLS-scoped to one project per
+transaction — and Postgres is published on localhost only, which
+`test_deployment.py` pins. Nobody reaches it without already being on the
+machine. It was still a live credential in source control, and the
+repository was about to be pushed.
+
+Also confirmed by the same audit, and all clean: `.env`, the corpus and the
+licensed fonts have **never** been committed, across all 112 commits on the
+single branch.
+
+### 27b. Rotate, don't rewrite history
+
+The value is in 112 commits of history. Purging it would mean rewriting
+every one of them; rotating makes it dead text instead. Rotation is one
+statement and carries none of the risk, so that is what was done — and it
+is the general answer whenever a leaked credential can simply be
+invalidated.
+
+Migration `021` sets a new password, supplied from `.env` rather than
+written into the file. `apply_migrations.py` now substitutes `${VAR}` as a
+**correctly quoted SQL literal** immediately before the bytes reach psql.
+
+⚠️ **A missing or empty variable is a hard failure, never an empty
+substitution.** Expanding `PASSWORD ${MISSING}` to `PASSWORD ''` would set
+a blank password on the application's role and report success — worse than
+not running at all. Two tests cover that one branch.
+
+⚠️ **The checksum is still taken from the file on disk**, placeholder and
+all, so rotating a secret does not register as drift and the recorded hash
+is identical on every machine.
+
+**013 is deliberately left as it was.** Editing an applied migration
+registers as drift, and the value in it is dead once 021 runs. On a fresh
+database the two compose correctly: 013 creates the role with what is now a
+throwaway password, 021 immediately replaces it.
+
+### 27c. Verified live, not assumed
+
+The first attempt at verification was worthless and said so: connecting
+through `docker exec` uses the container's local socket, where `pg_hba` is
+`trust`, so **both the old and the new password "succeeded"**. Password
+authentication is only exercised over TCP, the way the application
+connects. Redone from the host with `psycopg`:
+
+* old password — **refused** (`OperationalError`)
+* new password — **connected**
+
+Then end to end through the running app after `docker compose up -d
+chat-api`: sign in as Noura, three assigned projects listed, a conversation
+opened on PRJ-06 through the AC09 gate, and a real Arabic question answered
+— `الميزانية المعتمدة للمشروع هي 22,900,000 ريال سعودي` with 3 citations.
+Every one of those steps goes through the `spm_app` pool.
+
+### 27d. Mutation testing
+
+Eight mutations, all eight caught. The one that matters most is
+**"substitution is never wired into the apply path"** — `substitute()`
+defined, tested and never called, which is exactly §25c's failure mode. It
+is caught by a test that runs the real `main()` with `psql` replaced by a
+recorder and asserts the placeholder never reaches the wire.
+
+Also caught: dropping the quote-doubling, escaping backslashes that must
+not be escaped, letting an empty value expand silently, taking the checksum
+after substitution instead of before, hardcoding the password back into
+021, and putting the retired password back into `.env`.
+
+A standing guard came out of it: `test_no_migration_sets_a_literal_password`
+scans every migration except the retired 013 and fails on a literal
+`PASSWORD '…'`. The next one cannot be added quietly.
+
+---
+
 ## 26. Making the move reproducible, and a claim that was wrong (2026-11-08)
 
 **Tests: 762 Python** (745 + 17), plus 79 JavaScript. **Mutations: 17 of 17
@@ -804,7 +908,7 @@ caught, 0 survived.**
 
 The question was how to move the whole solution to another device. The
 answer turned out to be mostly "it already does that" — `docker-compose.yml`,
-the `Dockerfile` and all 20 migrations are tracked, so a clone rebuilds the
+the `Dockerfile` and all 21 migrations are tracked, so a clone rebuilds the
 stack and reseeds the database. What was missing was the part a new machine
 cannot read out of a running system, because there isn't one yet: a way to
 find out what is wrong before spending an afternoon on it.

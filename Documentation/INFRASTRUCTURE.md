@@ -514,6 +514,18 @@ write operations against any system — that constraint is now enforced by
 the database rather than by convention (verified: `UPDATE` and `DELETE`
 both return `permission denied`).
 
+⚠️ **`spm_app`'s password is set by migration `021`, from `infra/.env`, and
+must never be written into a migration again.** Migration `013` created the
+role with the password spelled out in the file, so the live credential sat
+in every clone of the repository until it was found and rotated on
+2026-11-08 (`STATUS_AND_ROADMAP.md` §27). `apply_migrations.py` substitutes
+`${POSTGRES_SPM_APP_PASSWORD}` as a quoted SQL literal just before the SQL
+reaches psql; the tracked file holds only the placeholder, and a missing or
+empty value fails the run rather than setting a blank password.
+`tests/test_apply_migrations.py` fails on any migration with a literal
+`PASSWORD '…'`. After rotating it again, recreate the app so its pool picks
+the new value up: `docker compose up -d chat-api`.
+
 Policies cover `projects`, `document_links`, `document_content`,
 `project_assignments` (migration 013) and the four registers `risks`,
 `issues`, `change_requests`, `deliverables` (migration 019).

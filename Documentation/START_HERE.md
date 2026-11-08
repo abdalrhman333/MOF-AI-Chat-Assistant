@@ -6,10 +6,10 @@ what order, and how to verify the real state of the system before changing
 anything.
 
 **Last verified:** 2026-11-08 — the whole stack re-verified live after the
-registers landed: 14 containers, 20 migrations applied (0 pending, 0
+registers landed: 14 containers, 21 migrations applied (0 pending, 0
 drifted), 9 projects, 678 vectors in 9 collections, the four registers
-seeded, `/health` answering, **762 Python tests + 79 JavaScript passing**.
-Earlier state, still accurate — infra, full SPM schema (20 migrations,
+seeded, `/health` answering, **773 Python tests + 79 JavaScript passing**.
+Earlier state, still accurate — infra, full SPM schema (21 migrations,
 row-level security enabled), complete mock corpus, and **the entire
 ingestion pipeline built and run over all 58 documents**: discovery → OCR →
 chunk → embed → index, ending in **678 vectors across 9 per-project Qdrant
@@ -26,7 +26,7 @@ Run the whole thing, and check it:
 
 ```bash
 cd infra && docker compose up -d                    # everything, the app included → http://localhost:8000
-.venv/Scripts/python -m pytest tests/ -q            # expect 762 passed
+.venv/Scripts/python -m pytest tests/ -q            # expect 773 passed
 ```
 
 **On a machine that holds only a clone of this repository**, run
@@ -178,7 +178,7 @@ find "/d/MOF_DataSample" -maxdepth 1 -type d
 ```
 
 ```bash
-python infra/postgres-spm/apply_migrations.py --status   # read-only; expect 20 applied, 0 pending, 0 drifted
+python infra/postgres-spm/apply_migrations.py --status   # read-only; expect 21 applied, 0 pending, 0 drifted
 ```
 
 Stages 0 and 1 have run: every `document_links` row carries a real SHA-256

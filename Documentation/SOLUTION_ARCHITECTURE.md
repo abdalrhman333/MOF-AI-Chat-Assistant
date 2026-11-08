@@ -324,7 +324,7 @@ persistent data — lives under `D:\MOF_Installations`, never C:. See
 
 **A consequence worth stating: the deployment is reproducible from the
 repository, and the corpus is deliberately not part of it.** The Compose
-file, the `Dockerfile` and all 20 migrations are tracked, so a clone
+file, the `Dockerfile` and all 21 migrations are tracked, so a clone
 rebuilds the stack and reseeds every table — which is what makes moving to
 another machine a copy of four things rather than a rebuild
 (`MIGRATION.md`). The documents stay outside git, and not only for size:

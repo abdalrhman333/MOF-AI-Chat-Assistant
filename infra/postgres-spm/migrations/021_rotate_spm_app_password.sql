@@ -1,0 +1,33 @@
+-- Rotate the spm_app password, and stop keeping it in a tracked file.
+--
+-- WHY THIS EXISTS
+--   Migration 013 created the role with its password written literally
+--   into the file:
+--       CREATE ROLE spm_app LOGIN PASSWORD '<the real password>';
+--   That file is tracked in git, so the live credential of the role the
+--   chat application authenticates with was in the repository, and in
+--   every clone, from the commit that added it. It was found by auditing
+--   the tree before the first push to a remote.
+--
+--   The exposure was narrow: spm_app is the least-privileged role here
+--   (SELECT only, row-level security scoped to one project per
+--   transaction), and Postgres is published on localhost only. It was
+--   still a live credential in source control.
+--
+-- WHAT THIS DOES
+--   Sets a new password, supplied from infra/.env rather than written
+--   here. `${POSTGRES_SPM_APP_PASSWORD}` is substituted by
+--   apply_migrations.py as a correctly quoted SQL literal immediately
+--   before the file reaches psql; the file on disk — the thing git stores
+--   and the thing the checksum is taken from — only ever holds the
+--   placeholder.
+--
+--   013 is deliberately left as it was. Editing an applied migration
+--   registers as drift, and the value in it is dead once this runs. On a
+--   fresh database the two still compose correctly: 013 creates the role
+--   with a throwaway password, 021 immediately replaces it.
+--
+-- ⚠️ After applying this, recreate anything holding a pooled connection
+--   as spm_app:  docker compose up -d chat-api
+
+ALTER ROLE spm_app PASSWORD ${POSTGRES_SPM_APP_PASSWORD};
