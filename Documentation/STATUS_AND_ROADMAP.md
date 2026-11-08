@@ -253,17 +253,14 @@
   ✅ The 43 GB backup at `D:\MOF_Installations\docker-data-backup-2026-09-13\`
   **is already gone** — checked 2026-11-08, the folder does not exist. That
   part of this item is closed.
-- **Push the repository to a private remote.** `git remote -v` returns
+- ✅ **DONE 2026-11-08 — the repository is pushed.** `github.com/abdalrhman333/MOF-AI-Chat-Assistant`, private, branch `main`, 113 commits, verified clean of `.env`, fonts and corpus (§28). Kept here only so the reasoning is not lost: `git remote -v` previously returned
   nothing: the whole build is one directory on one disk with no clone and no
   backup. `MIGRATION.md` §3.1. ⚠️ Private, not public, and **not** with the
   document corpus — `TEST-PROJECT` holds 13 real client and ministry
-  documents (§7), and a commit of those cannot be taken back.
-  The private repository now exists — `abdalrhman333/MOF-AI-Chat-Assistant`,
-  empty — and the pre-push audit is done (§27): the one live credential it
-  found has been rotated, and `.env`, the corpus and the fonts were never
-  committed. **The push itself has not been made.** `MIGRATION.md` §3 has
-  the commands; note the branch here is `master` and the remote expects
-  `main`.
+  documents (§7), and a commit of those cannot be taken back. The pre-push
+  audit (§27) found one live credential, which was rotated first.
+  **From here on, push after each piece of work** — the backup is only as
+  current as the last push.
 
 ---
 
@@ -802,6 +799,55 @@ What is real, and belongs to the chat backend: Arabic scores ~0.40 against
 English's ~0.60, and the correct chunk often ranks 2nd–3rd rather than 1st.
 That is **ranking**, not retrieval — the answer is in the results every
 time.
+
+---
+
+## 28. The repository is pushed, and has a landing page (2026-11-08)
+
+**Tests: 779 Python** (773 + 6), plus 79 JavaScript. **Mutations: 8 of 9
+caught; the ninth was not a defect** — see below.
+
+All 113 commits are on `github.com/abdalrhman333/MOF-AI-Chat-Assistant`
+(private), branch renamed `master` → `main` before pushing so the remote
+does not end up with two. Verified after the fact rather than assumed:
+local and remote at the same hash, 136 files, and **zero** matches for
+`.env`, `*.ttf` or the corpus. The repository is no longer one directory on
+one disk.
+
+`README.md` is new — the landing page, which `START_HERE.md` was never
+meant to be: it is read by people who have not cloned anything and cannot
+check a word of it.
+
+### 28a. What the README is tested for, and what it is not
+
+Prose is deliberately **not** pinned. A test asserting the wording would
+fail on every honest edit and teach the next person to delete it. Two
+things do go wrong silently and are worth pinning: a link rots when a
+document is renamed, and a value gets pasted in that should not leave the
+machine.
+
+### 28b. Two of my own tests were too weak to catch anything
+
+Found by mutation testing, which is the point of doing it:
+
+**`len(targets) >= 5`** was meant to mean "the documentation table still
+has its links". Removing any single row still left five, so it caught
+nothing. Replaced with a named list of the six documents a reader cannot
+navigate this project without — removing any one of them now fails.
+
+**`"real" in TEXT and "13" in TEXT`** was meant to mean "the page still
+warns that part of the corpus is real". Both words appear all over the
+page, so rewriting the warning to say the documents are fictional passed.
+Replaced with a match on the actual claim, against whitespace-normalised
+text because the sentence wraps.
+
+### 28c. The one survivor was not a defect
+
+"Drop the START_HERE link" survived, because the README links it twice —
+once in the opening line and once in the table — so removing one leaves
+the page still linking it. Confirmed by re-running the mutation with
+**both** removed, which is caught. Recorded here because a survivor is
+worth explaining rather than explaining away.
 
 ---
 

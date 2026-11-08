@@ -253,7 +253,7 @@ place under the new machine's `DATA_ROOT`.
    ```
 10. **Verify against §3 of `START_HERE.md`**, not against this file: 14
     containers, 21 migrations applied, 9 projects, 9 Qdrant collections /
-    678 points, 773 tests, and a real sign-in at http://localhost:8000.
+    678 points, 779 tests, and a real sign-in at http://localhost:8000.
 
 ---
 

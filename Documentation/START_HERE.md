@@ -8,7 +8,7 @@ anything.
 **Last verified:** 2026-11-08 — the whole stack re-verified live after the
 registers landed: 14 containers, 21 migrations applied (0 pending, 0
 drifted), 9 projects, 678 vectors in 9 collections, the four registers
-seeded, `/health` answering, **773 Python tests + 79 JavaScript passing**.
+seeded, `/health` answering, **779 Python tests + 79 JavaScript passing**.
 Earlier state, still accurate — infra, full SPM schema (21 migrations,
 row-level security enabled), complete mock corpus, and **the entire
 ingestion pipeline built and run over all 58 documents**: discovery → OCR →
@@ -26,7 +26,7 @@ Run the whole thing, and check it:
 
 ```bash
 cd infra && docker compose up -d                    # everything, the app included → http://localhost:8000
-.venv/Scripts/python -m pytest tests/ -q            # expect 773 passed
+.venv/Scripts/python -m pytest tests/ -q            # expect 779 passed
 ```
 
 **On a machine that holds only a clone of this repository**, run
