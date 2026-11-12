@@ -340,7 +340,7 @@ Without pasting anything:
 
 ```bash
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -c "from qdrant_client import QdrantClient; from pipeline.config import get_settings; s=get_settings(); q=QdrantClient(url=s.qdrant.url, api_key=s.qdrant.api_key); [print(f'{c.name:<26} {q.count(c.name).count:>4}') for c in q.get_collections().collections]"
-# 9 collections, 678 points total
+# 10 collections, 749 points total
 ```
 
 **The real test has now been run.** A project manager's question does

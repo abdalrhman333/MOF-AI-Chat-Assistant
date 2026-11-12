@@ -6,10 +6,10 @@ what order, and how to verify the real state of the system before changing
 anything.
 
 **Last verified:** 2026-11-08 — the whole stack re-verified live after the
-registers landed: 14 containers, 21 migrations applied (0 pending, 0
-drifted), 9 projects, 678 vectors in 9 collections, the four registers
-seeded, `/health` answering, **995 Python tests + 101 JavaScript passing**.
-Earlier state, still accurate — infra, full SPM schema (21 migrations,
+registers landed: 14 containers, 22 migrations applied (0 pending, 0
+drifted), 9 projects, 749 vectors in 10 collections, the four registers
+seeded, `/health` answering, **1,023 Python tests + 101 JavaScript passing**.
+Earlier state, still accurate — infra, full SPM schema (22 migrations,
 row-level security enabled), complete mock corpus, and **the entire
 ingestion pipeline built and run over all 58 documents**: discovery → OCR →
 chunk → embed → index, ending in **678 vectors across 9 per-project Qdrant
@@ -36,7 +36,7 @@ Run the whole thing, and check it:
 
 ```bash
 cd infra && docker compose up -d                    # everything, the app included → http://localhost:8000
-.venv/Scripts/python -m pytest tests/ -q            # expect 995 passed
+.venv/Scripts/python -m pytest tests/ -q            # expect 1023 passed
 ```
 
 **On a machine that holds only a clone of this repository**, run
@@ -181,14 +181,14 @@ verify them too, don't assume from this doc:
 
 ```bash
 MSYS_NO_PATHCONV=1 docker exec -i mof-postgres-spm psql -U spm_admin -d spm_data -c "SELECT code, status FROM projects ORDER BY code;"
-# expect 9 rows: PRJ-01..PRJ-08 + TEST-PROJECT
+# expect 10 rows: PRJ-01..PRJ-09 + TEST-PROJECT
 
 find "/d/MOF_DataSample" -maxdepth 1 -type d
-# expect 9 folders, same codes as above
+# expect 10 folders, same codes as above
 ```
 
 ```bash
-python infra/postgres-spm/apply_migrations.py --status   # read-only; expect 21 applied, 0 pending, 0 drifted
+python infra/postgres-spm/apply_migrations.py --status   # read-only; expect 22 applied, 0 pending, 0 drifted
 ```
 
 Stages 0 and 1 have run: every `document_links` row carries a real SHA-256
@@ -198,13 +198,13 @@ extracted to markdown.
 ```bash
 MSYS_NO_PATHCONV=1 docker exec -i mof-postgres-spm psql -U spm_admin -d spm_data -c \
   "SELECT count(*) total, count(file_hash) hashed FROM document_links;"
-# expect 58 | 58
+# expect 59 | 59
 MSYS_NO_PATHCONV=1 docker exec -i mof-postgres-spm psql -U spm_admin -d spm_data -c \
   "SELECT ocr_model, count(*) FROM document_content GROUP BY 1;"
-# expect prebuilt-layout | 57  and  native:python-docx | 1
+# expect prebuilt-layout | 58  and  native:python-docx | 1
 
 # Every stage is free to re-run on an unchanged corpus — that is the point:
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.scanner --dry-run   # unchanged 58, rows written 0
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.scanner --dry-run   # unchanged 59, rows written 0
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.ocr --dry-run       # candidates : 0
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.indexer --dry-run   # candidates : 0
 ```
@@ -308,7 +308,7 @@ terminal, with nothing typed:
 
 ```bash
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -c "from qdrant_client import QdrantClient; from pipeline.config import get_settings; s=get_settings(); q=QdrantClient(url=s.qdrant.url, api_key=s.qdrant.api_key); [print(f'{c.name:<26} {q.count(c.name).count:>4}') for c in q.get_collections().collections]"
-# expect 9 collections, 678 points
+# expect 10 collections, 749 points
 ```
 
 **Python environment** — use the project venv, never system Python:

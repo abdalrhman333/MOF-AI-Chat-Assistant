@@ -629,7 +629,7 @@ real `file_path`**, plus **64 risks, 21 issues, 12 change requests and
 (Stage 0 has run, so the seeded placeholders are gone), and **58
 `document_content` rows — the full corpus is OCR'd** (Stage 1). All 58 are
 now `indexing_status='indexed'` with a `chunk_count` and `indexed_at`:
-Stages 2+3 have run, and **678 vectors live in 9 per-project Qdrant
+Stages 2+3 have run, and **749 vectors live in 10 per-project Qdrant
 collections**. Query it
 via `docker exec -it mof-postgres-spm psql -U spm_admin -d spm_data`, or
 visually via DBeaver (§3) — see `STATUS_AND_ROADMAP.md` §7 for exactly

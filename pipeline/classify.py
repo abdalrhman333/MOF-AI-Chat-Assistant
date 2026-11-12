@@ -183,7 +183,7 @@ def run(settings: Settings | None = None, *, dry_run: bool = False,
         if dry_run or not pending:
             return
         if llm is None:
-            from Application.backend.answer import build_llm
+            from pipeline.llm_client import build_llm
             llm = build_llm(settings)
         for link_id, project, filename, markdown in pending:
             label = f"{project}/{filename}"

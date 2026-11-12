@@ -452,12 +452,12 @@ These cost real time to learn. All are recorded in full in
 
 ```bash
 docker compose ps                                            # 14 containers
-python infra/postgres-spm/apply_migrations.py --status        # 21 applied, 0 drifted
-PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 995 passed
+python infra/postgres-spm/apply_migrations.py --status        # 22 applied, 0 drifted
+PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pytest tests/ -q    # 1023 passed
 PYTHONIOENCODING=utf-8 .venv/Scripts/python -m pipeline.status     # exit 0, HEALTHY
 ```
 
-Expect: 58 documents, 678 chunks, 9 Qdrant collections, 0 failures, and the
+Expect: 59 documents, 749 chunks, 10 Qdrant collections, 0 failures, and the
 schedule reading *daily at 13:00 Asia/Amman*.
 
 The corpus is real and the assistant can be asked real questions today —

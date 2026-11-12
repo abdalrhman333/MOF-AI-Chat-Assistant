@@ -98,7 +98,7 @@ not supposed to stay running.
 | Service | URL | Purpose | Credentials |
 |---|---|---|---|
 | Postgres (SPM) | `localhost:5432` | SPM project entity data (demo: filled directly) | `POSTGRES_SPM_USER` / `POSTGRES_SPM_PASSWORD` in `.env` |
-| Qdrant | http://localhost:6333/dashboard | Vector DB, one collection per project — **9 collections, 678 points** | API key: `QDRANT_API_KEY` in `.env`. ⚠️ The dashboard page loads *without* a key while its API returns 401, so it looks broken rather than locked (`Qdrant v???`, empty collections). Click **API Key**, paste, **Apply** |
+| Qdrant | http://localhost:6333/dashboard | Vector DB, one collection per project — **10 collections, 749 points** | API key: `QDRANT_API_KEY` in `.env`. ⚠️ The dashboard page loads *without* a key while its API returns 401, so it looks broken rather than locked (`Qdrant v???`, empty collections). Click **API Key**, paste, **Apply** |
 | Redis | `localhost:6379` | **Celery broker + result backend** for the ingestion worker, and the store behind the cross-process stage locks | `REDIS_PASSWORD` in `.env` |
 | Pipeline worker | — (no HTTP) | **The ingestion pipeline as a background job.** Corpus mounted read-only at `/data` | `docker compose exec pipeline-worker python -m pipeline.tasks ingest --wait` |
 | Pipeline beat | — (no HTTP) | Fires the scheduled full ingest — **daily at `INGEST_SCHEDULE_HOUR`:`_MINUTE` in `INGEST_SCHEDULE_TIMEZONE`** (13:00 Asia/Amman). The timezone matters: containers run on UTC | `docker logs mof-pipeline-beat` |
@@ -126,7 +126,7 @@ python infra/postgres-spm/apply_migrations.py --status   # read-only preview
 python infra/postgres-spm/apply_migrations.py            # apply anything pending
 ```
 
-Expect `21 applied, 0 pending, 0 drifted`. Full detail, including the
+Expect `22 applied, 0 pending, 0 drifted`. Full detail, including the
 line-ending gotcha that made raw-byte checksums unreliable on Windows, is
 in `../Documentation/INFRASTRUCTURE.md` §7b.
 

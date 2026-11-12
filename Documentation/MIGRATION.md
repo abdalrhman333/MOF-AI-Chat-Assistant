@@ -4,7 +4,7 @@
 machine it was built on.
 
 This is not a rebuild. The repository already carries the Compose file, the
-`Dockerfile`, all 21 migrations and every seed, so most of the system
+`Dockerfile`, all 22 migrations and every seed, so most of the system
 reconstructs itself from a clone. Four things it deliberately does not carry
 — and one of those is a decision rather than a copy.
 
@@ -60,7 +60,7 @@ powershell -ExecutionPolicy Bypass -File scripts\bootstrap.ps1
 ```
 
 `scripts/bootstrap.ps1` checks the prerequisites and the four uncarried
-assets, brings up all 14 containers, applies the 21 migrations and runs the
+assets, brings up all 14 containers, applies the 22 migrations and runs the
 test suite. It **does not run the ingestion pipeline**, because Stage 1 is
 billed per page; it prints that command for you to run deliberately (§5).
 
@@ -194,7 +194,7 @@ What migrations do not rebuild is the **extracted text** and the
 **Recommended: carry Postgres, rebuild Qdrant.** The 82 MB directory holds
 the `document_content` OCR cache, which is the only expensive thing here.
 Qdrant's 4.0 GB is almost entirely preallocated write-ahead-log files
-(`open-1`, `open-2` per collection), not the 678 vectors, which are tiny —
+(`open-1`, `open-2` per collection), not the 749 vectors, which are tiny —
 so copying it moves mostly empty space to save a fraction of a cent.
 
 ⚠️ **Stop the stack before copying any data directory.** `docker compose
@@ -252,8 +252,8 @@ place under the new machine's `DATA_ROOT`.
    docker compose exec pipeline-worker python -m pipeline.tasks ingest --wait
    ```
 10. **Verify against §3 of `START_HERE.md`**, not against this file: 14
-    containers, 21 migrations applied, 9 projects, 9 Qdrant collections /
-    678 points, 995 tests, and a real sign-in at http://localhost:8000.
+    containers, 22 migrations applied, 9 projects, 9 Qdrant collections /
+    749 points, 1,023 tests, and a real sign-in at http://localhost:8000.
 
 ---
 

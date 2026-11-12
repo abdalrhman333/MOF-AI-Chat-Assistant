@@ -59,6 +59,7 @@ from Application.backend.spm import ProjectRecord
 from Application.backend.spm import fetch as fetch_project
 from Application.backend.streaming import AnswerTextStream
 from pipeline.chunker import count_tokens
+from pipeline.llm_client import build_llm as _build_llm
 from pipeline.config import Settings, get_settings
 
 import observability
@@ -601,16 +602,13 @@ def _clean_follow_ups(raw, intent: str) -> tuple[str, ...]:
     return tuple(out)
 
 
-def build_llm(settings: Settings):
-    """Constructed from settings only, so a provider swap stays contained."""
-    from openai import AzureOpenAI
-    return AzureOpenAI(
-        azure_endpoint=settings.models.llm_endpoint,
-        api_key=settings.models.llm_key,
-        api_version=settings.models.llm_api_version,
-        timeout=settings.answering.request_timeout_seconds,
-        max_retries=1,
-    )
+# Defined in `pipeline/llm_client.py` and re-exported here. It lived here
+# first, and `pipeline/classify.py` imported it across the package
+# boundary -- which the pipeline image cannot satisfy, because it contains
+# only `pipeline/`. Moving it put the dependency the right way round;
+# keeping the name here means nothing that referred to
+# `Application.backend.answer.build_llm` had to change.
+build_llm = _build_llm
 
 
 def _stream_completion(llm, request: dict, on_text):

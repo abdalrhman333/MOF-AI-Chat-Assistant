@@ -802,6 +802,115 @@ time.
 
 ---
 
+## 31. A project arrives after the corpus was built (2026-11-12)
+
+**Tests: 1,023 Python** (995 + 28), plus 101 JavaScript. **Mutations: 6 of
+6 caught.** 22 migrations, 10 collections, 749 vectors.
+
+A tenth project, **PRJ-09**, was added with one document and assigned to
+`noura.alharbi`. Every other project was seeded before the corpus was
+built, so "a project appears *afterwards*, its documents are ingested, and
+exactly one user can see it" had never been run end to end. It works —
+and running it found a stage that had been broken in the container for
+weeks.
+
+### 31a. What was added
+
+Migration `022`: the project row and one assignment. The document is
+`PRJ-09_RequestForProposal_20260401.pdf`, 55 pages, which indexed to **71
+chunks** in a collection Qdrant created on first write.
+
+⚠️ **The source document is not an Enjaz document.** It is a Dubai Land
+Department RFP — a different country, ministry and domain, marked
+CONFIDENTIAL by its author. It is here because the pipeline was built to be
+"dynamic, not static to any specific case" (§7) and this is the strongest
+available test of that: 55 pages of dense procurement English, nothing
+like the seeded corpus. **It is not demo material for the Enjaz client**,
+and a Saudi MOF assistant answering about Dubai real estate procurement
+would undercut a demonstration rather than strengthen it.
+
+**`budget_sar` and `planned_end_date` are deliberately NULL.** The RFP asks
+vendors to propose cost and runs "4 calendar months from contract
+signing", which is not signed — so there is no approved budget and no
+planned end date. Inventing either would put a figure in the system of
+record that no document supports. The assistant answers "غير مسجل" for
+both, which is correct and was verified live.
+
+### 31b. Isolation holds for a project created after the fact
+
+The question worth asking of any new project. Checked in both directions:
+
+* `noura.alharbi` now lists four projects and gets cited answers from
+  PRJ-09 in English and Arabic.
+* `abdullah.alshehri`, `fahad.alqahtani` and `reem.aldosari` each still
+  list only their own project, and `open_session(..., "PRJ-09")` raises
+  `AccessDenied` for all three.
+
+**No policy change was needed**, which is the part that matters: the
+row-level security in `013`/`019` is granted **per table**, not per
+project, so a new project row is covered the moment it exists. That was
+the expectation; it is now a measurement.
+
+### 31c. A stage that had been broken in the container, found by using it
+
+The ingest reported:
+
+```
+"stage": "classify", "ok": false,
+"error": "ModuleNotFoundError: No module named 'Application'"
+```
+
+`pipeline/classify.py` imported `build_llm` from
+`Application.backend.answer`. The pipeline image contains **only**
+`pipeline/` — by design, because the two run as separate processes under
+different database privileges — so the import could never succeed there.
+
+It hid for three reasons at once, and each is worth naming:
+
+1. **The import was lazy**, inside `if llm is None:`. Every unit test
+   injects a client, so the branch never ran in tests.
+2. **The daily pipeline had nothing to classify.** With zero candidates
+   the stage returns before reaching the import, so months of healthy runs
+   proved nothing about it.
+3. **It works outside the container**, where the whole repository is
+   importable. Running `pipeline.classify` by hand would have passed.
+
+So the first new document since the image was built was the first thing
+that could have surfaced it.
+
+**The fix is the dependency, not the Dockerfile.** `build_llm` moved to
+`pipeline/llm_client.py`, where the knowledge-base builder can reach it
+without importing the user-facing server; `Application.backend.answer`
+re-exports the name, so nothing that referred to it there changed. Copying
+`Application/` into the pipeline image would also have "worked", and would
+have put the AC09 gate into the ingestion image to obtain one Azure client
+constructor.
+
+`tests/test_package_boundaries.py` now parses every `pipeline/` module with
+`ast` and fails on any import of `Application` or `evaluation` — **including
+one inside a function body**, which is exactly where this one hid. It also
+pins that the pipeline image copies only `pipeline/`, so the rule cannot
+quietly stop applying.
+
+After rebuilding: `classified: 1`, and the document is typed **Technical
+Proposal** rather than `Unclassified`.
+
+### 31d. The assistant reported a contradiction in its source faithfully
+
+Asked the project's duration, it answered "3 أشهر تقويمية (120 يومًا)" and
+cited page 33. The cover page says **4 calendar months**; page 33 says
+**3 calendar months (120 days)** — and 120 days is not 3 months either.
+The document contradicts itself.
+
+The model did not hallucinate: it quoted the passage it was given. But
+rule 4 — report both sides when sources disagree — only fires when both
+sides are *retrieved*, and the cover page was not among the top passages.
+**A contradiction the retrieval does not surface cannot be reported**, which
+is a real limit of the design and is recorded here rather than discovered
+later by someone who assumed otherwise.
+
+---
+
 ## 30. The benchmark covers the registers, and answers suggest what to ask next (2026-11-08)
 
 **Tests: 995 Python** (968 + 27), plus **101 JavaScript**. **Mutations: 19
